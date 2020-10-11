@@ -4,12 +4,8 @@ export phase, half_phase, partially_hermitize
 
 phase(z::Complex) = exp(im * angle(z))
 
-function phase(z::T) where {T<:Real}
-    if z >= 0.0
-        return T(1.0)
-    else
-        return T(-1.0)
-    end
+function phase(z::U) where {U<:Real}
+    return z >= 0.0 ? U(1.0) : U(-1.0)
 end
 
 half_phase(z::Real) = phase(z)

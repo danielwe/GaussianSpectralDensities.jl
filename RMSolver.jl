@@ -1,6 +1,6 @@
 module RMSolver
 
-export RMWorkspace, rm_solvers
+export rm_solvers
 
 using LinearAlgebra
 using NLsolve
@@ -10,294 +10,304 @@ using Printf
 using RMUtils
 using RMProblems
 
-struct RMWorkspace{
-        T<:AbstractArray{Complex{Float64},2},
-        U<:AbstractArray{Complex{Float64},2},
-    }
-    Mz::T
-    Qz::T
-    QzQzg::U
-    Pz::U
-    other::U
+I_ = Int
+R_ = Float64
+C_ = Complex{R_}
+
+abstract type AbstractRMSolution end
+
+struct RMSolution{U<:Union{Nothing,Vector{<:AbstractRMSolution}}} <: AbstractRMSolution
+    γsq::R_
+    δsq::R_
+    q::C_
+    k::R_
+    trace::U
 end
 
-function RMWorkspace(problem::RMProblem)
-    M = problem.M
-    MMa = Array(M * M')
-    return RMWorkspace(similar(M), similar(M), similar(MMa), similar(MMa), similar(MMa))
+RMTrace = Vector{RMSolution{Nothing}}
+
+function RMSolution(::Nothing)
+    RMSolution(NaN, NaN, complex(NaN, NaN), NaN, nothing)
 end
 
-function Mz!(z, workspace, problem)
-    copyto!(workspace.Mz, z * problem.LiRi)
-    workspace.Mz .-= problem.LiMRi
+function RMSolution(trace::RMTrace)
+    RMSolution(NaN, NaN, complex(NaN, NaN), NaN, trace)
 end
 
-function Qzs!(q, gsq, workspace; delta)
-    copyto!(workspace.Qz, workspace.Mz)
-    for k in 1:size(workspace.Qz)[1]
-        workspace.Qz[k, k] -= q
-    end
-        
-    mul!(workspace.QzQzg, workspace.Qz, workspace.Qz')
-    if delta
-        gsq -= eigmin(Hermitian(workspace.QzQzg))
-    end
-    for k in 1:size(workspace.QzQzg)[1]
-        workspace.QzQzg[k, k] += gsq
-    end
-    return gsq
+struct RMWorkspace{U<:AbstractMatrix{C_},P<:RMProblem{U}}
+    N::I_
+    problem::P
+    G0i::U
+    Q::U
+    P::Hermitian{C_,Matrix{C_}}
+    QhP::Matrix{C_}
+    QhPQ_I::Hermitian{C_,Matrix{C_}}
+    γsq::Ref{R_}
+    q::Ref{C_}
 end
 
-function fj!(F, J, qv, τ, gsq, workspace; delta)
-    N = size(workspace.Mz)[1]
-    τNinv = τ / N
-    q = complex(qv...)
+function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
+    Q = similar(problem.LiMRi)
+    N = size(Q, 1)
+    QhP = Matrix{C_}(undef, N, N)
+    return RMWorkspace{U,RMProblem{U,V}}(
+        N,
+        problem,
+        Q,
+        similar(Q),
+        Hermitian(similar(QhP)),
+        QhP,
+        Hermitian(similar(QhP)),
+        NaN,
+        complex(NaN, NaN),
+    )
+end
 
-    Qzs!(q, gsq, workspace, delta=delta)
-    QzQzg_f = cholesky!(Hermitian(workspace.QzQzg), check=false)
-
-    copyto!(workspace.Pz, workspace.Qz')
-    rdiv!(workspace.Pz, QzQzg_f)
-
-    if !(F == nothing)
-        Fc = τNinv * tr(workspace.Pz) - q
-        F[1] = real(Fc)
-        F[2] = imag(Fc)
+function G0i!(ws, z)
+    for j in 1:ws.N, i in 1:ws.N
+        ws.G0i[i, j] = ws.Q[i, j] = muladd(
+            z, ws.problem.LiRi[i, j], -ws.problem.LiMRi[i, j],
+        )
     end
+    return nothing
+end
 
-    if !(J == nothing)
-        # other is (Pz Qz - I)_QzQzg
-        mul!(workspace.other, workspace.Pz, workspace.Qz)
-        for k in 1:N
-            workspace.other[k, k] -= 1.0
+function Q_P!(ws, T, rsq, q, ::Val{δ}) where δ
+    for i in 1:ws.N
+        ws.Q[i, i] = muladd(-q, T[i], ws.G0i[i, i])
+    end
+    mul!(ws.P.data, ws.Q, ws.Q')
+    if δ
+        ws.γsq[] = rsq -= eigmin(ws.P)
+    end
+    for i in diagind(ws.P)
+        ws.P[i] += rsq
+    end
+    LAPACK.potrf!('U', ws.P.data)
+    LAPACK.potri!('U', ws.P.data)
+    return nothing
+end
+
+function QhPQ!(ws)
+    mul!(ws.QhP, ws.Q', ws.P)
+    mul!(ws.QhPQ_I.data, ws.QhP, ws.Q)
+    for i in diagind(ws.QhPQ_I)
+        ws.QhPQ_I[i] -= 1.0
+    end
+    return nothing
+end
+
+function qresidue!(Fv, Jv, ws, T, rsq, qv, ::Val{δ}) where δ
+    qc = complex(qv[1], qv[2])
+    Q_P!(ws, T, rsq, qc, Val(δ))
+    if Jv === nothing
+        qresidue!(Fv, ws, T, qc)
+    else
+        qresidue!(Fv, Jv, ws, T, qc)
+    end
+    return nothing
+end
+
+function qresidue!(Fv, ws, T, qc)
+    Fc = complex(0.0)
+    for j in 1:ws.N  # optimized Tr(TQhP)
+        t = T[j]
+        for i in 1:ws.N
+            Fc += t * conj(ws.Q[i, j]) * ws.P[i, j]
         end
-        rdiv!(workspace.other, QzQzg_f)
-        B = τNinv * tr(workspace.other)
-        
-        # other is Pz^2
-        mul!(workspace.other, workspace.Pz, workspace.Pz)
-        A = τNinv * tr(workspace.other) - 1.0
-
-        dFc_dqr = A + B
-        dFc_dqi_i = A - B
-        J[1, 1] = real(dFc_dqr)
-        J[1, 2] = -imag(dFc_dqi_i)
-        J[2, 1] = imag(dFc_dqr)
-        J[2, 2] = real(dFc_dqi_i)
     end
+    Fc /= ws.N
+    Fc -= qc
+    Fv[1] = real(Fc)
+    Fv[2] = imag(Fc)
+    return nothing
 end
 
-function q!(q0, τ, gsq, workspace; delta)
+function qresidue!(Fv, Jv, ws, T, qc)
+    QhPQ!(ws)
+    Fc = complex(0.0)
+    dFc_dq = complex(0.0)
+    dFc_dqconj = 0.0
+    for j in 1:ws.N  # optimized(?) Tr((TQhP)^2) and Tr(T(QhPQ - I)TP)
+        t = T[j]
+        Fc += t * ws.QhP[j, j]
+        for i in 1:ws.N
+            tt = t * T[i]
+            # [j, i] does not respect memory order. Would copying help?
+            dFc_dq += tt * ws.QhP[i, j] * ws.QhP[j, i]
+            dFc_dqconj += tt * real(ws.QhPQ_I[i, j] * ws.P[j, i])
+        end
+    end
+    Fc /= ws.N
+    Fc -= qc
+    dFc_dq /= ws.N
+    dFc_dq -= 1.0
+    dFc_dqconj /= ws.N
+    Fv[1] = real(Fc)
+    Fv[2] = imag(Fc)
+    Jv[1, 1] = real(dFc_dq) + dFc_dqconj
+    Jv[1, 2] = -imag(dFc_dq)
+    Jv[2, 1] = imag(dFc_dq)
+    Jv[2, 2] = real(dFc_dq) - dFc_dqconj
+    return nothing
+end
+
+function q!(ws, T, rsq, q0; δ)
     qv = nlsolve(
-        # only_fj!((F, J, qv) -> fj!(F, J, qv, τ, gsq, workspace, delta=delta)),
-        (F, qv) -> fj!(F, nothing, qv, τ, gsq, workspace, delta=delta),
-        [real(q0), imag(q0)],
+        #only_fj!((Fv, Jv, qv) -> qresidue!(Fv, Jv, ws, T, rsq, qv, Val(δ))),
+        #[real(q0); imag(q0)],
+        #method=:newton,
+        (Fv, qv) -> qresidue!(Fv, nothing, ws, T, rsq, qv, Val(δ)),
+        [real(q0); imag(q0)],
         method=:anderson,
-        m=1,
+        m=2,
+        #show_trace=true,
+        #extended_trace=true,
     ).zero
-    return complex(qv...)
+    return ws.q[] = complex(qv[1], qv[2])
 end
 
-function K!(q, gsq, workspace; delta)
-    Qzs!(q, gsq, workspace, delta=delta)
-    return K!(workspace)
+function k(ws)
+    return tr(ws.P) / ws.N
 end
 
-function K!(workspace)
-    copyto!(workspace.other, I)
-    QzQzg_f = cholesky!(Hermitian(workspace.QzQzg), check=false)
-    ldiv!(QzQzg_f, workspace.other)
-    return real(tr(workspace.other)) / size(workspace.other)[1]
-    # ηz = eigvals!(Hermitian(workspace.QzQzg))
-    # return sum(inv.(ηz)) / length(ηz)
+function δsq(ws)
+    return 1.0 / eigmax(ws.P)
 end
 
-function q_gsq!(
-        z,
-        τ,
-        dgsq_sequence,
-        workspace,
-        problem;
-        root_algorithm=FalsePosition(:10),
-        verbose=false,
-    )
-    q_sol, gsq_sol = complex(NaN, NaN), NaN
-    # gsq_sequence = similar(dgsq_sequence)
-
-    Mz!(z, workspace, problem)
-    dgsq = dgsq_sequence[1]
-    
-    qold = τ * conj(tr(workspace.Mz)) / (dgsq * size(workspace.Mz)[1])
-    qold = q!(qold, τ, dgsq, workspace, delta=true)
-    # gsq_sequence[1] = gsq = Qzs!(qold, dgsq, workspace, delta=true)
-
-    if verbose 
-        q_sequence = similar(dgsq_sequence, Complex{eltype(dgsq_sequence)})
-        gsq_sequence = similar(dgsq_sequence)
-        K_sequence = similar(dgsq_sequence)
-        q_sequence[1] = qold
-        gsq_sequence[1] = gsq = Qzs!(qold, dgsq, workspace, delta=true)
-        K_sequence[1] = K = K!(workspace)
-        last = 1
-        println("--------------------------------------------")
-        println("   g^2               q                K")
-        println("--------------------------------------------")
-        @printf("%9.2e  %9.2e + i%9.2e  %9.2e\n", gsq, real(qold), imag(qold), K)
+function qstart(ws, T, γsq)
+    q = complex(0.0)
+    for i in 1:ws.N  # optimized Tr(TG0i')
+        q += T[i] * conj(ws.G0i[i, i])
     end
+    return q / (γsq * ws.N)
+end
 
-    for (k, dgsq) in enumerate(dgsq_sequence[2:end])
-        q = q!(qold, τ, dgsq, workspace, delta=true)
-        gsq = Qzs!(q, dgsq, workspace, delta=true)
-        # gsq_sequence[k + 1] = gsq
-        K = K!(workspace)
-
-        if verbose
-            q_sequence[k + 1] = q
-            gsq_sequence[k + 1] = gsq
-            K_sequence[k + 1] = K
-            last = k + 1
-            @printf("%9.2e  %9.2e + i%9.2e  %9.2e\n", gsq, real(q), imag(q), K)
+function find_gsq!(ws, T, δsqs, z; root_algorithm=FalsePosition(:10), debug=false)
+    if !isfinite(z)
+        return RMSolution(RMTrace())
+    end
+    if debug
+        trace = fill(RMSolution(nothing), length(δsqs))
+        print_header()
+    else
+        trace = RMTrace()
+    end
+    solution = RMSolution(trace)
+    G0i!(ws, z)
+    q0 = qstart(ws, T, δsqs[1])
+    for (i, δsq_) in enumerate(δsqs)
+        q_ = q!(ws, T, δsq_, q0, δ=true)
+        k_ = k(ws)
+        if debug
+            trace[i] = RMSolution(ws.γsq[], δsq_, q_, k_, nothing)
+            print_row(trace[i])
         end
-
-        if gsq <= -1.0
-            break
-        end
-
-        if K >= 1.0
-            if verbose
-                println("--------------------------------------------")
+        if k_ >= 1.0
+            if debug
+                print_hline()
             end
-
-            # gsq_sol = find_zero(
-            #     gsq_ -> K!(
-            #         q!(qold, τ, gsq_, workspace, delta=false),
-            #         gsq_,
-            #         workspace,
-            #         delta=false,
-            #     ) - 1.0,
-            #     (gsq_sequence[k], gsq),
-            #     root_algorithm,
-            #     verbose=verbose,
-            # )
-            # q_sol = q!(qold, τ, gsq_sol, workspace, delta=false)
-
-            dgsq_sol = find_zero(
-                dgsq_ -> K!(
-                    q!(qold, τ, dgsq_, workspace, delta=true),
-                    dgsq_,
-                    workspace,
-                    delta=true,
-                ) - 1.0,
-                (dgsq_sequence[k], dgsq),
-                root_algorithm,
-                verbose=verbose,
-            )
-            q_sol = q!(qold, τ, dgsq_sol, workspace, delta=true)
-            gsq_sol = Qzs!(q_sol, dgsq_sol, workspace, delta=true)
-            
+            dsq_ = find_zero(
+                (δsqs[i - 1], δsq_), root_algorithm, verbose=debug,
+            ) do dsq__
+                q!(ws, T, dsq__, q0, δ=true)
+                return k(ws) - 1.0
+            end
+            solution = RMSolution(ws.γsq[], dsq_, ws.q[], 1.0, trace)
             break
         end
-        qold = q
+        q0 = q_
     end
-
-    if verbose
-        println("--------------------------------------------")
-        return (
-            q_sol,
-            gsq_sol,
-            gsq_sequence[1:last],
-            q_sequence[1:last],
-            K_sequence[1:last],
-        )
-    else
-        return q_sol, gsq_sol
+    if debug
+        print_hline()
     end
+    return solution
 end
 
-function q_K!(
-        z,
-        τ_sequence,
-        workspace,
-        problem;
-        root_algorithm=FalsePosition(:10),
-        verbose=false,
-    )
-    Mz!(z, workspace, problem)
-
-    τ = τ_sequence[1]
-    q = q!(0.0, τ, 0.0, workspace, delta=false)
-
-    if verbose 
-        T = real(eltype(τ_sequence))
-        q_sequence = similar(τ_sequence, Complex{T})
-        K_sequence = similar(τ_sequence, T)
-        q_sequence[1] = q
-        K_sequence[1] = K = K!(q, 0.0, workspace, delta=false)
-        println("---------------------------------------------------------")
-        println("          τ                       q                K")
-        println("---------------------------------------------------------")
-        @printf(
-            "%9.2e + i%9.2e  %9.2e + i%9.2e  %9.2e\n",
-            real(τ),
-            imag(τ),
-            real(q),
-            imag(q),
-            K,
-        )
+function find_k!(ws, T, γsqs, z; debug=false)
+    if !isfinite(z)
+        return RMSolution(RMTrace())
     end
-
-    for (k, τ) in enumerate(τ_sequence[2:end])
-        q = q!(q, τ, 0.0, workspace, delta=false)
-        K = K!(q, 0.0, workspace, delta=false)
-
-        if verbose
-            q_sequence[k + 1] = q
-            K_sequence[k + 1] = K
-            @printf(
-                "%9.2e + i%9.2e  %9.2e + i%9.2e  %9.2e\n",
-                real(τ),
-                imag(τ),
-                real(q),
-                imag(q),
-                K,
-            )
+    if debug
+        trace = RMTrace(undef, length(γsqs))
+        print_header()
+    else
+        trace = RMTrace()
+    end
+    G0i!(ws, z)
+    q0 = qstart(ws, T, γsqs[1])
+    for (i, γsq_) in enumerate(γsqs)
+        q_ = q!(ws, T, γsq_, q0, δ=false)
+        k_ = k(ws)
+        if debug
+            δsq_ = δsq(ws)
+            trace[i] = RMSolution(γsq_, δsq_, q_, k_, nothing)
+            print_row(trace[i])
         end
+        q0 = q_
     end
-
-    if verbose
-        println("--------------------------------------------")
-        return q, K, τ_sequence, q_sequence, K_sequence
-    else
-        return q, K
+    q_ = q!(ws, T, 0.0, q0, δ=false)
+    k_ = k(ws)
+    δsq_ = δsq(ws)
+    if debug
+        print_hline()
     end
+    return RMSolution(0.0, δsq_, q_, k_, trace)
 end
 
-function rm_solvers(; problem, τ, dτ, b, n)
-    workspace = RMWorkspace(problem)
-    
-    dgsq_sequence = b.^(n:-1:-n)
-    τabs = abs(τ)
-    τ_sequence = phase(τ) .* (0.0:dτ:τabs)
-    if abs(τ_sequence[end]) < τabs
-        τ_sequence = [τ_sequence; τ]
-    end
+function print_hline()
+    println("-------------------------------------------------------")
+end
 
-    function gsq_solver(z; verbose=false)
-        @printf("  z = %6.3f + i%6.3f\n", real(z), imag(z))
-        out = q_gsq!(z, τ, dgsq_sequence, workspace, problem, verbose=verbose)
-        @printf("  q = %9.2e + i%9.2e\n", real(out[1]), imag(out[1]))
-        @printf("g^2 = %9.2e\n", out[2])
-        return out
-    end
+function print_header()
+    print_hline()
+    println("   γ^2        δ^2               q                k")
+    print_hline()
+end
 
-    function K_solver(z; verbose=false)
-        @printf("  z = %6.3f + i%6.3f\n", real(z), imag(z))
-        out = q_K!(z, τ_sequence, workspace, problem, verbose=verbose)
-        @printf("  q = %9.2e + i%9.2e\n", real(out[1]), imag(out[1]))
-        @printf("  K = %9.2e\n", out[2])
-        return out
+function print_row(s::RMSolution)
+    @printf(
+        "%9.2e  %9.2e  %9.2e + i%9.2e  %9.2e\n",
+        s.γsq,
+        s.δsq,
+        real(s.q),
+        imag(s.q),
+        s.k,
+    )
+end
+
+print_z(z)      = @printf("  z = %6.3f + i%6.3f\n", real(z), imag(z))
+print_gsq(gsq_) = @printf("g^2 = %9.2e\n", gsq_)
+print_dsq(dsq_) = @printf("d^2 = %9.2e\n", dsq_)
+print_q(q_)     = @printf("  q = %9.2e + i%9.2e\n", real(q_), imag(q_))
+print_k(k_)     = @printf("  k = %9.2e\n", k_)
+
+function rm_solvers(; problem, rbase, start, stop)
+    ws = RMWorkspace(problem)
+    rsqs = rbase .^ (start:-1:stop)
+    function solve_gsq(T, z; debug=false)
+        if debug
+            print_z(z)
+        end
+        solution = find_gsq!(ws, T, rsqs, z, debug=debug)
+        if debug
+            print_q(solution.q)
+            print_gsq(solution.γsq)
+        end
+        return solution
     end
-    return gsq_solver, K_solver
+    function solve_k(T, z; debug=false)
+        if debug
+            print_z(z)
+        end
+        solution = find_k!(ws, T, rsqs, z, debug=debug)
+        if debug
+            print_q(solution.q)
+            print_k(solution.k)
+        end
+        return solution
+    end
+    return solve_gsq, solve_k
 end
 
 end
