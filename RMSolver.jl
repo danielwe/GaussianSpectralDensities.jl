@@ -4,7 +4,6 @@ export rm_solvers
 
 using LinearAlgebra
 using NLsolve
-using Roots
 using Printf
 
 using RMUtils
@@ -43,7 +42,6 @@ struct RMWorkspace{U<:AbstractMatrix{C_},P<:RMProblem{U}}
     QhP::Matrix{C_}
     QhPQ_I::Hermitian{C_,Matrix{C_}}
     γsq::Ref{R_}
-    q::Ref{C_}
 end
 
 function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
@@ -58,8 +56,7 @@ function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
         Hermitian(similar(QhP)),
         QhP,
         Hermitian(similar(QhP)),
-        NaN,
-        complex(NaN, NaN),
+        Ref(NaN),
     )
 end
 
@@ -164,11 +161,29 @@ function q!(ws, T, rsq, q0; δ)
         #show_trace=true,
         #extended_trace=true,
     ).zero
-    return ws.q[] = complex(qv[1], qv[2])
+    return complex(qv[1], qv[2])
 end
 
 function k(ws)
     return tr(ws.P) / ws.N
+end
+
+function rsq_qresidue!(F, ws, T, rsq_q, ::Val{δ}) where δ
+    qresidue!((@view F[2:3]), nothing, ws, T, rsq_q[1], (@view rsq_q[2:3]), Val(δ))
+    F[1] = k(ws) - 1.0
+    return nothing
+end
+
+function rsq_q!(ws, T, rsq, q0; δ)
+    rsq_q = nlsolve(
+        (F, rsq_q) -> rsq_qresidue!(F, ws, T, rsq_q, Val(δ)),
+        [rsq; real(q0); imag(q0)],
+        method=:anderson,
+        m=3,
+        #show_trace=true,
+        #extended_trace=true,
+    ).zero
+    return rsq_q[1], complex(rsq_q[2], rsq_q[3])
 end
 
 function δsq(ws)
@@ -183,7 +198,7 @@ function qstart(ws, T, γsq)
     return q / (γsq * ws.N)
 end
 
-function find_gsq!(ws, T, δsqs, z; root_algorithm=FalsePosition(:10), debug=false)
+function find_gsq!(ws, T, δsqs, z; debug=false)
     if !isfinite(z)
         return RMSolution(RMTrace())
     end
@@ -195,28 +210,27 @@ function find_gsq!(ws, T, δsqs, z; root_algorithm=FalsePosition(:10), debug=fal
     end
     solution = RMSolution(trace)
     G0i!(ws, z)
-    q0 = qstart(ws, T, δsqs[1])
+    qprev = qstart(ws, T, δsqs[1])
+    γsqprev = δsqs[1]
     for (i, δsq_) in enumerate(δsqs)
-        q_ = q!(ws, T, δsq_, q0, δ=true)
+        q_ = q!(ws, T, δsq_, qprev, δ=true)
+        γsq_ = ws.γsq[]
         k_ = k(ws)
         if debug
-            trace[i] = RMSolution(ws.γsq[], δsq_, q_, k_, nothing)
+            trace[i] = RMSolution(γsq_, δsq_, q_, k_, nothing)
             print_row(trace[i])
         end
-        if k_ >= 1.0
-            if debug
-                print_hline()
-            end
-            dsq_ = find_zero(
-                (δsqs[i - 1], δsq_), root_algorithm, verbose=debug,
-            ) do dsq__
-                q!(ws, T, dsq__, q0, δ=true)
-                return k(ws) - 1.0
-            end
-            solution = RMSolution(ws.γsq[], dsq_, ws.q[], 1.0, trace)
+        if γsq_ < -5δsq_
             break
         end
-        q0 = q_
+        if k_ >= 1.0
+            γsq_, q_ = rsq_q!(ws, T, γsqprev, qprev, δ=false)
+            δsq_ = δsq(ws)
+            solution = RMSolution(γsq_, δsq_, q_, 1.0, trace)
+            break
+        end
+        qprev = q_
+        γsqprev = γsq_
     end
     if debug
         print_hline()
@@ -235,18 +249,18 @@ function find_k!(ws, T, γsqs, z; debug=false)
         trace = RMTrace()
     end
     G0i!(ws, z)
-    q0 = qstart(ws, T, γsqs[1])
+    qprev = qstart(ws, T, γsqs[1])
     for (i, γsq_) in enumerate(γsqs)
-        q_ = q!(ws, T, γsq_, q0, δ=false)
+        q_ = q!(ws, T, γsq_, qprev, δ=false)
         k_ = k(ws)
         if debug
             δsq_ = δsq(ws)
             trace[i] = RMSolution(γsq_, δsq_, q_, k_, nothing)
             print_row(trace[i])
         end
-        q0 = q_
+        qprev = q_
     end
-    q_ = q!(ws, T, 0.0, q0, δ=false)
+    q_ = q!(ws, T, 0.0, qprev, δ=false)
     k_ = k(ws)
     δsq_ = δsq(ws)
     if debug
