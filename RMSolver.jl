@@ -4,14 +4,15 @@ export rm_solvers
 
 using LinearAlgebra
 using NLsolve
+using KrylovKit
 using Printf
 
 using RMUtils
 using RMProblems
 
-I_ = Int
-R_ = Float64
-C_ = Complex{R_}
+const I_ = Int
+const R_ = Float64
+const C_ = Complex{R_}
 
 abstract type AbstractRMSolution end
 
@@ -23,7 +24,7 @@ struct RMSolution{U<:Union{Nothing,Vector{<:AbstractRMSolution}}} <: AbstractRMS
     trace::U
 end
 
-RMTrace = Vector{RMSolution{Nothing}}
+const RMTrace = Vector{RMSolution{Nothing}}
 
 function RMSolution(::Nothing)
     RMSolution(NaN, NaN, complex(NaN, NaN), NaN, nothing)
@@ -60,6 +61,22 @@ function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
     )
 end
 
+function safe_eigmin(P::Hermitian)
+    result = eigsolve(P, 1, :SR, ishermitian=true)
+    if result[3].converged > 0
+        return result[1][1]
+    end
+    return eigmin(P)
+end
+
+function safe_eigmax(P::Hermitian)
+    result = eigsolve(P, 1, :LR, ishermitian=true)
+    if result[3].converged > 0
+        return result[1][1]
+    end
+    return eigmax(P)
+end
+
 function G0i!(ws, z)
     for j in 1:ws.N, i in 1:ws.N
         ws.G0i[i, j] = ws.Q[i, j] = muladd(
@@ -75,7 +92,7 @@ function Q_P!(ws, T, rsq, q, ::Val{δ}) where δ
     end
     mul!(ws.P.data, ws.Q, ws.Q')
     if δ
-        ws.γsq[] = rsq -= eigmin(ws.P)
+        ws.γsq[] = rsq -= safe_eigmin(ws.P)
     end
     for i in diagind(ws.P)
         ws.P[i] += rsq
@@ -187,7 +204,7 @@ function rsq_q!(ws, T, rsq, q0; δ)
 end
 
 function δsq(ws)
-    return 1.0 / eigmax(ws.P)
+    return 1.0 / safe_eigmax(ws.P)
 end
 
 function qstart(ws, T, γsq)
@@ -220,7 +237,7 @@ function find_gsq!(ws, T, δsqs, z; debug=false)
             trace[i] = RMSolution(γsq_, δsq_, q_, k_, nothing)
             print_row(trace[i])
         end
-        if γsq_ < -5δsq_
+        if γsq_ * δsq_ < -0.5
             break
         end
         if k_ >= 1.0
