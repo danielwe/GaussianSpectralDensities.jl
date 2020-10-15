@@ -2,64 +2,64 @@ module RMSolver
 
 export rm_solvers
 
+using Printf
 using LinearAlgebra
 using NLsolve
 using KrylovKit
-using Printf
 
 using RMUtils
 using RMProblems
 
-const I_ = Int
-const R_ = Float64
-const C_ = Complex{R_}
-
 abstract type AbstractRMSolution end
 
 struct RMSolution{U<:Union{Nothing,Vector{<:AbstractRMSolution}}} <: AbstractRMSolution
-    γsq::R_
-    δsq::R_
-    q::C_
-    k::R_
+    γsq::Float64
+    δsq::Float64
+    q::ComplexF64
+    k::Float64
     trace::U
 end
 
 const RMTrace = Vector{RMSolution{Nothing}}
 
 function RMSolution(::Nothing)
-    RMSolution(NaN, NaN, complex(NaN, NaN), NaN, nothing)
+    return RMSolution(NaN, NaN, complex(NaN, NaN), NaN, nothing)
 end
 
 function RMSolution(trace::RMTrace)
-    RMSolution(NaN, NaN, complex(NaN, NaN), NaN, trace)
+    return RMSolution(NaN, NaN, complex(NaN, NaN), NaN, trace)
 end
 
-struct RMWorkspace{U<:AbstractMatrix{C_},P<:RMProblem{U}}
-    N::I_
+struct RMWorkspace{U<:AbstractMatrix{ComplexF64},P<:RMProblem{U}}
+    N::Int
+    Ni::Float64
     problem::P
     G0i::U
     Q::U
-    P::Hermitian{C_,Matrix{C_}}
-    QhP::Matrix{C_}
-    QhPQ_I::Hermitian{C_,Matrix{C_}}
-    γsq::Ref{R_}
+    P::Hermitian{ComplexF64,Matrix{ComplexF64}}
+    QhP::Matrix{ComplexF64}
+    QhPQ_I::Hermitian{ComplexF64,Matrix{ComplexF64}}
+    γsq::Ref{Float64}
+
+    function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
+        Q = similar(problem.LiMRi)
+        N = size(Q, 1)
+        QhP = Matrix{ComplexF64}(undef, N, N)
+        return new{U,RMProblem{U,V}}(
+            N,
+            1.0 / N,
+            problem,
+            Q,
+            similar(Q),
+            Hermitian(similar(QhP)),
+            QhP,
+            Hermitian(similar(QhP)),
+            Ref(NaN),
+        )
+    end
 end
 
-function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
-    Q = similar(problem.LiMRi)
-    N = size(Q, 1)
-    QhP = Matrix{C_}(undef, N, N)
-    return RMWorkspace{U,RMProblem{U,V}}(
-        N,
-        problem,
-        Q,
-        similar(Q),
-        Hermitian(similar(QhP)),
-        QhP,
-        Hermitian(similar(QhP)),
-        Ref(NaN),
-    )
-end
+const T_MISMATCH = DimensionMismatch("The length of `T` does not match the problem size")
 
 function safe_eigmin(P::Hermitian)
     result = eigsolve(P, 1, :SR, ishermitian=true)
@@ -79,84 +79,79 @@ end
 
 function G0i!(ws, z)
     for j in 1:ws.N, i in 1:ws.N
-        ws.G0i[i, j] = ws.Q[i, j] = muladd(
-            z, ws.problem.LiRi[i, j], -ws.problem.LiMRi[i, j],
+        @inbounds ws.G0i[i, j] = ws.Q[i, j] = muladd(
+            z, ws.problem.LiRi[i, j], -ws.problem.LiMRi[i, j]
         )
     end
     return nothing
 end
 
-function Q_P!(ws, T, rsq, q, ::Val{δ}) where δ
+function _Q_P!(ws, T, rsq, q, ::Val{δ}) where δ
     for i in 1:ws.N
-        ws.Q[i, i] = muladd(-q, T[i], ws.G0i[i, i])
+        @inbounds ws.Q[i, i] = muladd(-q, T[i], ws.G0i[i, i])
     end
     mul!(ws.P.data, ws.Q, ws.Q')
     if δ
-        ws.γsq[] = rsq -= safe_eigmin(ws.P)
+        rsq -= safe_eigmin(ws.P)
     end
+    ws.γsq[] = rsq
     for i in diagind(ws.P)
-        ws.P[i] += rsq
+        @inbounds ws.P[i] += rsq
     end
     LAPACK.potrf!('U', ws.P.data)
     LAPACK.potri!('U', ws.P.data)
     return nothing
 end
 
-function QhPQ!(ws)
+function _QhPQ!(ws)
     mul!(ws.QhP, ws.Q', ws.P)
     mul!(ws.QhPQ_I.data, ws.QhP, ws.Q)
     for i in diagind(ws.QhPQ_I)
-        ws.QhPQ_I[i] -= 1.0
+        @inbounds ws.QhPQ_I[i] -= 1.0
     end
     return nothing
 end
 
-function qresidue!(Fv, Jv, ws, T, rsq, qv, ::Val{δ}) where δ
+function _qresidue!(Fv, Jv, ws, T, rsq, qv, ::Val{δ}) where δ
     qc = complex(qv[1], qv[2])
-    Q_P!(ws, T, rsq, qc, Val(δ))
+    _Q_P!(ws, T, rsq, qc, Val(δ))
     if Jv === nothing
-        qresidue!(Fv, ws, T, qc)
+        _qresidue!(Fv, ws, T, qc)
     else
-        qresidue!(Fv, Jv, ws, T, qc)
+        _qresidue!(Fv, Jv, ws, T, qc)
     end
     return nothing
 end
 
-function qresidue!(Fv, ws, T, qc)
+function _qresidue!(Fv, ws, T, qc)
     Fc = complex(0.0)
-    for j in 1:ws.N  # optimized Tr(TQhP)
-        t = T[j]
-        for i in 1:ws.N
-            Fc += t * conj(ws.Q[i, j]) * ws.P[i, j]
-        end
+    for j in 1:ws.N, i in 1:ws.N  # optimized Tr(TQhP)
+        @inbounds Fc += T[j] * conj(ws.Q[i, j]) * ws.P[i, j]
     end
-    Fc /= ws.N
-    Fc -= qc
+    Fc = muladd(Fc, ws.Ni, -qc)
     Fv[1] = real(Fc)
     Fv[2] = imag(Fc)
     return nothing
 end
 
-function qresidue!(Fv, Jv, ws, T, qc)
-    QhPQ!(ws)
+function _qresidue!(Fv, Jv, ws, T, qc)
+    _QhPQ!(ws)
     Fc = complex(0.0)
     dFc_dq = complex(0.0)
     dFc_dqconj = 0.0
     for j in 1:ws.N  # optimized(?) Tr((TQhP)^2) and Tr(T(QhPQ - I)TP)
-        t = T[j]
-        Fc += t * ws.QhP[j, j]
+        @inbounds Fc += T[j] * ws.QhP[j, j]
         for i in 1:ws.N
-            tt = t * T[i]
             # [j, i] does not respect memory order. Would copying help?
-            dFc_dq += tt * ws.QhP[i, j] * ws.QhP[j, i]
-            dFc_dqconj += tt * real(ws.QhPQ_I[i, j] * ws.P[j, i])
+            @inbounds begin
+                dFc_dq += T[i] * T[j] * ws.QhP[i, j] * ws.QhP[j, i]
+                dFc_dqconj += T[i] * T[j] * real(ws.QhPQ_I[i, j] * ws.P[j, i])
+            end
         end
     end
-    Fc /= ws.N
-    Fc -= qc
-    dFc_dq /= ws.N
-    dFc_dq -= 1.0
-    dFc_dqconj /= ws.N
+    Fc = muladd(Fc, ws.Ni, -qc)
+    dFc_dq = muladd(dFc_dq, ws.Ni, -1.0)
+    dFc_dqconj *= ws.Ni
     Fv[1] = real(Fc)
     Fv[2] = imag(Fc)
     Jv[1, 1] = real(dFc_dq) + dFc_dqconj
@@ -167,11 +162,12 @@ function qresidue!(Fv, Jv, ws, T, qc)
 end
 
 function q!(ws, T, rsq, q0; δ)
+    if length(T) != ws.N throw(T_MISMATCH) end
     qv = nlsolve(
-        #only_fj!((Fv, Jv, qv) -> qresidue!(Fv, Jv, ws, T, rsq, qv, Val(δ))),
+        #only_fj!((Fv, Jv, qv) -> _qresidue!(Fv, Jv, ws, T, rsq, qv, Val(δ))),
         #[real(q0); imag(q0)],
         #method=:newton,
-        (Fv, qv) -> qresidue!(Fv, nothing, ws, T, rsq, qv, Val(δ)),
+        (Fv, qv) -> _qresidue!(Fv, nothing, ws, T, rsq, qv, Val(δ)),
         [real(q0); imag(q0)],
         method=:anderson,
         m=2,
@@ -182,18 +178,19 @@ function q!(ws, T, rsq, q0; δ)
 end
 
 function k(ws)
-    return tr(ws.P) / ws.N
+    return tr(ws.P) * ws.Ni
 end
 
-function rsq_qresidue!(F, ws, T, rsq_q, ::Val{δ}) where δ
-    qresidue!((@view F[2:3]), nothing, ws, T, rsq_q[1], (@view rsq_q[2:3]), Val(δ))
+function _rsq_qresidue!(F, ws, T, rsq_q, ::Val{δ}) where δ
+    _qresidue!((@view F[2:3]), nothing, ws, T, rsq_q[1], (@view rsq_q[2:3]), Val(δ))
     F[1] = k(ws) - 1.0
     return nothing
 end
 
 function rsq_q!(ws, T, rsq, q0; δ)
+    if length(T) != ws.N throw(T_MISMATCH) end
     rsq_q = nlsolve(
-        (F, rsq_q) -> rsq_qresidue!(F, ws, T, rsq_q, Val(δ)),
+        (F, rsq_q) -> _rsq_qresidue!(F, ws, T, rsq_q, Val(δ)),
         [rsq; real(q0); imag(q0)],
         method=:anderson,
         m=3,
@@ -208,11 +205,12 @@ function δsq(ws)
 end
 
 function qstart(ws, T, γsq)
+    if length(T) != ws.N throw(T_MISMATCH) end
     q = complex(0.0)
     for i in 1:ws.N  # optimized Tr(TG0i')
-        q += T[i] * conj(ws.G0i[i, i])
+        @inbounds q += T[i] * conj(ws.G0i[i, i])
     end
-    return q / (γsq * ws.N)
+    return (q * ws.Ni) / γsq
 end
 
 function find_gsq!(ws, T, δsqs, z; debug=false)
@@ -315,7 +313,7 @@ print_k(k_)     = @printf("  k = %9.2e\n", k_)
 
 function rm_solvers(; problem, rbase, start, stop)
     ws = RMWorkspace(problem)
-    rsqs = rbase .^ (start:-1:stop)
+    rsqs = rbase.^(start:-1:stop)
     function solve_gsq(T, z; debug=false)
         if debug
             print_z(z)
