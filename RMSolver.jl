@@ -30,7 +30,7 @@ function RMSolution(trace::RMTrace)
     return RMSolution(NaN, NaN, complex(NaN, NaN), NaN, trace)
 end
 
-struct RMWorkspace{U<:AbstractMatrix{ComplexF64},P<:RMProblem{U}}
+struct RMWorkspace{U,P<:RMProblem{U}}
     N::Int
     Ni::Float64
     problem::P
@@ -39,12 +39,15 @@ struct RMWorkspace{U<:AbstractMatrix{ComplexF64},P<:RMProblem{U}}
     P::Hermitian{ComplexF64,Matrix{ComplexF64}}
     QhP::Matrix{ComplexF64}
     QhPQ_I::Hermitian{ComplexF64,Matrix{ComplexF64}}
+    v::Vector{ComplexF64}
     γsq::Ref{Float64}
 
     function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
         Q = similar(problem.LiMRi)
         N = size(Q, 1)
         QhP = Matrix{ComplexF64}(undef, N, N)
+        v = randn(ComplexF64, N)
+        v ./= norm(v)
         return new{U,RMProblem{U,V}}(
             N,
             1.0 / N,
@@ -54,49 +57,77 @@ struct RMWorkspace{U<:AbstractMatrix{ComplexF64},P<:RMProblem{U}}
             Hermitian(similar(QhP)),
             QhP,
             Hermitian(similar(QhP)),
+            v,
             Ref(NaN),
         )
     end
 end
 
-const T_MISMATCH = DimensionMismatch("The length of `T` does not match the problem size")
+const COMPLEX_EIGENVALUE_WARN_MSG = (
+    "complex eigenvalue appeared in hermitian eigensolver; "
+    * "falling back to general solver and returning real part"
+)
 
-function safe_eigmin(P::Hermitian)
-    result = eigsolve(P, 1, :SR, ishermitian=true)
-    if result[3].converged > 0
-        return result[1][1]
+function safe_eigmin!(P::Hermitian, v)
+    local vals, vecs, info
+    try
+        vals, vecs, info = eigsolve(P, v, 1, :SR)
+    catch err
+        if isa(err, ErrorException) && contains(err.msg, "hermitian")
+            @warn COMPLEX_EIGENVALUE_WARN_MSG
+            _, vecs, vals, info = schursolve(P, v, 1, :SR, Arnoldi())
+            vals = real(vals)
+        else
+            rethrow()
+        end
+    end
+    if info.converged > 0
+        v .= vecs[1]
+        return vals[1]
     end
     return eigmin(P)
 end
 
-function safe_eigmax(P::Hermitian)
-    result = eigsolve(P, 1, :LR, ishermitian=true)
-    if result[3].converged > 0
-        return result[1][1]
+function safe_eigmax!(P::Hermitian, v)
+    local vals, vecs, info
+    try
+        vals, vecs, info = eigsolve(P, v, 1, :LR)
+    catch err
+        if isa(err, ErrorException) && contains(err.msg, "hermitian")
+            @warn COMPLEX_EIGENVALUE_WARN_MSG
+            _, vecs, vals, info = schursolve(P, v, 1, :LR, Arnoldi())
+            vals = real(vals)
+        else
+            rethrow()
+        end
+    end
+    if info.converged > 0
+        v .= vecs[1]
+        return vals[1]
     end
     return eigmax(P)
 end
 
 function G0i!(ws, z)
-    for j in 1:ws.N, i in 1:ws.N
-        @inbounds ws.G0i[i, j] = ws.Q[i, j] = muladd(
+    @inbounds for j in 1:ws.N, i in 1:ws.N
+        ws.G0i[i, j] = ws.Q[i, j] = muladd(
             z, ws.problem.LiRi[i, j], -ws.problem.LiMRi[i, j]
         )
     end
     return nothing
 end
 
-function _Q_P!(ws, T, rsq, q, ::Val{δ}) where δ
-    for i in 1:ws.N
-        @inbounds ws.Q[i, i] = muladd(-q, T[i], ws.G0i[i, i])
+function _Q_P!(ws, rsq, q, ::Val{δ}) where δ
+    @inbounds for i in 1:ws.N
+        ws.Q[i, i] = muladd(-q, ws.problem.T[i], ws.G0i[i, i])
     end
     mul!(ws.P.data, ws.Q, ws.Q')
     if δ
-        rsq -= safe_eigmin(ws.P)
+        rsq -= safe_eigmin!(ws.P, ws.v)
     end
     ws.γsq[] = rsq
-    for i in diagind(ws.P)
-        @inbounds ws.P[i] += rsq
+    @inbounds for i in diagind(ws.P)
+        ws.P[i] += rsq
     end
     LAPACK.potrf!('U', ws.P.data)
     LAPACK.potri!('U', ws.P.data)
@@ -106,27 +137,27 @@ end
 function _QhPQ!(ws)
     mul!(ws.QhP, ws.Q', ws.P)
     mul!(ws.QhPQ_I.data, ws.QhP, ws.Q)
-    for i in diagind(ws.QhPQ_I)
-        @inbounds ws.QhPQ_I[i] -= 1.0
+    @inbounds for i in diagind(ws.QhPQ_I)
+        ws.QhPQ_I[i] -= 1.0
     end
     return nothing
 end
 
-function _qresidue!(Fv, Jv, ws, T, rsq, qv, ::Val{δ}) where δ
+function _qresidue!(Fv, Jv, ws, rsq, qv, ::Val{δ}) where δ
     qc = complex(qv[1], qv[2])
-    _Q_P!(ws, T, rsq, qc, Val(δ))
+    _Q_P!(ws, rsq, qc, Val(δ))
     if Jv === nothing
-        _qresidue!(Fv, ws, T, qc)
+        _qresidue!(Fv, ws, qc)
     else
-        _qresidue!(Fv, Jv, ws, T, qc)
+        _qresidue!(Fv, Jv, ws, qc)
     end
     return nothing
 end
 
-function _qresidue!(Fv, ws, T, qc)
+function _qresidue!(Fv, ws, qc)
     Fc = complex(0.0)
-    for j in 1:ws.N, i in 1:ws.N  # optimized Tr(TQhP)
-        @inbounds Fc += T[j] * conj(ws.Q[i, j]) * ws.P[i, j]
+    @inbounds for j in 1:ws.N, i in 1:ws.N  # optimized Tr(TQhP)
+        Fc += ws.problem.T[j] * conj(ws.Q[i, j]) * ws.P[i, j]
     end
     Fc = muladd(Fc, ws.Ni, -qc)
     Fv[1] = real(Fc)
@@ -134,19 +165,18 @@ function _qresidue!(Fv, ws, T, qc)
     return nothing
 end
 
-function _qresidue!(Fv, Jv, ws, T, qc)
+function _qresidue!(Fv, Jv, ws, qc)
     _QhPQ!(ws)
     Fc = complex(0.0)
     dFc_dq = complex(0.0)
     dFc_dqconj = 0.0
-    for j in 1:ws.N  # optimized(?) Tr((TQhP)^2) and Tr(T(QhPQ - I)TP)
-        @inbounds Fc += T[j] * ws.QhP[j, j]
+    @inbounds for j in 1:ws.N  # optimized(?) Tr((TQhP)^2) and Tr(T(QhPQ - I)TP)
+        Fc += ws.problem.T[j] * ws.QhP[j, j]
         for i in 1:ws.N
             # [j, i] does not respect memory order. Would copying help?
-            @inbounds begin
-                dFc_dq += T[i] * T[j] * ws.QhP[i, j] * ws.QhP[j, i]
-                dFc_dqconj += T[i] * T[j] * real(ws.QhPQ_I[i, j] * ws.P[j, i])
-            end
+            τ = ws.problem.T[i] * ws.problem.T[j]
+            dFc_dq += τ * ws.QhP[i, j] * ws.QhP[j, i]
+            dFc_dqconj += τ * real(ws.QhPQ_I[i, j] * ws.P[j, i])
         end
     end
     Fc = muladd(Fc, ws.Ni, -qc)
@@ -161,16 +191,15 @@ function _qresidue!(Fv, Jv, ws, T, qc)
     return nothing
 end
 
-function q!(ws, T, rsq, q0; δ)
-    if length(T) != ws.N throw(T_MISMATCH) end
+function q!(ws, rsq, q0; δ)
     qv = nlsolve(
-        #only_fj!((Fv, Jv, qv) -> _qresidue!(Fv, Jv, ws, T, rsq, qv, Val(δ))),
-        #[real(q0); imag(q0)],
+        #only_fj!((Fv, Jv, qv) -> _qresidue!(Fv, Jv, ws, rsq, qv, Val(δ))),
+        #[real(q0); imag(q0)];
         #method=:newton,
-        (Fv, qv) -> _qresidue!(Fv, nothing, ws, T, rsq, qv, Val(δ)),
-        [real(q0); imag(q0)],
+        (Fv, qv) -> _qresidue!(Fv, nothing, ws, rsq, qv, Val(δ)),
+        [real(q0); imag(q0)];
         method=:anderson,
-        m=2,
+        m=1,
         #show_trace=true,
         #extended_trace=true,
     ).zero
@@ -181,19 +210,18 @@ function k(ws)
     return tr(ws.P) * ws.Ni
 end
 
-function _rsq_qresidue!(F, ws, T, rsq_q, ::Val{δ}) where δ
-    _qresidue!((@view F[2:3]), nothing, ws, T, rsq_q[1], (@view rsq_q[2:3]), Val(δ))
+function _rsq_qresidue!(F, ws, rsq_q, ::Val{δ}) where δ
+    _qresidue!((@view F[2:3]), nothing, ws, rsq_q[1], (@view rsq_q[2:3]), Val(δ))
     F[1] = k(ws) - 1.0
     return nothing
 end
 
-function rsq_q!(ws, T, rsq, q0; δ)
-    if length(T) != ws.N throw(T_MISMATCH) end
+function rsq_q!(ws, rsq, q0; δ)
     rsq_q = nlsolve(
-        (F, rsq_q) -> _rsq_qresidue!(F, ws, T, rsq_q, Val(δ)),
-        [rsq; real(q0); imag(q0)],
+        (F, rsq_q) -> _rsq_qresidue!(F, ws, rsq_q, Val(δ)),
+        [rsq; real(q0); imag(q0)];
         method=:anderson,
-        m=3,
+        m=1,
         #show_trace=true,
         #extended_trace=true,
     ).zero
@@ -201,22 +229,22 @@ function rsq_q!(ws, T, rsq, q0; δ)
 end
 
 function δsq(ws)
-    return 1.0 / safe_eigmax(ws.P)
+    return 1.0 / safe_eigmax!(ws.P, ws.v)
 end
 
-function qstart(ws, T, γsq)
-    if length(T) != ws.N throw(T_MISMATCH) end
+function qstart(ws, γsq)
     q = complex(0.0)
-    for i in 1:ws.N  # optimized Tr(TG0i')
-        @inbounds q += T[i] * conj(ws.G0i[i, i])
+    @inbounds for i in 1:ws.N  # optimized Tr(TG0i')
+        q += ws.problem.T[i] * conj(ws.G0i[i, i])
     end
     return (q * ws.Ni) / γsq
 end
 
-function find_gsq!(ws, T, δsqs, z; debug=false)
+function find_gsq!(ws, δsqs, z; debug=false)
     if !isfinite(z)
         return RMSolution(RMTrace())
     end
+    local q_, k_, γsq_
     if debug
         trace = fill(RMSolution(nothing), length(δsqs))
         print_header()
@@ -225,13 +253,13 @@ function find_gsq!(ws, T, δsqs, z; debug=false)
     end
     solution = RMSolution(trace)
     G0i!(ws, z)
-    qprev = qstart(ws, T, δsqs[1])
+    qprev = qstart(ws, δsqs[1])
     γsqprev = δsqs[1]
     for (i, δsq_) in enumerate(δsqs)
-        q_ = q!(ws, T, δsq_, qprev, δ=true)
+        q_ = q!(ws, δsq_, qprev, δ=true)
         γsq_ = ws.γsq[]
         k_ = k(ws)
-        if debug
+        @inbounds if debug
             trace[i] = RMSolution(γsq_, δsq_, q_, k_, nothing)
             print_row(trace[i])
         end
@@ -239,7 +267,7 @@ function find_gsq!(ws, T, δsqs, z; debug=false)
             break
         end
         if k_ >= 1.0
-            γsq_, q_ = rsq_q!(ws, T, γsqprev, qprev, δ=false)
+            γsq_, q_ = rsq_q!(ws, γsqprev, qprev, δ=false)
             δsq_ = δsq(ws)
             solution = RMSolution(γsq_, δsq_, q_, 1.0, trace)
             break
@@ -253,10 +281,11 @@ function find_gsq!(ws, T, δsqs, z; debug=false)
     return solution
 end
 
-function find_k!(ws, T, γsqs, z; debug=false)
+function find_k!(ws, γsqs, z; debug=false)
     if !isfinite(z)
         return RMSolution(RMTrace())
     end
+    local q_, k_, δsq_
     if debug
         trace = RMTrace(undef, length(γsqs))
         print_header()
@@ -264,20 +293,33 @@ function find_k!(ws, T, γsqs, z; debug=false)
         trace = RMTrace()
     end
     G0i!(ws, z)
-    qprev = qstart(ws, T, γsqs[1])
+    qprev = qstart(ws, γsqs[1])
     for (i, γsq_) in enumerate(γsqs)
-        q_ = q!(ws, T, γsq_, qprev, δ=false)
+        q_ = q!(ws, γsq_, qprev; δ=false)
         k_ = k(ws)
-        if debug
+        @inbounds if debug
             δsq_ = δsq(ws)
             trace[i] = RMSolution(γsq_, δsq_, q_, k_, nothing)
             print_row(trace[i])
         end
         qprev = q_
     end
-    q_ = q!(ws, T, 0.0, qprev, δ=false)
-    k_ = k(ws)
-    δsq_ = δsq(ws)
+    try
+        q_ = q!(ws, 0.0, qprev; δ=false)
+    catch err
+        if isa(err, SingularException) || isa(err, LAPACKException)
+            q_ = complex(NaN, NaN)
+        else
+            rethrow()
+        end
+    end
+    if isfinite(q_)
+        k_ = k(ws)
+        δsq_ = δsq(ws)
+    else
+        k_ = Inf
+        δsq_ = 0.0
+    end
     if debug
         print_hline()
     end
@@ -305,36 +347,36 @@ function print_row(s::RMSolution)
     )
 end
 
-print_z(z)      = @printf("  z = %6.3f + i%6.3f\n", real(z), imag(z))
-print_gsq(gsq_) = @printf("g^2 = %9.2e\n", gsq_)
-print_dsq(dsq_) = @printf("d^2 = %9.2e\n", dsq_)
-print_q(q_)     = @printf("  q = %9.2e + i%9.2e\n", real(q_), imag(q_))
-print_k(k_)     = @printf("  k = %9.2e\n", k_)
+print_z(z) = @printf("  z = %6.3f + i%6.3f\n", real(z), imag(z))
+print_gsq(gsq) = @printf("g^2 = %9.2e\n", gsq)
+print_dsq(dsq) = @printf("d^2 = %9.2e\n", dsq)
+print_q(q) = @printf("  q = %9.2e + i%9.2e\n", real(q), imag(q))
+print_k(k) = @printf("  k = %9.2e\n", k)
 
 function rm_solvers(; problem, rbase, start, stop)
     ws = RMWorkspace(problem)
     rsqs = rbase.^(start:-1:stop)
-    function solve_gsq(T, z; debug=false)
-        if debug
+    solve_gsq = let ws=ws, δsqs=rsqs
+        function(z; debug=false)
             print_z(z)
+            solution = find_gsq!(ws, δsqs, z; debug=debug)
+            if debug
+                print_row(solution)
+                print_hline()
+            end
+            return solution
         end
-        solution = find_gsq!(ws, T, rsqs, z, debug=debug)
-        if debug
-            print_q(solution.q)
-            print_gsq(solution.γsq)
-        end
-        return solution
     end
-    function solve_k(T, z; debug=false)
-        if debug
+    solve_k = let ws = ws, γsqs = rsqs
+        function(z; debug=false)
             print_z(z)
+            solution = find_k!(ws, γsqs, z; debug=debug)
+            if debug
+                print_row(solution)
+                print_hline()
+            end
+            return solution
         end
-        solution = find_k!(ws, T, rsqs, z, debug=debug)
-        if debug
-            print_q(solution.q)
-            print_k(solution.k)
-        end
-        return solution
     end
     return solve_gsq, solve_k
 end
