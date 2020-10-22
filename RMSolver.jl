@@ -5,7 +5,6 @@ export rm_solvers
 using Printf
 using LinearAlgebra
 using NLsolve
-using KrylovKit
 
 using RMUtils
 using RMProblems
@@ -39,15 +38,12 @@ struct RMWorkspace{U,P<:RMProblem{U}}
     P::Hermitian{ComplexF64,Matrix{ComplexF64}}
     QhP::Matrix{ComplexF64}
     QhPQ_I::Hermitian{ComplexF64,Matrix{ComplexF64}}
-    v::Vector{ComplexF64}
     γsq::Ref{Float64}
 
     function RMWorkspace(problem::RMProblem{U,V}) where {U,V}
         Q = similar(problem.LiMRi)
         N = size(Q, 1)
         QhP = Matrix{ComplexF64}(undef, N, N)
-        v = randn(ComplexF64, N)
-        v ./= norm(v)
         return new{U,RMProblem{U,V}}(
             N,
             1.0 / N,
@@ -57,7 +53,6 @@ struct RMWorkspace{U,P<:RMProblem{U}}
             Hermitian(similar(QhP)),
             QhP,
             Hermitian(similar(QhP)),
-            v,
             Ref(NaN),
         )
     end
@@ -67,46 +62,6 @@ const COMPLEX_EIGENVALUE_WARN_MSG = (
     "complex eigenvalue appeared in hermitian eigensolver; "
     * "falling back to general solver and returning real part"
 )
-
-function safe_eigmin!(P::Hermitian, v)
-    local vals, vecs, info
-    try
-        vals, vecs, info = eigsolve(P, v, 1, :SR)
-    catch err
-        if isa(err, ErrorException) && contains(err.msg, "hermitian")
-            @warn COMPLEX_EIGENVALUE_WARN_MSG
-            _, vecs, vals, info = schursolve(P, v, 1, :SR, Arnoldi())
-            vals = real(vals)
-        else
-            rethrow()
-        end
-    end
-    if info.converged > 0
-        v .= vecs[1]
-        return vals[1]
-    end
-    return eigmin(P)
-end
-
-function safe_eigmax!(P::Hermitian, v)
-    local vals, vecs, info
-    try
-        vals, vecs, info = eigsolve(P, v, 1, :LR)
-    catch err
-        if isa(err, ErrorException) && contains(err.msg, "hermitian")
-            @warn COMPLEX_EIGENVALUE_WARN_MSG
-            _, vecs, vals, info = schursolve(P, v, 1, :LR, Arnoldi())
-            vals = real(vals)
-        else
-            rethrow()
-        end
-    end
-    if info.converged > 0
-        v .= vecs[1]
-        return vals[1]
-    end
-    return eigmax(P)
-end
 
 function G0i!(ws, z)
     @inbounds for j in 1:ws.N, i in 1:ws.N
@@ -123,7 +78,7 @@ function _Q_P!(ws, rsq, q, ::Val{δ}) where δ
     end
     mul!(ws.P.data, ws.Q, ws.Q')
     if δ
-        rsq -= safe_eigmin!(ws.P, ws.v)
+        rsq -= eigmin(ws.P)
     end
     ws.γsq[] = rsq
     @inbounds for i in diagind(ws.P)
@@ -229,7 +184,7 @@ function rsq_q!(ws, rsq, q0; δ)
 end
 
 function δsq(ws)
-    return 1.0 / safe_eigmax!(ws.P, ws.v)
+    return 1.0 / eigmax(ws.P)
 end
 
 function qstart(ws, γsq)
