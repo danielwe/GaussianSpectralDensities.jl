@@ -1,4 +1,4 @@
-struct MatrixEnsemble{
+struct GaussianMatrixEnsemble{
     U<:AbstractMatrix{ComplexF64},
     V<:Union{AbstractMatrix{ComplexF64},UniformScaling{ComplexF64}},
 }
@@ -10,7 +10,7 @@ struct MatrixEnsemble{
     LiRi::V
     LiMRi::U
 
-    function MatrixEnsemble(M::U, L::V, R::V, T) where {U,V}
+    function GaussianMatrixEnsemble(M::U, L::V, R::V, T) where {U,V}
         N = size(M, 1)
         if size(M, 2) != N
             throw(DimensionMismatch("`M` is not square"))
@@ -25,7 +25,7 @@ struct MatrixEnsemble{
     end
 end
 
-function bare_resolvent_inv!(ensemble::MatrixEnsemble, G0_inv, z)
+function bare_resolvent_inv!(ensemble::GaussianMatrixEnsemble, G0_inv, z)
     for j in 1:ensemble.N, i in 1:ensemble.N
         G0_inv[i, j] = muladd(z, ensemble.LiRi[i, j], -ensemble.LiMRi[i, j])
     end

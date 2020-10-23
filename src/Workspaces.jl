@@ -16,7 +16,7 @@ function reset!(status::WorkspaceStatus)
 end
 
 struct Workspace{U,V}
-    ensemble::MatrixEnsemble{U,V}
+    ensemble::GaussianMatrixEnsemble{U,V}
     N_inv::Float64
     G0_inv::U
     Q::U
@@ -26,7 +26,7 @@ struct Workspace{U,V}
     γsq::Ref{Float64}
     status::WorkspaceStatus
 
-    function Workspace(ensemble::MatrixEnsemble{U,V}) where {U,V}
+    function Workspace(ensemble::GaussianMatrixEnsemble{U,V}) where {U,V}
         Q = similar(ensemble.LiMRi)
         QhP = Matrix{ComplexF64}(undef, ensemble.N, ensemble.N)
         return new{U,V}(
@@ -46,7 +46,7 @@ end
 function G0_inv_and_Q_off_diag!(ws::Workspace, z)
     reset!(ws.status)
     @inbounds bare_resolvent_inv!(ws.ensemble, ws.G0_inv, z)
-    @inbounds copy!(ws.Q, ws.G0_inv)
+    copy!(ws.Q, ws.G0_inv)
     ws.status.G0_inv_and_Q_off_diag = true
     return nothing
 end

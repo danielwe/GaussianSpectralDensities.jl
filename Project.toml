@@ -1,4 +1,4 @@
-name = "ComplexSpectralDensities"
+name = "SpectralDensities"
 uuid = "d24dbb70-b498-4c6e-be6a-7c28347cbb8b"
 authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 version = "0.1.0"

@@ -1,8 +1,8 @@
-function solve(ensemble::MatrixEnsemble, z, args...; kwargs)
+function solve(ensemble::GaussianMatrixEnsemble, z, args...; kwargs)
     return create_solver(ensemble)(z, args...; kwargs...)
 end
 
-function create_solver(ensemble::MatrixEnsemble)
+function create_solver(ensemble::GaussianMatrixEnsemble)
     let ws = Workspace(ensemble)
         function solver(z, args...; kwargs...)
             return solve!(ws, z, args...; kwargs...)

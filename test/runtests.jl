@@ -1,6 +1,6 @@
-using ComplexSpectralDensities
+using SpectralDensities
 using Test
 
-@testset "ComplexSpectralDensities.jl" begin
+@testset "SpectralDensities.jl" begin
     # Write your tests here.
 end

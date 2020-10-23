@@ -1,11 +1,11 @@
-module ComplexSpectralDensities
+module SpectralDensities
 
 using LinearAlgebra
 using NLsolve
 using Printf
 
 export SamplingUtils
-export MatrixEnsemble
+export GaussianMatrixEnsemble
 export solve, create_solver, solve!
 export FixK, FixΓ
 
