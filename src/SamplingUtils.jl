@@ -1,4 +1,4 @@
-module RMUtils
+module SamplingUtils
 
 export phase, half_phase, partially_hermitize
 
