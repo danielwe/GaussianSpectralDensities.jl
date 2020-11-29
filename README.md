@@ -1,1 +1,1 @@
-# SpectralDensities
+# GaussianSpectralDensities

@@ -1,6 +1,6 @@
-using SpectralDensities
+using GaussianSpectralDensities
 using Test
 
-@testset "SpectralDensities.jl" begin
+@testset "GaussianSpectralDensities.jl" begin
     # Write your tests here.
 end
