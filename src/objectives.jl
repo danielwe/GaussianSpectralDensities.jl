@@ -46,3 +46,8 @@ end
 adapt(::Type{R}, objective::Fixk{QNormal, R}) where {R<:Real, QNormal} = objective
 adapt(::Type{R}, objective::Fixγ²{QNormal, R}) where {R<:Real, QNormal} = objective
 adapt(::Type{R}, objective::Fixδ²{QNormal, R}) where {R<:Real, QNormal} = objective
+
+score(value, reference) = one(value) / abs(value - reference)
+score(solution, objective::Fixk) = score(log(solution.k), log(objective.value))
+score(solution, objective::Fixγ²) = score(solution.γ², objective.value)
+score(solution, objective::Fixδ²) = score(solution.δ², objective.value)

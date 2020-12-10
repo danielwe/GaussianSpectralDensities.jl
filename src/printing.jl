@@ -57,7 +57,7 @@ end
 
 function print_niters(niters, verbosity)
     if verbosity > 3
-        @printf("Iterations: %3i\n", niters)
+        @printf("%3i iterations\n", niters)
     end
     return nothing
 end
@@ -91,15 +91,17 @@ print_δ²(δ²) = println("δ² =  ", sprint_δ²(δ²))
 print_q(q) = println(" q = ", sprint_q(q))
 print_k(k) = println(" k =  ", sprint_k(k))
 
-function print_local_info(solver, z)
-    println("Exception at  z = ", sprint_z(z))
-    println("Objective:   ", solver.objective)
-    println("Algorithm:   ", solver.algorithm)
+function print_info(io::IO, solver, z)
+    println(io, "Exception at  z = ", sprint_z(z))
+    println(io, "Objective:   ", solver.objective)
+    println(io, "Algorithm:   ", solver.algorithm)
     return nothing
 end
 
-function print_local_info(solver, z, q₀, δ₀²)
-    print_local_info(solver, z)
-    println("Starting from q = ", sprint_q(q₀), ", δ² = ", sprint_δ²(δ₀²))
+function print_info(io::IO, solver, z, q₀, δ₀²)
+    print_info(io, solver, z)
+    println(io, "Starting from q = ", sprint_q(q₀), ", δ² = ", sprint_δ²(δ₀²))
     return nothing
 end
+
+print_info(args...) = print_info(stdout, args...)

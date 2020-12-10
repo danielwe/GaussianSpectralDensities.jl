@@ -99,25 +99,23 @@ function step_objective(objective::O, algorithm::Rampμ, i) where {O}
     return O(objective.value, algorithm.ramp[i])
 end
 
-function invalid_step(::Rampδ², step_solution, γ_²)
-    return (step_solution.q === missing) || (step_solution.γ² > γ_²)
+function invalid(sol, ::StraightShot, ::Any=nothing)
+    return sol.δ² < zero(sol.δ²)
 end
 
-invalid_step(::Any, step_solution, ::Any) = (step_solution.q === missing)
+invalid(step_sol, ::Rampδ², γ_²) = ((step_sol.q === missing) || (step_sol.γ² > γ_²))
+invalid(step_sol, ::Ramp, ::Any) = (step_sol.q === missing)
 
-done(objective::Fixγ², ::Rampγ², step_solution) = (step_solution.γ² == objective.value)
-done(objective::Fixδ², ::Rampδ², step_solution) = (step_solution.δ² == objective.value)
-done(objective, ::Rampμ, step_solution) = (step_solution.μ == objective.μ)
-done(::Any, ::Any, ::Any) = false
+done(step_sol, ::Rampγ², objective::Fixγ²) = (step_sol.γ² == objective.value)
+done(step_sol, ::Rampδ², objective::Fixδ²) = (step_sol.δ² == objective.value)
+done(step_sol, ::Rampμ, objective) = (step_sol.μ == objective.μ)
+done(::Any, ::Ramp, ::Any) = false
 
-final(objective::Fixk, ::Downramp, step_solution) = (step_solution.k >= objective.value)
-final(objective::Fixγ², ::Downramp, step_solution) = (step_solution.γ² <= objective.value)
-final(objective::Fixδ², ::Downramp, step_solution) = (step_solution.δ² <= objective.value)
-final(objective, ::Rampμ, step_solution) = (step_solution.μ > objective.μ)
-final(::Any, ::Any, ::Any) = false
+final(step_sol, ::Downramp, objective::Fixk) = (step_sol.k >= objective.value)
+final(step_sol, ::Downramp, objective::Fixγ²) = (step_sol.γ² <= objective.value)
+final(step_sol, ::Downramp, objective::Fixδ²) = (step_sol.δ² <= objective.value)
+final(step_sol, ::Rampμ, objective) = (step_sol.μ > objective.μ)
+final(::Any, ::Ramp, ::Any) = false
 
-function abort(algorithm::Union{Rampδ², Rampμ}, step_solution)
-    return (step_solution.γ² < algorithm.γ²min)
-end
-
-abort(::Any, ::Any) = false
+abort(step_sol, algorithm::Union{Rampδ², Rampμ}) = (step_sol.γ² < algorithm.γ²min)
+abort(::Any, ::Ramp) = false

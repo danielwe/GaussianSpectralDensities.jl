@@ -31,7 +31,7 @@ function BareSpectralSolution(objective::Fixδ²)
 end
 
 const SpectralTrace{R} = StructVector{BareSpectralSolution{R}}
-const EMPTY_TRACES = Dict{DataType, SpectralTrace{<:Real}}()
+const EMPTY_TRACES = Dict{DataType, SpectralTrace}()
 
 function empty_trace(::Type{R}) where {R}
     if !(R in keys(EMPTY_TRACES))

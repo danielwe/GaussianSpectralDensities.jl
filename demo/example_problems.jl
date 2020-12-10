@@ -1,6 +1,5 @@
 using GaussianSpectralDensities
 using LinearAlgebra
-using SparseArrays
 
 function diagonal_roots_of_unity(N, root, σ, τ::T) where {T}
     diagonal = exp(im * T(2pi / root)).^(0 : (N - 1))

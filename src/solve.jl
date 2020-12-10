@@ -4,11 +4,11 @@ struct SpectralProblem{
     R,
     Z<:Union{MissingOr{Complex{R}}, Matrix{<:MissingOr{Complex{R}}}},
     O<:Objective{<:Any, R},
-    M<:AbstractMatrixEnsemble{R},
+    E<:AbstractMatrixEnsemble{R},
 }
     z::Z
     objective::O
-    ensemble::M
+    ensemble::E
 
     function SpectralProblem(z, objective, ensemble::AbstractMatrixEnsemble{R}) where {R}
         z = convert.(MissingOr{Complex{R}}, z)
@@ -52,8 +52,8 @@ function solve(
         undef, size(problem.z)
     )
     nrows, ncols = size(problem.z)
-    chunk_height = (nrows + 1) ÷ chunks_per_thread
-    chunk_width = (ncols + 1) ÷ Threads.nthreads()
+    chunk_height = nrows ÷ chunks_per_thread
+    chunk_width = ncols ÷ Threads.nthreads()
     slices = [
         (
             istart:min(istart + chunk_height - 1, nrows),
@@ -79,45 +79,45 @@ end
 function solve!(solver, z::AbstractMatrix, solution::AbstractMatrix; kwargs...)
     m, n = size(z)
     imid, jmid = cld(m, 2), cld(n, 2)
-    solution[imid, jmid] = solve_local_info!(solver, z[imid, jmid]; kwargs...)
+    solution[imid, jmid] = solve_or_print_info!(solver, z[imid, jmid]; kwargs...)
     for i in (imid + 1) : m
         q_, δ_² = solution[i - 1, jmid].q, solution[i - 1, jmid].δ²
-        solution[i, jmid] = solve_local_info!(solver, z[i, jmid], q_, δ_²; kwargs...)
+        solution[i, jmid] = solve_or_print_info!(solver, z[i, jmid], q_, δ_²; kwargs...)
     end
     for i in (imid - 1) : -1 : 1
         q_, δ_² = solution[i + 1, jmid].q, solution[i + 1, jmid].δ²
-        solution[i, jmid] = solve_local_info!(solver, z[i, jmid], q_, δ_²; kwargs...)
+        solution[i, jmid] = solve_or_print_info!(solver, z[i, jmid], q_, δ_²; kwargs...)
     end
     for j in (jmid + 1) : n
         q_, δ_² = solution[imid, j - 1].q, solution[imid, j - 1].δ²
-        solution[imid, j] = solve_local_info!(solver, z[imid, j], q_, δ_²; kwargs...)
+        solution[imid, j] = solve_or_print_info!(solver, z[imid, j], q_, δ_²; kwargs...)
         for i in (imid + 1) : m
             qa_, δa_² = solution[i - 1, j].q, solution[i - 1, j].δ²
             qb_, δb_² = solution[i, j - 1].q, solution[i, j - 1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
-            solution[i, j] = solve_local_info!(solver, z[i, j], q_, δ_²; kwargs...)
+            solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
         for i in (imid - 1) : -1 : 1
             qa_, δa_² = solution[i + 1, j].q, solution[i + 1, j].δ²
             qb_, δb_² = solution[i, j - 1].q, solution[i, j - 1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
-            solution[i, j] = solve_local_info!(solver, z[i, j], q_, δ_²; kwargs...)
+            solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
     end
     for j in (jmid - 1) : -1 : 1
         q_, δ_² = solution[imid, j + 1].q, solution[imid, j + 1].δ²
-        solution[imid, j] = solve_local_info!(solver, z[imid, j], q_, δ_²; kwargs...)
+        solution[imid, j] = solve_or_print_info!(solver, z[imid, j], q_, δ_²; kwargs...)
         for i in (imid + 1) : m
             qa_, δa_² = solution[i - 1, j].q, solution[i - 1, j].δ²
             qb_, δb_² = solution[i, j + 1].q, solution[i, j + 1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
-            solution[i, j] = solve_local_info!(solver, z[i, j], q_, δ_²; kwargs...)
+            solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
         for i in (imid - 1) : -1 : 1
             qa_, δa_² = solution[i + 1, j].q, solution[i + 1, j].δ²
             qb_, δb_² = solution[i, j + 1].q, solution[i, j + 1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
-            solution[i, j] = solve_local_info!(solver, z[i, j], q_, δ_²; kwargs...)
+            solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
     end
     return nothing
@@ -126,14 +126,11 @@ end
 function solve!(solver, z, q₀, δ₀²; kwargs...)
     eager_algorithm = StraightShot(q₀, δ₀²)
     eager_solver = SpectralSolver(solver.workspace, solver.objective, eager_algorithm)
-    try
-        return solve!(eager_solver, z; kwargs...)
-    catch err
-        if err isa ConvergenceException
-            return solve!(solver, z; kwargs...)
-        end
-        rethrow()
+    eager_solution = solve!(eager_solver, z; kwargs...)
+    if (eager_solution.q === missing) && (z !== missing)
+        return solve!(solver, z; kwargs...)
     end
+    return eager_solution
 end
 
 solve!(solver, z, ::Missing, ::Any; kwargs...) = solve!(solver, z; kwargs...)
@@ -165,10 +162,13 @@ function solve!(
 end
 
 function solve!(workspace, objective, algorithm::Ramp, z, trace=nothing, ti=0; verbosity)
-    q_ = q₀!(workspace, algorithm, z)
-    γ_² = δ_² = δ₀²(algorithm)
-    step_alg = initial_algorithm(algorithm, q_, δ_²)
     final_sol = nothing
+    q_ = q₀!(workspace, algorithm, z)
+    δ_² = δ₀²(algorithm)
+    ftype = typeof(δ_²)
+    γ_² = ftype(NaN)
+    s_ = one(ftype)
+    step_alg = initial_algorithm(algorithm, q_, δ_²)
     for i in 1:length(algorithm)
         step_obj = step_objective(objective, algorithm, i)
         step_sol, ti = solve!(
@@ -179,29 +179,35 @@ function solve!(workspace, objective, algorithm::Ramp, z, trace=nothing, ti=0; v
             trace[ti] = step_sol
         end
         print_solution(step_sol, verbosity)
-        if invalid_step(algorithm, step_sol, γ_²)
+        if invalid(step_sol, algorithm, γ_²)  # Coming here was a mistake
             final_sol = BareSpectralSolution(objective)
             break
         end
-        if done(objective, algorithm, step_sol)
+        if done(step_sol, algorithm, objective)  # This is it!
             final_sol = step_sol
             break
         end
-        if final(objective, algorithm, step_sol)
-            q_, δ_² = select(q_, step_sol.q, δ_², step_sol.δ²)
+        if final(step_sol, algorithm, objective)  # We have visual
+            q_, δ_² = select(
+                q_, step_sol.q, δ_², step_sol.δ², s_, score(step_sol, objective),
+            )
             step_alg = StraightShot(q_ , δ_²)
             break
         end
-        if abort(algorithm, step_sol)
+        if abort(step_sol, algorithm)  # No point in proceeding if this wasn't it
             final_sol = BareSpectralSolution(objective)
             break
         end
-        q_, γ_², δ_² = step_sol.q, step_sol.γ², step_sol.δ²
+        q_, δ_², γ_² = step_sol.q, step_sol.δ², step_sol.γ²
+        s_ = score(step_sol, objective)
         step_alg = StraightShot(q_, δ_²)
     end
     print_foot_divider(verbosity)
     if final_sol === nothing
         final_sol, _ = solve!(workspace, objective, step_alg, z; verbosity=verbosity)
+        if invalid(final_sol, algorithm, γ_²)
+            final_sol = BareSpectralSolution(objective)
+        end
     end
     return final_sol, ti
 end
@@ -216,39 +222,59 @@ function solve!(
     verbosity,
 ) where {QNormal}
     q_, δ_² = q₀!(workspace, algorithm, z), δ₀²(algorithm)
-    q, δ² = qsolve!(workspace, objective, z, q_, δ_²; verbosity=verbosity)
-    return BareSpectralSolution(workspace, Fixδ²{QNormal}(δ², objective.μ), z, q), ti
+    local q, δ²
+    try
+        q, δ² = qsolve!(workspace, objective, z, q_, δ_²; verbosity=verbosity)
+    catch err
+        if err isa ConvergenceException
+            return BareSpectralSolution(objective), ti
+        end
+        rethrow()
+    end
+    sol = BareSpectralSolution(workspace, Fixδ²{QNormal}(δ², objective.μ), z, q)
+    if invalid(sol, algorithm)
+        sol = BareSpectralSolution(objective)
+    end
+    return sol, ti
 end
 
 function solve!(
     workspace, objective::Fixr², algorithm::StraightShot, z, ::Any=nothing, ti=0; verbosity
 )
-    local q
     q_ = q₀!(workspace, algorithm, z)
+    local q
     try
         q = qsolve!(workspace, objective, z, q_; verbosity=verbosity)
     catch err
-        if objective.value <= zero(objective.value) && err isa ConvergenceException
+        if err isa ConvergenceException
             return BareSpectralSolution(objective), ti
         end
         rethrow()
     end
-    return BareSpectralSolution(workspace, objective, z, q), ti
+    sol = BareSpectralSolution(workspace, objective, z, q)
+    if invalid(sol, algorithm)
+        sol = BareSpectralSolution(objective)
+    end
+    return sol, ti
 end
 
-function solve_local_info!(solver, z, args...; kwargs...)
+function solve_or_print_info!(solver, z, args...; kwargs...)
     try
         return solve!(solver, z, args...; kwargs...)
-    catch
-        print_local_info(solver, z, args...)
+    catch err
+        print_info(stdout, solver, z, args...)
+        flush(stdout)
         rethrow()
     end
 end
 
-function select(qa_, qb_, δa_², δb_²)
+function select(qa_, qb_, δa_², δb_², wa=one(δa_²), wb=one(δb_²))
     if qb_ !== missing
         if qa_ !== missing
-            return (qa_ + qb_) / 2, sqrt(δa_² * δb_²)
+            wtot = wa + wb
+            wa /= wtot
+            wb /= wtot
+            return (qa_ * wa) + (qb_ * wb), (δa_²^wa) * (δb_²^wb)
         end
         return qb_, δb_²
     end

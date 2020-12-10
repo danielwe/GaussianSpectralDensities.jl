@@ -1,4 +1,12 @@
-function qsolve!(workspace, objective::Fixr², z, q₀; verbosity)
+function qsolve!(workspace, objective::Fixγ², z, q₀; verbosity)
+    f(qv) = qf!(workspace, objective, z, qv)
+    j(qv, _) = qj!(workspace, objective, z, qv)
+    qv, niters = newton(f, j, (@SVector [real(q₀), imag(q₀)]))
+    print_niters(niters, verbosity)
+    return complex(qv[1], qv[2])
+end
+
+function qsolve!(workspace, objective::Fixδ², z, q₀; verbosity)
     f(qv) = qf!(workspace, objective, z, qv)
     qv, niters = newton(f, (@SVector [real(q₀), imag(q₀)]))
     print_niters(niters, verbosity)
@@ -17,11 +25,12 @@ function qf!(workspace, objective, z, qv)
     return (@SVector [real(f), imag(f)])
 end
 
-function _qf!(workspace, objective::Fixr², z, q)
+function _qf!(workspace, objective, z, q)
+    T_ = T(workspace)
     Q = Q!(workspace, objective, z, q)
     P = P!(workspace, objective, z, q)
-    f = @inbounds trTAᴴB(workspace.ensemble.T, Q, P)  # Tr[TQᴴP]
-    return muladd(f, objective.μ / length(workspace.ensemble.T), -q)
+    f = trTAᴴB(T_, Q, P)  # Tr[TQᴴP]
+    return muladd(f, objective.μ / length(T_), -q)
 end
 
 function qj!(workspace, objective, z, qv)
@@ -33,27 +42,24 @@ function qj!(workspace, objective, z, qv)
 end
 
 function _qj!(workspace, objective::Fixγ²{Qnormal}, z, q) where {Qnormal}
+    T_ = T(workspace)
     P = P!(workspace, objective, z, q)
-    QᴴP = QᴴP!(workspace, objective, z, q)
+    PQ = PQ!(workspace, objective, z, q)
     QᴴPQ = QᴴPQ!(workspace, objective, z, q)
-    ensemble = workspace.ensemble
-    df_dq = @inbounds trTAᴴTB(ensemble.T, QᴴP', QᴴP)  # Tr[(TQᴴP)²]
-    df_dq⁺ = @inbounds trTAᴴTB(ensemble.T, QᴴPQ, P)  # Tr[TQᴴPQTP] = Tr[T(QᴴPQ)ᴴTP]
+    df_dq = trTAᴴTB(T_, PQ, PQ')  # Tr[(TQᴴP)²]
+    df_dq⁺ = trTAᴴTB(T_, QᴴPQ, P)  # Tr[TQᴴPQTP]
 
     if Qnormal
-        PQᴴ = PQᴴ!(workspace, objective, z, q)
-        QᴴPQᴴ = QᴴPQᴴ!(workspace, objective, z, q)
-        df_dq += @inbounds trTAᴴTB(ensemble.T, P, QᴴPQᴴ)  # Tr[TQᴴPQᴴTP] == Tr[TPᴴTQᴴPQᴴ]
-        df_dq⁺ += @inbounds trTAᴴTB(ensemble.T, PQᴴ, QᴴP)  # Tr[TQᴴPTQP] == Tr[T(PQᴴ)ᴴTQᴴP]
+        QP = QP!(workspace, objective, z, q)
+        QPQ = QPQ!(workspace, objective, z, q)
+        df_dq += trTAᴴTB(T_, QPQ, P)  # Tr[TQᴴPQᴴTP]
+        df_dq⁺ += trTAᴴTB(T_, PQ, QP)  # Tr[TQᴴPTQP]
         df_dq /= 2
         df_dq⁺ /= 2
     end
 
-    N = length(ensemble.T)
-    @inbounds for i in 1:N  # Tr[T²P]
-        df_dq⁺ -= ensemble.T[i]^2 * real(P[i, i])
-    end
-    μ²N⁻¹ = objective.μ^2 / N
+    df_dq⁺ -= trT²A(T_, P)  # Tr[T²P]
+    μ²N⁻¹ = objective.μ^2 / length(T_)
     df_dq = muladd(df_dq, μ²N⁻¹, -one(q))
     df_dq⁺ *= μ²N⁻¹
     return df_dq, df_dq⁺
@@ -69,31 +75,4 @@ function _qδ²f!(workspace, objective::Fixk{Qnormal}, z, q, δ²) where {Qnorma
     qf = _qf!(workspace, δ²objective, z, q)
     δ²f = k!(workspace, δ²objective, z, q) - objective.value
     return qf, δ²f
-end
-
-function trTAᴴB(T, A, B)
-    out = zero(promote_type(eltype(A), eltype(B)))
-    for j in 1:length(T), i in 1:length(T)
-        out += T[j] * conj(A[i, j]) * B[i, j]
-    end
-    return out
-end
-
-function trTAᴴTB(T, A, B)
-    out = zero(promote_type(eltype(A), eltype(B)))
-    for j in 1:length(T), i in 1:length(T)
-        out += T[i] * T[j] * conj(A[i, j]) * B[i, j]
-    end
-    return out
-end
-
-function trTAᴴTB(T, A::Hermitian, B::Hermitian)
-    out = zero(promote_type(eltype(A), eltype(B)))
-    for j in 1:length(T)
-        for i in 1 : (j - 1)
-            out += 2 * T[i] * T[j] * real(conj(A[i, j]) * B[i, j])
-        end
-        out += T[j]^2 * real(A[j, j]) * real(B[j, j])
-    end
-    return out
 end

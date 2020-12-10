@@ -25,6 +25,7 @@ export solve, solve!
 
 const MissingOr{R} = Union{Missing, R}
 
+include("matrix_utils.jl")
 include("ensemble.jl")
 include("objectives.jl")
 include("workspace.jl")
@@ -37,5 +38,15 @@ include("printing.jl")
 include("settings.jl")
 
 include("sampling_utils/SamplingUtils.jl")
+
+using Requires
+
+function __init__()
+    @require CUDA="052768ef-5323-5732-b1bb-66c8b64840ba" begin
+        export CuMatrixEnsemble, CuHybridMatrixEnsemble
+        include("cuda.jl")
+        include("cudahybrid.jl")
+    end
+end
 
 end
