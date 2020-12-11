@@ -40,13 +40,13 @@ function empty_trace(::Type{R}) where {R}
     return EMPTY_TRACES[R]
 end
 
-struct SpectralSolution{R, A<:Algorithm{R}} <: AbstractSpectralSolution{R}
+struct SpectralSolution{R} <: AbstractSpectralSolution{R}
     μ::MissingOr{R}
     q::MissingOr{Complex{R}}
     γ²::MissingOr{R}
     δ²::MissingOr{R}
     k::MissingOr{R}
-    algorithm::A
+    algorithm::Algorithm{R}
     trace::SpectralTrace{R}
 end
 
@@ -54,4 +54,4 @@ function SpectralSolution(sol::BareSpectralSolution, args...)
     return SpectralSolution(sol.μ, sol.q, sol.γ², sol.δ², sol.k, args...)
 end
 
-const GlobalSpectralSolution{R, A} = StructArray{SpectralSolution{R, A}}
+const GlobalSpectralSolution{R} = StructArray{SpectralSolution{R}}

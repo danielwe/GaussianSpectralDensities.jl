@@ -1,21 +1,14 @@
 const ConvergenceException = Union{NewtonException, SingularException, LAPACKException}
 
-struct SpectralProblem{
-    R,
-    Z<:Union{MissingOr{Complex{R}}, Matrix{<:MissingOr{Complex{R}}}},
-    O<:Objective{<:Any, R},
-    E<:AbstractMatrixEnsemble{R},
-}
+struct SpectralProblem{R, Z<:Union{MissingOr{Complex{R}}, Matrix{<:MissingOr{Complex{R}}}}}
+    ensemble::AbstractMatrixEnsemble{R}
+    objective::Objective{<:Any, R}
     z::Z
-    objective::O
-    ensemble::E
 
-    function SpectralProblem(z, objective, ensemble::AbstractMatrixEnsemble{R}) where {R}
-        z = convert.(MissingOr{Complex{R}}, z)
+    function SpectralProblem(ensemble::AbstractMatrixEnsemble{R}, objective, z) where {R}
         objective = adapt(R, objective)
-        return new{R, typeof(z), typeof(objective), typeof(ensemble)}(
-            z, objective, ensemble
-        )
+        z = convert.(MissingOr{Complex{R}}, z)
+        return new{R, typeof(z)}(ensemble, objective, z)
     end
 end
 
@@ -48,12 +41,10 @@ function solve(
 ) where {R}
     algorithm = adapt(R, algorithm)
     solvers = [SpectralSolver(problem, algorithm) for _ in 1:Threads.nthreads()]
-    solution = GlobalSpectralSolution{R, Union{typeof(algorithm), StraightShot{R}}}(
-        undef, size(problem.z)
-    )
+    solution = GlobalSpectralSolution{R}(undef, size(problem.z))
     nrows, ncols = size(problem.z)
-    chunk_height = nrows ÷ chunks_per_thread
-    chunk_width = ncols ÷ Threads.nthreads()
+    chunk_height = nrows ÷ min(nrows, chunks_per_thread)
+    chunk_width = ncols ÷ min(ncols, Threads.nthreads())
     slices = [
         (
             istart:min(istart + chunk_height - 1, nrows),

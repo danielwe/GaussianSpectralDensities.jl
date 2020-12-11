@@ -80,7 +80,7 @@ q₀!(workspace, algorithm::Downramp, z) = q∞!(workspace, δ₀²(algorithm), 
 q₀!(workspace, algorithm::Rampμ, z) = q₀!(workspace, algorithm.initial_algorithm, z)
 q₀!(::Any, algorithm, z) = algorithm.q₀
 
-δ₀²(algorithm::Downramp) = algorithm.ramp[begin]
+δ₀²(algorithm::Downramp) = algorithm.ramp[1]
 δ₀²(algorithm::Rampμ) = δ₀²(algorithm.initial_algorithm)
 δ₀²(algorithm) = algorithm.δ₀²
 
