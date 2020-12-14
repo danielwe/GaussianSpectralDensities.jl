@@ -52,6 +52,6 @@ end
 
 approxzero(v) = (sqrt(sum(abs2, v) / length(v)) < atol(v))
 
-atol(x) = relstep(x)
+atol(x) = relstep(x) / 2
 
 relstep(x) = sqrt(eps(eltype(x)))
