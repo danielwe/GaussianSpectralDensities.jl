@@ -17,16 +17,17 @@ using Printf
   module with optional dependency on RecipesBase.
 =#
 
-export SamplingUtils
 export MatrixEnsemble, SpectralProblem, SpectralSolver
 export Rampγ², Rampδ², Rampμ, StraightShot
 export Fixk, Fixγ², Fixδ²
 export solve, solve!
+export partially_hermitize, sample
 
-const MissingOr{R} = Union{Missing, R}
+const MissingOr{T} = Union{Missing, T}
 
 include("matrix_utils.jl")
 include("ensemble.jl")
+include("sampling.jl")
 include("objectives.jl")
 include("workspace.jl")
 include("algorithms.jl")
@@ -36,8 +37,6 @@ include("qsolve.jl")
 include("solve.jl")
 include("printing.jl")
 include("settings.jl")
-
-include("sampling_utils/SamplingUtils.jl")
 
 using Requires
 

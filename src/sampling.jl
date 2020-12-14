@@ -1,7 +1,3 @@
-module SamplingUtils
-
-export phase, partially_hermitize
-
 phase(z::Real) = (z >= zero(z) ? one(z) : -one(z))
 phase(z) = exp(im * angle(z))
 
@@ -19,4 +15,11 @@ function partially_hermitize(J, T::AbstractVector)
     return J .* cos.(ϕ) .+ J' .* ph .* sin.(ϕ)
 end
 
+function sample(T, ensemble::AbstractMatrixEnsemble)
+    N = length(ensemble.T)
+    Jiid = randn(T, N, N) / real(T)(sqrt(N))
+    J = partially_hermitize(Jiid, ensemble.T)
+    return (ensemble.M + ensemble.L * J * ensemble.R, J)
 end
+
+sample(ensemble::AbstractMatrixEnsemble{R}) where {R} = sample(Complex{R}, ensemble)

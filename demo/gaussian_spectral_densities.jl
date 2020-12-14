@@ -24,19 +24,8 @@ ensemble = jordan(N, λ, σ, τ);
 ensemble_gpu = CuMatrixEnsemble(ensemble);
 ensemble_hybrid = CuHybridMatrixEnsemble(ensemble);
 
-M_dense = Array(ensemble_big.M);
-Mevs = unique(eigvals(M_dense));
-
-#J = ftype(1.0 / sqrt(N_big)) * (rand(ftype[-1.0, 1.0], N_big, N_big));
-J = ftype(1.0 / sqrt(2N_big)) * (
-    randn(ftype, N_big, N_big) + im * randn(ftype, N_big, N_big)
-);
-
-J = SamplingUtils.partially_hermitize(J, τ);
-Jevs = eigvals(J);
-
-LJR = ensemble_big.L * J * ensemble_big.R;
-A = M_dense + LJR;
+#A, J = sample(ftype, ensemble);
+A, J = sample(Complex{ftype}, ensemble);
 Aevs = eigvals(A);
 
 using LazySets: VPolygon, Bloating, overapproximate, radius
@@ -86,13 +75,13 @@ for solver in [
     );
 end
 
-problem = SpectralProblem(zs, objective, ensemble);
+problem = SpectralProblem(ensemble, objective, zs);
 solution = @time solve(problem, algorithm; chunks_per_thread=1);
 
-problem_gpu = SpectralProblem(zs, objective, ensemble_gpu);
+problem_gpu = SpectralProblem(ensemble_gpu, objective, zs);
 solution_gpu = @time solve(problem_gpu, algorithm_gpu; chunks_per_thread=1);
 
-problem_hybrid = SpectralProblem(zs, objective, ensemble_hybrid);
+problem_hybrid = SpectralProblem(ensemble_hybrid, objective, zs);
 solution_hybrid = @time solve(problem_hybrid, algorithm_hybrid; chunks_per_thread=1);
 
 # Jacobian check
