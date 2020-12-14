@@ -6,6 +6,8 @@ using CUDA
 
 CUDA.allowscalar(false);
 
+import LazySets
+
 using GaussianSpectralDensities
 
 include("example_problems.jl");
@@ -25,24 +27,10 @@ ensemble_gpu = CuMatrixEnsemble(ensemble);
 ensemble_hybrid = CuHybridMatrixEnsemble(ensemble);
 
 #A, J = sample(ftype, ensemble);
-A, J = sample(Complex{ftype}, ensemble);
+A, J = sample(Complex{ftype}, ensemble_big);
 Aevs = eigvals(A);
 
-using LazySets: VPolygon, Bloating, overapproximate, radius
-
-coords = reinterpret(ftype, reshape(Aevs, 1, :));
-region = VPolygon(coords);
-region = Bloating(region, ftype(0.125) * radius(region));
-region = overapproximate(region, ftype(0.01) * radius(region));
-bounds = overapproximate(region);
-
-xcenter, ycenter = bounds.center;
-xradius, yradius = bounds.radius;
-xmin, xmax = xcenter - xradius, xcenter + xradius;
-ymin, ymax = ycenter - yradius, ycenter + yradius;
-xs = range(xmin, xmax; length=round(Int, 42 * xradius));
-ys = range(ymin, ymax; length=round(Int, 42 * yradius));
-zs = [[x, y] in region ? complex(x, y) : missing for y in ys, x in xs];
+xs, ys, zs = autogrid(Aevs)
 
 objective = Fixk();
 algorithm = Rampδ²();

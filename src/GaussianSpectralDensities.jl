@@ -7,14 +7,9 @@ using ThreadPools
 using Printf
 
 #=
-* An elegant way to generate a masked grid would be to use LazySets, but I don't think that
-  belongs in this package. This can be done in demo notebooks.
-* Or, actually, it woule be nice to automate the process of defining the domain by computing
-  the convex hull of the spectrum of a randomly sampled instance,  and bloating it a little.
-  Ideally this functionality should be implemented in a submodule with optional
-  dependencies.
-* Define plot recipes to simplify notebooks. This should perhaps also go in a separate
-  module with optional dependency on RecipesBase.
+* Consider defining plot recipes to simplify notebooks. This should perhaps also go in
+  a separate module with optional dependency on RecipesBase. I don't know exactly what kinds
+  of plots it makes sense to write recipes for, however.
 =#
 
 export MatrixEnsemble, SpectralProblem, SpectralSolver
@@ -45,6 +40,10 @@ function __init__()
         export CuMatrixEnsemble, CuHybridMatrixEnsemble
         include("cuda.jl")
         include("cudahybrid.jl")
+    end
+    @require LazySets="b4f0291d-fe17-52bc-9479-3d1a343d9043" begin
+        export spectral_region, autogrid
+        include("autogrid.jl")
     end
 end
 
