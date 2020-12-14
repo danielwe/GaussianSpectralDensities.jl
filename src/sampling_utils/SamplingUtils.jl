@@ -1,18 +1,22 @@
 module SamplingUtils
 
-export phase, half_phase, partially_hermitize
+export phase, partially_hermitize
 
-phase(z) = exp(im * angle(z))
 phase(z::Real) = (z >= zero(z) ? one(z) : -one(z))
+phase(z) = exp(im * angle(z))
 
-half_phase(z) = exp(im * angle(z) / 2)
-half_phase(z::Real) = phase(z)
-
-function partially_hermitize(J, τ)
+function partially_hermitize(J, τ::Number)
     ϕ = asin(abs(τ)) / 2
-    ph = half_phase(τ)
-    Jθ = conj(ph) * J
-    return ph * (Jθ * cos(ϕ) + Jθ' * sin(ϕ))
+    ph = phase(τ)
+    return J * cos(ϕ) + J' * (ph * sin(ϕ))
+end
+
+function partially_hermitize(J, T::AbstractVector)
+    Tabs = abs.(T)
+    ϕ = asin.(Tabs * Tabs') ./ 2
+    Tph = phase.(T)
+    ph = Tph * transpose(Tph)
+    return J .* cos.(ϕ) .+ J' .* ph .* sin.(ϕ)
 end
 
 end
