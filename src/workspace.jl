@@ -6,6 +6,7 @@ mutable struct WorkspaceStatus{R}
     QᴴPQ::Bool
     QP::Bool
     QPQ::Bool
+    PL⁻¹R⁻¹::Bool
 
     WorkspaceStatus{R}() where {R} = new{R}(
         missing, missing, missing, false, false, false, false
@@ -25,6 +26,7 @@ function set_μq⁻!(status::WorkspaceStatus{R}, μq⁻) where {R}
 end
 
 function set_r²!(status, r²)
+    status.PL⁻¹R⁻¹ = false
     status.QPQ = false
     status.QP = false
     status.QᴴPQ = false
@@ -44,7 +46,7 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
     PQ::Matrix{Complex{R}}
     QᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
     QP::Matrix{Complex{R}}
-    QPQ::Matrix{Complex{R}}
+    QPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
     s²min::Ref{R}
     status::WorkspaceStatus{R}
 
@@ -52,17 +54,18 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
         N = length(ensemble.T)
         G₀⁻¹_diag = Vector{Complex{R}}(undef, N)
         Q = similar(ensemble.L⁻¹MR⁻¹)
-        P = Hermitian(Matrix{Complex{R}}(undef, N, N))
+        PQ = Matrix{Complex{R}}(undef, N, N)
+        P = Hermitian(similar(PQ))
         return new{R, U, V, W, X, Y}(
             ensemble,
             G₀⁻¹_diag,
             Q,
             similar(P),
             P,
-            similar(P.data),
+            PQ,
             similar(P),
-            similar(P.data),
-            similar(P.data),
+            similar(PQ),
+            similar(PQ),
             Ref(R(NaN)),
             WorkspaceStatus{R}(),
         )
@@ -130,8 +133,16 @@ function _QP!(workspace)
 end
 
 function _QPQ!(workspace)
+    workspace.status.PL⁻¹R⁻¹ = false
     mul!(workspace.QPQ, workspace.Q, workspace.PQ)
     workspace.status.QPQ = true
+    return nothing
+end
+
+function _PL⁻¹R⁻¹!(workspace)
+    workspace.status.QPQ = false
+    mul!(workspace.QPQ, workspace.P, workspace.ensemble.L⁻¹R⁻¹)
+    workspace.status.PL⁻¹R⁻¹ = true
     return nothing
 end
 
@@ -196,6 +207,14 @@ function QPQ!(workspace, objective, z, q)
     return workspace.QPQ
 end
 
+function PL⁻¹R⁻¹!(workspace, objective, z, q)
+    P!(workspace, objective, z, q)
+    if !workspace.status.PL⁻¹R⁻¹
+        _PL⁻¹R⁻¹!(workspace)
+    end
+    return workspace.QPQ
+end
+
 γ²!(::Any, objective::Fixγ², ::Any, ::Any) = objective.value
 
 function γ²!(workspace, objective::Fixδ², z, q)
@@ -213,6 +232,12 @@ end
 function k!(workspace, objective, z, q)
     P = P!(workspace, objective, z, q)
     return _tr(P) / size(P, 1)
+end
+
+function r!(workspace, objective, z, q)
+    Q = Q!(workspace, objective, z, q)
+    PL⁻¹R⁻¹ = PL⁻¹R⁻¹!(workspace, objective, z, q)
+    return _dot(Q, PL⁻¹R⁻¹)
 end
 
 function q∞!(workspace, γ∞², z)

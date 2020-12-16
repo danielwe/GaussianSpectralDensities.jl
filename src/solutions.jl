@@ -6,6 +6,7 @@ struct BareSpectralSolution{R} <: AbstractSpectralSolution{R}
     γ²::MissingOr{R}
     δ²::MissingOr{R}
     k::MissingOr{R}
+    r::MissingOr{Complex{R}}
 end
 
 function BareSpectralSolution(workspace, objective, z, q)
@@ -15,19 +16,26 @@ function BareSpectralSolution(workspace, objective, z, q)
         γ²!(workspace, objective, z, q),
         δ²!(workspace, objective, z, q),
         k!(workspace, objective, z, q),
+        r!(workspace, objective, z, q),
     )
 end
 
 function BareSpectralSolution(objective::Fixk)
-    return BareSpectralSolution(objective.μ, missing, missing, missing, objective.value)
+    return BareSpectralSolution(
+        objective.μ, missing, missing, missing, objective.value, missing
+    )
 end
 
 function BareSpectralSolution(objective::Fixγ²)
-    return BareSpectralSolution(objective.μ, missing, objective.value, missing, missing)
+    return BareSpectralSolution(
+        objective.μ, missing, objective.value, missing, missing, missing
+    )
 end
 
 function BareSpectralSolution(objective::Fixδ²)
-    return BareSpectralSolution(objective.μ, missing, missing, objective.value, missing)
+    return BareSpectralSolution(
+        objective.μ, missing, missing, objective.value, missing, missing
+    )
 end
 
 const SpectralTrace{R} = StructVector{BareSpectralSolution{R}}
@@ -46,12 +54,13 @@ struct SpectralSolution{R} <: AbstractSpectralSolution{R}
     γ²::MissingOr{R}
     δ²::MissingOr{R}
     k::MissingOr{R}
+    r::MissingOr{Complex{R}}
     algorithm::Algorithm{R}
     trace::SpectralTrace{R}
 end
 
 function SpectralSolution(sol::BareSpectralSolution, args...)
-    return SpectralSolution(sol.μ, sol.q, sol.γ², sol.δ², sol.k, args...)
+    return SpectralSolution(sol.μ, sol.q, sol.γ², sol.δ², sol.k, sol.r, args...)
 end
 
 const GlobalSpectralSolution{R} = StructArray{SpectralSolution{R}}

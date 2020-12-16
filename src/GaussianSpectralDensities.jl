@@ -16,7 +16,7 @@ export MatrixEnsemble, SpectralProblem, SpectralSolver
 export Rampγ², Rampδ², Rampμ, StraightShot
 export Fixk, Fixγ², Fixδ²
 export solve, solve!
-export partially_hermitize, sample
+export spectral_density, partially_hermitize, sample
 
 const MissingOr{T} = Union{Missing, T}
 
@@ -30,6 +30,7 @@ include("solutions.jl")
 include("newton.jl")
 include("qsolve.jl")
 include("solve.jl")
+include("density.jl")
 include("printing.jl")
 include("settings.jl")
 

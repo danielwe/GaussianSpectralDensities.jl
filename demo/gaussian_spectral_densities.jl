@@ -1,14 +1,10 @@
-using Revise
+using GaussianSpectralDensities
+using CUDA
+import LazySets
 
 using LinearAlgebra: BLAS; BLAS.set_num_threads(1)
 
-using CUDA
-
 CUDA.allowscalar(false);
-
-import LazySets
-
-using GaussianSpectralDensities
 
 include("example_problems.jl");
 

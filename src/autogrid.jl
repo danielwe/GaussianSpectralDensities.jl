@@ -13,14 +13,14 @@ function spectral_region(ensemble::AbstractMatrixEnsemble)
     return spectral_region(eigvals(sample(ensemble)[1]))
 end
 
-function autogrid(region::LazySet, n=2500)
+function autogrid(region::LazySet, n=72^2)
     bounds = overapproximate(region)
     xcenter, ycenter = bounds.center
     xradius, yradius = bounds.radius
     xmin, xmax = xcenter - xradius, xcenter + xradius
     ymin, ymax = ycenter - yradius, ycenter + yradius
-    xs = range(xmin, xmax; length=round(Int, sqrt(n * xradius / yradius)))
-    ys = range(ymin, ymax; length=round(Int, sqrt(n * yradius / xradius)))
+    xs = range(xmin, xmax; length=2 * round(Int, sqrt(n * xradius / yradius) / 2) + 1)
+    ys = range(ymin, ymax; length=2 * round(Int, sqrt(n * yradius / xradius) / 2) + 1)
     zs = [[x, y] in region ? complex(x, y) : missing for y in ys, x in xs]
     return xs, ys, zs
 end

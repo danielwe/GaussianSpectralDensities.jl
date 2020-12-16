@@ -27,7 +27,7 @@ struct CuMatrixEnsemble{
     M::U
     L::V
     R::W
-    L⁻¹R⁻¹::X
+    L⁻¹R⁻¹::CuMatrix{Complex{R}}
     L⁻¹MR⁻¹::CuMatrix{Complex{R}}
     T::CuVector{R}
 
@@ -39,18 +39,17 @@ struct CuMatrixEnsemble{
                 throw(DimensionMismatch("the size of $c does not match the length of T"))
             end
         end
-        L⁻¹R⁻¹ = CUDA.adapt(CuArray, _complex((L \ I) / R))
-        L⁻¹MR⁻¹ = _complex((L \ M) / R)
-        if L⁻¹MR⁻¹ isa UniformScaling
-            L⁻¹MR⁻¹ = CuMatrix(L⁻¹MR⁻¹(N))
-        elseif !(L⁻¹MR⁻¹ isa CuMatrix)
-            L⁻¹MR⁻¹ = CuMatrix(CUDA.adapt(Array, L⁻¹MR⁻¹))  # Dense without device indexing
-        end
+        L⁻¹R⁻¹ = _dense_cumatrix(_complex((L \ I) / R), N)
+        L⁻¹MR⁻¹ = _dense_cumatrix(_complex((L \ M) / R), N)
         return new{real(eltype(M)), typeof(M), typeof(L), typeof(R), typeof(L⁻¹R⁻¹)}(
             M, L, R, L⁻¹R⁻¹, L⁻¹MR⁻¹, T
         )
     end
 end
+
+_dense_cumatrix(A::CuMatrix, ::Any) = A
+_dense_cumatrix(A::UniformScaling, N) = CuMatrix(A(N))
+_dense_cumatrix(A, ::Any) = CuMatrix(CUDA.adapt(Array, A))  # Dense without device indexing
 
 function CuMatrixEnsemble(M, L, R, τ::Real)
     return CuMatrixEnsemble(M, L, R, CUDA.fill(sqrt(τ), size(M, 1)))
@@ -69,7 +68,7 @@ struct CuWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
     PQ::CuMatrix{Complex{R}}
     QᴴPQ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
     QP::CuMatrix{Complex{R}}
-    QPQ::CuMatrix{Complex{R}}
+    QPQ::CuMatrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
     s²min::Ref{R}
     status::WorkspaceStatus{R}
 
@@ -77,17 +76,18 @@ struct CuWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
         N = length(ensemble.T)
         G₀⁻¹_diag = CuVector{Complex{R}}(undef, N)
         Q = similar(ensemble.L⁻¹MR⁻¹)
-        P = Hermitian(CuMatrix{Complex{R}}(undef, N, N))
+        PQ = CuMatrix{Complex{R}}(undef, N, N)
+        P = Hermitian(similar(PQ))
         return new{R, U, V, W, X}(
             ensemble,
             G₀⁻¹_diag,
             Q,
-            Hermitian(similar(P.data)),
+            Hermitian(similar(PQ)),
             P,
-            similar(P.data),
-            Hermitian(similar(P.data)),
-            similar(P.data),
-            similar(P.data),
+            PQ,
+            Hermitian(similar(PQ)),
+            similar(PQ),
+            similar(PQ),
             Ref(R(NaN)),
             WorkspaceStatus{R}(),
         )
@@ -101,7 +101,7 @@ NTHREADS() = 32
 NBLOCKS_LINEAR() = 1
 NTHREADS_LINEAR() = 64
 
-@inline function zA⁻B!(C::CuMatrix, z, A, B::CuMatrix)
+@inline function zA⁻B!(C::CuMatrix, z, A::CuMatrix, B::CuMatrix)
     function zA⁻B_kernel!(C, z, A, B)
         @inbounds for j in blockIdx().x:gridDim().x:size(C, 2)
             for i in threadIdx().x:blockDim().x:size(C, 1)
@@ -111,16 +111,7 @@ NTHREADS_LINEAR() = 64
         return nothing
     end
 
-    @boundscheck begin
-        N, M = size(C)
-        if A isa UniformScaling
-            @assert N == M && size(B) == (N, N)
-        elseif A isa Diagonal
-            @assert N == M && size(B) == (N, N) && length(A.diag) == N
-        else
-            @assert size(A) == size(B) == (N, M)
-        end
-    end
+    @boundscheck (@assert size(A) == size(B) == size(C))
     @cuda blocks=NBLOCKS() threads=NTHREADS() zA⁻B_kernel!(C, z, A, B)
     return nothing
 end

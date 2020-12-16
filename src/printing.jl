@@ -1,6 +1,6 @@
-print_hline() = println("-------------------------------------------------------------------")
-print_title() = println("    μ       γ²         δ²                  q                k")
-print_mline() = println("-------  ----------  ---------  ------------------------  ---------")
+print_hline() = println("---------------------------------------------------------------------------------------------")
+print_title() = println("    μ       γ²         δ²                  q                k                   r")
+print_mline() = println("-------  ----------  ---------  ------------------------  ---------  ------------------------")
 
 function print_z(z, verbosity)
     if verbosity > 0
@@ -51,6 +51,8 @@ function print_solution(solution)
         sprint_q(solution.q),
         "  ",
         sprint_k(solution.k),
+        "  ",
+        sprint_r(solution.r),
     )
     return nothing
 end
@@ -77,12 +79,14 @@ sprint_γ²(γ²) = @sprintf("%10.3e", γ²)
 sprint_δ²(δ²) = @sprintf("%9.3e", δ²)
 sprint_q(q) = @sprintf("%10.3e + i%10.3e", real(q), imag(q))
 sprint_k(k) = @sprintf("%9.3e", k)
+sprint_r(r) = @sprintf("%10.3e + i%10.3e", real(r), imag(r))
 sprint_z(::Missing) = " missing        "
 sprint_μ(::Missing) = "missing"
 sprint_γ²(::Missing) = " missing  "
 sprint_δ²(::Missing) = "missing  "
 sprint_q(::Missing) = " missing                "
 sprint_k(::Missing) = "missing  "
+sprint_r(::Missing) = " missing                "
 
 print_z(z) = println(" z = ", sprint_z(z))
 print_μ(μ) = println(" μ =  ", sprint_μ(μ))
@@ -90,6 +94,7 @@ print_γ²(γ²) = println("γ² = ", sprint_γ²(γ²))
 print_δ²(δ²) = println("δ² =  ", sprint_δ²(δ²))
 print_q(q) = println(" q = ", sprint_q(q))
 print_k(k) = println(" k =  ", sprint_k(k))
+print_r(r) = println(" r =  ", sprint_r(r))
 
 function print_info(io::IO, solver, z)
     println(io, "Exception at  z = ", sprint_z(z))

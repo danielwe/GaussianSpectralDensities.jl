@@ -19,7 +19,7 @@ struct CuHybridWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
     hostPQ::Matrix{Complex{R}}
     hostQᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
     hostQP::Matrix{Complex{R}}
-    hostQPQ::Matrix{Complex{R}}
+    hostQPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
 
     function CuHybridWorkspace(
         ensemble::CuHybridMatrixEnsemble{R, U, V, W, X}
@@ -131,6 +131,16 @@ function QPQ!(workspace::CuHybridWorkspace, objective, z, q)
     PQ!(workspace, objective, z, q)
     if !workspace.status.QPQ
         _QPQ!(workspace)
+        @inbounds copyto!(workspace.hostQPQ, workspace.QPQ)
+        synchronize(CuDefaultStream())
+    end
+    return workspace.hostQPQ
+end
+
+function PL⁻¹R⁻¹!(workspace::CuHybridWorkspace, objective, z, q)
+    P!(workspace, objective, z, q)
+    if !workspace.status.PL⁻¹R⁻¹
+        _PL⁻¹R⁻¹!(workspace)
         @inbounds copyto!(workspace.hostQPQ, workspace.QPQ)
         synchronize(CuDefaultStream())
     end
