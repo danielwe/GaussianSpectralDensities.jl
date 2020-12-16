@@ -183,7 +183,7 @@ end
                     if i < j
                         shared[ti] += T[j] * conj(A[i, j]) * B[i, j]
                     elseif i == j
-                        shared[ti] += T[j] * conj(A[j, j]) * real(B[j, j])
+                        shared[ti] += T[j] * conj(A[i, j]) * real(B[i, j])
                     else
                         shared[ti] += T[j] * conj(A[i, j]) * conj(B[j, i])
                     end
@@ -195,7 +195,7 @@ end
                     if i < j
                         shared[ti] += T[j] * conj(A[i, j]) * conj(B[j, i])
                     elseif i == j
-                        shared[ti] += T[j] * conj(A[i, j]) * real(B[j, j])
+                        shared[ti] += T[j] * conj(A[i, j]) * real(B[i, j])
                     else
                         shared[ti] += T[j] * conj(A[i, j]) * B[i, j]
                     end
@@ -252,7 +252,7 @@ end
                     if i < j
                         shared[ti] += T[i] * T[j] * conj(A[i, j]) * B[i, j]
                     elseif i == j
-                        shared[ti] += T[j] * T[j] * real(A[j, j]) * B[j, j]
+                        shared[ti] += T[i] * T[j] * real(A[i, j]) * B[i, j]
                     else
                         shared[ti] += T[i] * T[j] * A[j, i] * B[i, j]
                     end
@@ -264,7 +264,7 @@ end
                     if i < j
                         shared[ti] += T[i] * T[j] * A[j, i] * B[i, j]
                     elseif i == j
-                        shared[ti] += T[j] * T[j] * real(A[j, j]) * B[i, j]
+                        shared[ti] += T[i] * T[j] * real(A[i, j]) * B[i, j]
                     else
                         shared[ti] += T[i] * T[j] * conj(A[i, j]) * B[i, j]
                     end
@@ -289,7 +289,7 @@ end
                     if i < j
                         shared[ti] += T[i] * T[j] * conj(A[i, j]) * B[i, j]
                     elseif i == j
-                        shared[ti] += T[j] * T[j] * conj(A[j, j]) * real(B[j, j])
+                        shared[ti] += T[i] * T[j] * conj(A[i, j]) * real(B[i, j])
                     else
                         shared[ti] += T[i] * T[j] * conj(A[i, j]) * conj(B[j, i])
                     end
@@ -301,7 +301,7 @@ end
                     if i < j
                         shared[ti] += T[i] * T[j] * conj(A[i, j]) * conj(B[j, i])
                     elseif i == j
-                        shared[ti] += T[j] * T[j] * conj(A[j, j]) * real(B[j, j])
+                        shared[ti] += T[i] * T[j] * conj(A[i, j]) * real(B[i, j])
                     else
                         shared[ti] += T[i] * T[j] * conj(A[i, j]) * B[i, j]
                     end
@@ -327,7 +327,7 @@ end
                         if i < j
                             shared[ti] += T[i] * T[j] * real(conj(A[i, j]) * B[i, j])
                         elseif i == j
-                            shared[ti] += T[j] * T[j] * real(A[j, j]) * real(B[j, j])
+                            shared[ti] += T[i] * T[j] * real(A[i, j]) * real(B[i, j])
                         else
                             shared[ti] += T[i] * T[j] * real(A[j, i] * conj(B[j, i]))
                         end
@@ -339,7 +339,7 @@ end
                         if i < j
                             shared[ti] += T[i] * T[j] * real(conj(A[i, j]) * conj(B[j, i]))
                         elseif i == j
-                            shared[ti] += T[j] * T[j] * real(A[j, j]) * real(B[j, j])
+                            shared[ti] += T[i] * T[j] * real(A[i, j]) * real(B[i, j])
                         else
                             shared[ti] += T[i] * T[j] * real(A[j, i] * B[i, j])
                         end
@@ -353,7 +353,7 @@ end
                         if i < j
                             shared[ti] += T[i] * T[j] * real(A[j, i] * B[i, j])
                         elseif i == j
-                            shared[ti] += T[j] * T[j] * real(A[j, j]) * real(B[j, j])
+                            shared[ti] += T[i] * T[j] * real(A[i, j]) * real(B[i, j])
                         else
                             shared[ti] += T[i] * T[j] * real(conj(A[i, j]) * conj(B[j, i]))
                         end
@@ -365,7 +365,7 @@ end
                         if i < j
                             shared[ti] += T[i] * T[j] * real(A[j, i] * conj(B[j, i]))
                         elseif i == j
-                            shared[ti] += T[j] * T[j] * real(A[j, j]) * real(B[j, j])
+                            shared[ti] += T[i] * T[j] * real(A[i, j]) * real(B[i, j])
                         else
                             shared[ti] += T[i] * T[j] * real(conj(A[i, j]) * B[i, j])
                         end
