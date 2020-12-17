@@ -41,7 +41,7 @@ end
 const SpectralTrace{R} = StructVector{BareSpectralSolution{R}}
 const EMPTY_TRACES = Dict{DataType, SpectralTrace}()
 
-function empty_trace(::Type{R}) where {R}
+function empty_trace(::Type{R})::SpectralTrace{R} where {R}
     if !(R in keys(EMPTY_TRACES))
         EMPTY_TRACES[R] = SpectralTrace{R}(undef, 0)
     end
@@ -59,8 +59,8 @@ struct SpectralSolution{R} <: AbstractSpectralSolution{R}
     trace::SpectralTrace{R}
 end
 
-function SpectralSolution(sol::BareSpectralSolution, args...)
-    return SpectralSolution(sol.μ, sol.q, sol.γ², sol.δ², sol.k, sol.r, args...)
+function SpectralSolution(sol::BareSpectralSolution, algorithm, trace)
+    return SpectralSolution(sol.μ, sol.q, sol.γ², sol.δ², sol.k, sol.r, algorithm, trace)
 end
 
 const GlobalSpectralSolution{R} = StructArray{SpectralSolution{R}}

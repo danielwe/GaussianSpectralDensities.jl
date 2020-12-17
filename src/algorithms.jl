@@ -36,7 +36,7 @@ struct Rampμ{R, A<:Algorithm{R}} <: Ramp{R}
     γ²min::R
 end
 
-Rampμ() = Rampμ(default(:μInitialAlgorithm))
+Rampμ() = Rampμ(StraightShot())
 
 function Rampμ(initial_algorithm::Algorithm{R}) where {R}
     return Rampμ(initial_algorithm, R.(default(:μramp)))

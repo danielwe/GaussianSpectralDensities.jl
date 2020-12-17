@@ -26,7 +26,7 @@ ensemble_hybrid = CuHybridMatrixEnsemble(ensemble);
 A, J = sample(Complex{ftype}, ensemble_big);
 Aevs = eigvals(A);
 
-xs, ys, zs = autogrid(Aevs)
+xs, ys, zs = autogrid(Aevs);
 
 objective = Fixk();
 algorithm = Rampδ²();
@@ -38,7 +38,7 @@ za = zs[i, j + 1];
 zb = zs[i - 1, j];
 zc = zs[i, j];
 
-verbosity = 3
+verbosity = 3;
 
 for solver in [
     SpectralSolver(ensemble, objective, algorithm),
