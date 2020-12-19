@@ -42,24 +42,43 @@ function solve(
     algorithm = adapt(R, algorithm)
     solvers = [SpectralSolver(problem, algorithm) for _ in 1:Threads.nthreads()]
     solution = GlobalSpectralSolution{R}(undef, size(problem.z))
-    nrows, ncols = size(problem.z)
-    chunk_height = nrows ÷ min(nrows, chunks_per_thread)
-    chunk_width = ncols ÷ min(ncols, Threads.nthreads())
-    slices = [
-        (
-            istart:min(istart + chunk_height - 1, nrows),
-            jstart:min(jstart + chunk_width - 1, ncols),
-        ) for jstart in 1:chunk_width:ncols for istart in 1:chunk_height:nrows
-    ]
-    @qthreads for slice in slices
+    ranges = chunk_ranges(size(problem.z), chunks_per_thread * Threads.nthreads())
+    @qthreads for range in ranges
         solve!(
             solvers[Threads.threadid()],
-            (@view problem.z[slice...]),
-            (@view solution[slice...]);
+            (@view problem.z[range...]),
+            (@view solution[range...]);
             kwargs...,
         )
     end
     return solution
+end
+
+function chunk_indices(size, n)
+    nrows, ncols = size
+    grows = ceil(Int, sqrt(n * nrows / ncols))
+    gcols = cld(n, grows)
+    chunk_height = cld(nrows, grows)
+    chunk_width = fld(ncols, gcols)
+    excess_height = nrows % chunk_height
+    excess_width = ncols % chunk_width
+    row_offset = excess_height > 0 ? (chunk_height - excess_height) ÷ 2 : 0
+    col_offset = excess_width > 0 ? (chunk_width - excess_width) ÷ 2 : 0
+    return [
+        [max(istart, 1), min(istart + chunk_height - 1, nrows)]
+        for istart in (1 - row_offset):chunk_height:nrows
+    ], [
+        [max(jstart, 1), min(jstart + chunk_width - 1, ncols)]
+        for jstart in (1 - col_offset):chunk_width:ncols
+    ]
+end
+
+function chunk_ranges(args...)
+    return product_ranges(chunk_indices(args...))
+end
+
+function product_ranges(indices)
+    return [(i[1]:i[2], j[1]:j[2]) for j in indices[2] for i in indices[1]]
 end
 
 function solve(problem, algorithm, args...; kwargs...)
