@@ -42,6 +42,7 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
     G₀⁻¹_diag::Vector{Complex{R}}
     Q::Y
     QQᴴ::Hermitian{Complex{R},Matrix{Complex{R}}}
+    P⁻¹f::Matrix{Complex{R}}
     P::Hermitian{Complex{R},Matrix{Complex{R}}}
     PQ::Matrix{Complex{R}}
     QᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
@@ -61,6 +62,7 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
             G₀⁻¹_diag,
             Q,
             similar(P),
+            similar(PQ),
             P,
             PQ,
             similar(P),
@@ -103,9 +105,10 @@ end
 
 function _P!(workspace, objective, r²)
     γ² = _γ²!(objective, workspace.s²min[])
-    @inbounds copyto!(workspace.P.data, workspace.QQᴴ.data)
-    @inbounds add_to_diag!(workspace.P.data, γ²)
-    LAPACK.potrf!(workspace.P.uplo, workspace.P.data)
+    @inbounds copyto!(workspace.P⁻¹f, workspace.QQᴴ.data)
+    @inbounds add_to_diag!(workspace.P⁻¹f, γ²)
+    LAPACK.potrf!(workspace.P.uplo, workspace.P⁻¹f)
+    @inbounds copyto!(workspace.P.data, workspace.P⁻¹f)
     LAPACK.potri!(workspace.P.uplo, workspace.P.data)
     set_r²!(workspace.status, r²)
     return nothing
@@ -115,7 +118,8 @@ _γ²!(objective::Fixγ², ::Any) = objective.value
 _γ²!(objective::Fixδ², s²min) = objective.value - s²min
 
 function _PQ!(workspace)
-    mul!(workspace.PQ, workspace.P, workspace.Q)
+    @inbounds copyto!(workspace.PQ, workspace.Q)
+    LAPACK.potrs!(workspace.P.uplo, workspace.P⁻¹f, workspace.PQ)
     workspace.status.PQ = true
     return nothing
 end
@@ -127,7 +131,15 @@ function _QᴴPQ!(workspace)
 end
 
 function _QP!(workspace)
-    mul!(workspace.QP, workspace.Q, workspace.P)
+    if workspace.P.uplo === 'L'
+        L = LowerTriangular(workspace.P⁻¹f)
+        U = L'
+    else
+        U = UpperTriangular(workspace.P⁻¹f)
+        L = U'
+    end
+    @inbounds copyto!(workspace.QP, workspace.Q)
+    rdiv!(rdiv!(workspace.QP, U), L)
     workspace.status.QP = true
     return nothing
 end
@@ -141,7 +153,12 @@ end
 
 function _PL⁻¹R⁻¹!(workspace)
     workspace.status.QPQ = false
-    mul!(workspace.QPQ, workspace.P, workspace.ensemble.L⁻¹R⁻¹)
+    if workspace.ensemble.L⁻¹R⁻¹ isa UniformScaling
+        mul!(workspace.QPQ, workspace.P, workspace.ensemble.L⁻¹R⁻¹)
+    else
+        @inbounds copyto!(workspace.QPQ, workspace.ensemble.L⁻¹R⁻¹)
+        LAPACK.potrs!(workspace.P.uplo, workspace.P⁻¹f, workspace.QPQ)
+    end
     workspace.status.PL⁻¹R⁻¹ = true
     return nothing
 end

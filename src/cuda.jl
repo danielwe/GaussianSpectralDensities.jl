@@ -64,6 +64,7 @@ struct CuWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
     G₀⁻¹_diag::CuVector{Complex{R}}
     Q::CuMatrix{Complex{R}}
     QQᴴ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
+    P⁻¹f::CuMatrix{Complex{R}}
     P::Hermitian{Complex{R},CuMatrix{Complex{R}}}
     PQ::CuMatrix{Complex{R}}
     QᴴPQ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
@@ -83,6 +84,7 @@ struct CuWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
             G₀⁻¹_diag,
             Q,
             Hermitian(similar(PQ)),
+            similar(PQ),
             P,
             PQ,
             Hermitian(similar(PQ)),
@@ -246,7 +248,7 @@ end
         nt, nb = blockDim().x, gridDim().x
         shared = @cuDynamicSharedMem(S, nt)
         shared[ti] = 0
-        if Auplo == 'U'
+        if Auplo === 'U'
             @inbounds for j in bi:nb:length(T)
                 for i in ti:nt:length(T)
                     if i < j
@@ -283,7 +285,7 @@ end
         nt, nb = blockDim().x, gridDim().x
         shared = @cuDynamicSharedMem(S, nt)
         shared[ti] = 0
-        if Buplo == 'U'
+        if Buplo === 'U'
             @inbounds for j in bi:nb:length(T)
                 for i in ti:nt:length(T)
                     if i < j

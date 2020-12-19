@@ -46,7 +46,7 @@ end
 
 @inline function zA⁻B!(C::Tridiagonal, z, A::Bidiagonal, B::Tridiagonal)
     C.d .= muladd.(z, A.dv, .-B.d)
-    if A.uplo == 'U'
+    if A.uplo === 'U'
         C.dl .= .-B.dl
         C.du .= muladd.(z, A.ev, .-B.du)
     else
