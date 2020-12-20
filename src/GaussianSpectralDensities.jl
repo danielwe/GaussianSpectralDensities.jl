@@ -3,6 +3,7 @@ module GaussianSpectralDensities
 using LinearAlgebra
 using StaticArrays
 using StructArrays
+using Random
 using ThreadPools
 using Printf
 

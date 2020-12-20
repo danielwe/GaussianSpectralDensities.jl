@@ -15,11 +15,19 @@ function partially_hermitize(J, T::AbstractVector)
     return J .* cos.(ϕ) .+ J' .* ph .* sin.(ϕ)
 end
 
-function sample(T, ensemble::AbstractMatrixEnsemble)
+function sample(rng::AbstractRNG, ::Type{E}, ensemble::AbstractMatrixEnsemble) where {E}
     N = length(ensemble.T)
-    Jiid = randn(T, N, N) / real(T)(sqrt(N))
+    Jiid = randn(rng, E, N, N) / sqrt(real(E)(N))
     J = partially_hermitize(Jiid, ensemble.T)
     return (ensemble.M + ensemble.L * J * ensemble.R, J)
+end
+
+function sample(::Type{E}, ensemble::AbstractMatrixEnsemble) where {E}
+    return sample(Random.GLOBAL_RNG, E, ensemble)
+end
+
+function sample(rng::AbstractRNG, ensemble::AbstractMatrixEnsemble{R}) where {R}
+    return sample(rng, Complex{R}, ensemble)
 end
 
 sample(ensemble::AbstractMatrixEnsemble{R}) where {R} = sample(Complex{R}, ensemble)

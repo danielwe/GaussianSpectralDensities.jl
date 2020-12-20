@@ -1,9 +1,11 @@
 using GaussianSpectralDensities
-using CUDA
+using StableRNGs
 import LazySets
+using CUDA
 
 using LinearAlgebra: BLAS; BLAS.set_num_threads(1)
 
+rng = StableRNG(93686);
 CUDA.allowscalar(false);
 
 include("example_problems.jl");
@@ -22,11 +24,7 @@ ensemble = jordan(N, λ, σ, τ);
 ensemble_gpu = CuMatrixEnsemble(ensemble);
 ensemble_hybrid = CuHybridMatrixEnsemble(ensemble);
 
-#A, J = sample(ftype, ensemble);
-A, J = sample(Complex{ftype}, ensemble_big);
-Aevs = eigvals(A);
-
-xs, ys, zs = autogrid(Aevs);
+xs, ys, zs = autogrid(rng, ftype, ensemble_big);
 
 objective = Fixk();
 algorithm = Rampδ²();
@@ -79,10 +77,10 @@ q = Complex{ftype}(0.23, 0.58);
 qv = @SVector [real(q), imag(q)];
 
 # Value
-println(repr("text/plain", qf!(ws, obj, z, qv)));
+display(qf!(ws, obj, z, qv));
 
 # Analytical Jacobian
-println(repr("text/plain", qj!(ws, obj, z, qv)));
+display(qj!(ws, obj, z, qv));
 
 # Numerical Jacobian
-println(repr("text/plain", finite_difference_jacobian(qv -> qf!(ws, obj, z, qv), qv)));
+display(finite_difference_jacobian(qv -> qf!(ws, obj, z, qv), qv));

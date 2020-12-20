@@ -1,19 +1,16 @@
 using .LazySets: LazySet, VPolygon, Bloating, overapproximate, radius
 
-function spectral_region(evals)
-    ftype = real(eltype(evals))
-    evals2d = reinterpret(ftype, reshape(evals, 1, :))
-    region = VPolygon(evals2d)
-    region = Bloating(region, ftype(0.125) * radius(region))
-    region = overapproximate(region, ftype(0.01) * radius(region))
+function spectral_region(evals::Vector{Complex{R}}) where {R}
+    evalsxy = reinterpret(R, reshape(evals, 1, :))
+    region = VPolygon(evalsxy)
+    region = Bloating(region, R(0.125) * radius(region))
+    region = overapproximate(region, R(0.01) * radius(region))
     return region
 end
 
-function spectral_region(ensemble::AbstractMatrixEnsemble)
-    return spectral_region(eigvals(sample(ensemble)[1]))
-end
+spectral_region(args...) = spectral_region(eigvals(sample(args...)[1]))
 
-function autogrid(region::LazySet, n=64^2)
+function autogrid(region::LazySet, n::Integer=64^2)
     bounds = overapproximate(region)
     xcenter, ycenter = bounds.center
     xradius, yradius = bounds.radius
@@ -25,6 +22,12 @@ function autogrid(region::LazySet, n=64^2)
     return xs, ys, zs
 end
 
-function autogrid(x, args...)
-    return autogrid(spectral_region(x), args...)
+autogrid(x, args...) = autogrid(spectral_region(x), args...)
+
+function autogrid(x, ensemble::AbstractMatrixEnsemble, args...)
+    return autogrid(spectral_region(x, ensemble), args...)
+end
+
+function autogrid(x, y, ensemble::AbstractMatrixEnsemble, args...)
+    return autogrid(spectral_region(x, y, ensemble), args...)
 end
