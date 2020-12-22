@@ -48,7 +48,7 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
     QᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
     QP::Matrix{Complex{R}}
     QPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
-    s²min::Ref{R}
+    s²min::Base.RefValue{R}
     status::WorkspaceStatus{R}
 
     function Workspace(ensemble::MatrixEnsemble{R, U, V, W, X, Y}) where {R, U, V, W, X, Y}

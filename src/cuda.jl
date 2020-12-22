@@ -70,7 +70,7 @@ struct CuWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
     QᴴPQ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
     QP::CuMatrix{Complex{R}}
     QPQ::CuMatrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
-    s²min::Ref{R}
+    s²min::Base.RefValue{R}
     status::WorkspaceStatus{R}
 
     function CuWorkspace(ensemble::CuMatrixEnsemble{R, U, V, W, X}) where {R, U, V, W, X}
