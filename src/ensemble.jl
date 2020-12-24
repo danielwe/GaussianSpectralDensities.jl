@@ -25,8 +25,9 @@ struct MatrixEnsemble{
                 throw(DimensionMismatch("the size of $c does not match the length of T"))
             end
         end
-        L⁻¹R⁻¹ = _complex((L \ I) / R)
-        L⁻¹MR⁻¹ = _complex((L \ M) / R)
+        Lf, Rf = _factorize(L), _factorize(_complex(R))
+        L⁻¹R⁻¹ = A⁻¹BC⁻¹(Lf, I, Rf)
+        L⁻¹MR⁻¹ = A⁻¹BC⁻¹(Lf, M, Rf)
         if L⁻¹MR⁻¹ isa UniformScaling
             L⁻¹MR⁻¹ = L⁻¹MR⁻¹(N)
         end
@@ -40,5 +41,25 @@ function MatrixEnsemble(M, L, R, τ::Real)
     return MatrixEnsemble(M, L, R, fill(sqrt(τ), size(M, 1)))
 end
 
-_complex(x::UniformScaling) = UniformScaling(complex(x.λ))
-_complex(x) = complex(x)
+_complex(A::UniformScaling) = UniformScaling(complex(A.λ))
+_complex(A) = complex(A)
+
+function _factorize(A)
+    if applicable(factorize, A)
+        return factorize(A)
+    end
+    return A
+end
+
+function A⁻¹BC⁻¹(A, B, C)
+    tmp = B / C
+    if applicable(ldiv!, A, tmp)
+        ldiv!(A, tmp)
+        return tmp
+    end
+    return A \ tmp
+end
+
+function A⁻¹BC⁻¹(A::UniformScaling, B, C::UniformScaling)
+    return B / (A * C)
+end

@@ -22,7 +22,6 @@ struct CuMatrixEnsemble{
     U<:MatrixOrI{<:RealOrComplex{R}},
     V<:MatrixOrI{<:RealOrComplex{R}},
     W<:MatrixOrI{<:RealOrComplex{R}},
-    X<:MatrixOrI{Complex{R}},
 } <: AbstractMatrixEnsemble{R}
     M::U
     L::V
@@ -39,13 +38,16 @@ struct CuMatrixEnsemble{
                 throw(DimensionMismatch("the size of $c does not match the length of T"))
             end
         end
-        L⁻¹R⁻¹ = _dense_cumatrix(_complex((L \ I) / R), N)
-        L⁻¹MR⁻¹ = _dense_cumatrix(_complex((L \ M) / R), N)
-        return new{real(eltype(M)), typeof(M), typeof(L), typeof(R), typeof(L⁻¹R⁻¹)}(
+        Lf, Rf = _factorize(L), _factorize(_complex(R))
+        L⁻¹R⁻¹ = _dense_cumatrix(A⁻¹BC⁻¹(Lf, I, Rf), N)
+        L⁻¹MR⁻¹ = _dense_cumatrix(A⁻¹BC⁻¹(Lf, M, Rf), N)
+        return new{real(eltype(M)), typeof(M), typeof(L), typeof(R)}(
             M, L, R, L⁻¹R⁻¹, L⁻¹MR⁻¹, T
         )
     end
 end
+
+_factorize(A::Union{CuMatrix, CUDA.WrappedArray{<:Any, 2, CuArray, CuArray}}) = A
 
 _dense_cumatrix(A::CuMatrix, ::Any) = A
 _dense_cumatrix(A::UniformScaling, N) = CuMatrix(A(N))
@@ -59,8 +61,8 @@ function CuMatrixEnsemble(ensemble::MatrixEnsemble)
     return CuMatrixEnsemble(ensemble.M, ensemble.L, ensemble.R, ensemble.T)
 end
 
-struct CuWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
-    ensemble::CuMatrixEnsemble{R, U, V, W, X}
+struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
+    ensemble::CuMatrixEnsemble{R, U, V, W}
     G₀⁻¹_diag::CuVector{Complex{R}}
     Q::CuMatrix{Complex{R}}
     QQᴴ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
@@ -73,13 +75,13 @@ struct CuWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
     s²min::Base.RefValue{R}
     status::WorkspaceStatus{R}
 
-    function CuWorkspace(ensemble::CuMatrixEnsemble{R, U, V, W, X}) where {R, U, V, W, X}
+    function CuWorkspace(ensemble::CuMatrixEnsemble{R, U, V, W}) where {R, U, V, W}
         N = length(ensemble.T)
         G₀⁻¹_diag = CuVector{Complex{R}}(undef, N)
         Q = similar(ensemble.L⁻¹MR⁻¹)
         PQ = CuMatrix{Complex{R}}(undef, N, N)
         P = Hermitian(similar(PQ))
-        return new{R, U, V, W, X}(
+        return new{R, U, V, W}(
             ensemble,
             G₀⁻¹_diag,
             Q,

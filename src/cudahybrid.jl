@@ -1,5 +1,5 @@
-struct CuHybridMatrixEnsemble{R, U, V, W, X} <: AbstractMatrixEnsemble{R}
-    ensemble::CuMatrixEnsemble{R, U, V, W, X}
+struct CuHybridMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R}
+    ensemble::CuMatrixEnsemble{R, U, V, W}
 end
 
 function CuHybridMatrixEnsemble(args...)
@@ -10,8 +10,8 @@ function Base.getproperty(ensemble::CuHybridMatrixEnsemble, s::Symbol)
     return getproperty(getfield(ensemble, :ensemble), s)
 end
 
-struct CuHybridWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
-    cuworkspace::CuWorkspace{R, U, V, W, X}
+struct CuHybridWorkspace{R, U, V, W} <: AbstractWorkspace{R}
+    cuworkspace::CuWorkspace{R, U, V, W}
     T::Vector{R}
     G₀⁻¹_diag::Vector{Complex{R}}
     Q::Matrix{Complex{R}}
@@ -22,8 +22,8 @@ struct CuHybridWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
     QPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
 
     function CuHybridWorkspace(
-        ensemble::CuHybridMatrixEnsemble{R, U, V, W, X}
-    ) where {R, U, V, W, X}
+        ensemble::CuHybridMatrixEnsemble{R, U, V, W}
+    ) where {R, U, V, W}
         cuworkspace = CuWorkspace(getfield(ensemble, :ensemble))
         N = length(ensemble.T)
         T = Vector(ensemble.T)
@@ -37,17 +37,7 @@ struct CuHybridWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
         for A in (G₀⁻¹_diag, Q, P.data, PQ, QᴴPQ.data, QP, QPQ)
             Mem.pin(A)
         end
-        return new{R, U, V, W, X}(
-            cuworkspace,
-            T,
-            G₀⁻¹_diag,
-            Q,
-            P,
-            PQ,
-            QᴴPQ,
-            QP,
-            QPQ,
-        )
+        return new{R, U, V, W}(cuworkspace, T, G₀⁻¹_diag, Q, P, PQ, QᴴPQ, QP, QPQ)
     end
 end
 
