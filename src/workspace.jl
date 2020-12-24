@@ -82,7 +82,6 @@ function _G₀⁻¹_diag!(workspace, z)
     ensemble = workspace.ensemble
     @inbounds zA⁻B!(workspace.Q, z, ensemble.L⁻¹R⁻¹, ensemble.L⁻¹MR⁻¹)
     @inbounds copy_diag!(workspace.G₀⁻¹_diag, workspace.Q)
-    set_z!(workspace.status, z)
     return nothing
 end
 
@@ -99,7 +98,6 @@ function _Q!(workspace, ::Fixr²{QNormal}, μq⁻) where {QNormal}
     end
     @inbounds copyto!(workspace.P.data, workspace.QQᴴ.data)
     workspace.s²min[] = eigmin!(workspace.P)
-    set_μq⁻!(workspace.status, μq⁻)
     return nothing
 end
 
@@ -110,7 +108,6 @@ function _P!(workspace, r²)
     LAPACK.potrf!(workspace.P.uplo, workspace.P⁻¹f)
     @inbounds copyto!(workspace.P.data, workspace.P⁻¹f)
     LAPACK.potri!(workspace.P.uplo, workspace.P.data)
-    set_r²!(workspace.status, r²)
     return nothing
 end
 
@@ -120,13 +117,11 @@ _γ²!(r²::Fixδ², s²min) = r².value - s²min
 function _PQ!(workspace)
     @inbounds copyto!(workspace.PQ, workspace.Q)
     LAPACK.potrs!(workspace.P.uplo, workspace.P⁻¹f, workspace.PQ)
-    workspace.status.PQ = true
     return nothing
 end
 
 function _QᴴPQ!(workspace)
     mul!(workspace.QᴴPQ.data, workspace.Q', workspace.PQ)
-    workspace.status.QᴴPQ = true
     return nothing
 end
 
@@ -140,32 +135,28 @@ function _QP!(workspace)
     end
     @inbounds copyto!(workspace.QP, workspace.Q)
     rdiv!(rdiv!(workspace.QP, U), L)
-    workspace.status.QP = true
     return nothing
 end
 
 function _QPQ!(workspace)
-    workspace.status.PL⁻¹R⁻¹ = false
     mul!(workspace.QPQ, workspace.Q, workspace.PQ)
-    workspace.status.QPQ = true
     return nothing
 end
 
 function _PL⁻¹R⁻¹!(workspace)
-    workspace.status.QPQ = false
     if workspace.ensemble.L⁻¹R⁻¹ isa UniformScaling
         mul!(workspace.QPQ, workspace.P, workspace.ensemble.L⁻¹R⁻¹)
     else
         @inbounds copyto!(workspace.QPQ, workspace.ensemble.L⁻¹R⁻¹)
         LAPACK.potrs!(workspace.P.uplo, workspace.P⁻¹f, workspace.QPQ)
     end
-    workspace.status.PL⁻¹R⁻¹ = true
     return nothing
 end
 
 function G₀⁻¹_diag!(workspace, z)
     if workspace.status.z !== z
         _G₀⁻¹_diag!(workspace, z)
+        set_z!(workspace.status, z)
     end
     return workspace.G₀⁻¹_diag
 end
@@ -175,6 +166,7 @@ function Q!(workspace, objective, z, q)
     μq⁻ = -objective.μ * q
     if workspace.status.μq⁻ !== μq⁻
         _Q!(workspace, objective, μq⁻)
+        set_μq⁻!(workspace.status, μq⁻)
     end
     return workspace.Q
 end
@@ -184,6 +176,7 @@ function P!(workspace, objective::O, z, q) where {O}
     r² = O(objective.value, one(objective.μ))  # Don't include μ in this status, see Q!
     if workspace.status.r² !== r²
         _P!(workspace, r²)
+        set_r²!(workspace.status, r²)
     end
     return workspace.P
 end
@@ -193,6 +186,7 @@ function PQ!(workspace, objective, z, q)
     P!(workspace, objective, z, q)
     if !workspace.status.PQ
         _PQ!(workspace)
+        workspace.status.PQ = true
     end
     return workspace.PQ
 end
@@ -202,6 +196,7 @@ function QᴴPQ!(workspace, objective, z, q)
     PQ!(workspace, objective, z, q)
     if !workspace.status.QᴴPQ
         _QᴴPQ!(workspace)
+        workspace.status.QᴴPQ = true
     end
     return workspace.QᴴPQ
 end
@@ -211,6 +206,7 @@ function QP!(workspace, objective, z, q)
     P!(workspace, objective, z, q)
     if !workspace.status.QP
         _QP!(workspace)
+        workspace.status.QP = true
     end
     return workspace.QP
 end
@@ -219,7 +215,9 @@ function QPQ!(workspace, objective, z, q)
     Q!(workspace, objective, z, q)
     PQ!(workspace, objective, z, q)
     if !workspace.status.QPQ
+        workspace.status.PL⁻¹R⁻¹ = false
         _QPQ!(workspace)
+        workspace.status.QPQ = true
     end
     return workspace.QPQ
 end
@@ -227,7 +225,9 @@ end
 function PL⁻¹R⁻¹!(workspace, objective, z, q)
     P!(workspace, objective, z, q)
     if !workspace.status.PL⁻¹R⁻¹
+        workspace.status.QPQ = false
         _PL⁻¹R⁻¹!(workspace)
+        workspace.status.PL⁻¹R⁻¹ = true
     end
     return workspace.QPQ
 end

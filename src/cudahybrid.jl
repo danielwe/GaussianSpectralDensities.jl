@@ -12,137 +12,108 @@ end
 
 struct CuHybridWorkspace{R, U, V, W, X} <: AbstractWorkspace{R}
     cuworkspace::CuWorkspace{R, U, V, W, X}
-    hostT::Vector{R}
-    hostG₀⁻¹_diag::Vector{Complex{R}}
-    hostQ::Matrix{Complex{R}}
-    hostP::Hermitian{Complex{R},Matrix{Complex{R}}}
-    hostPQ::Matrix{Complex{R}}
-    hostQᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
-    hostQP::Matrix{Complex{R}}
-    hostQPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
+    T::Vector{R}
+    G₀⁻¹_diag::Vector{Complex{R}}
+    Q::Matrix{Complex{R}}
+    P::Hermitian{Complex{R},Matrix{Complex{R}}}
+    PQ::Matrix{Complex{R}}
+    QᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
+    QP::Matrix{Complex{R}}
+    QPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
 
     function CuHybridWorkspace(
         ensemble::CuHybridMatrixEnsemble{R, U, V, W, X}
     ) where {R, U, V, W, X}
         cuworkspace = CuWorkspace(getfield(ensemble, :ensemble))
         N = length(ensemble.T)
-        hostT = Vector(ensemble.T)
-        hostG₀⁻¹_diag = Vector{Complex{R}}(undef, N)
-        hostQ = Matrix{Complex{R}}(undef, N, N)
-        hostP = Hermitian(Matrix{Complex{R}}(undef, N, N))
-        hostPQ = Matrix{Complex{R}}(undef, N, N)
-        hostQᴴPQ = Hermitian(Matrix{Complex{R}}(undef, N, N))
-        hostQP = Matrix{Complex{R}}(undef, N, N)
-        hostQPQ = Matrix{Complex{R}}(undef, N, N)
-        for A in (hostG₀⁻¹_diag, hostQ, hostP.data, hostPQ, hostQᴴPQ.data, hostQP, hostQPQ)
+        T = Vector(ensemble.T)
+        G₀⁻¹_diag = Vector{Complex{R}}(undef, N)
+        Q = Matrix{Complex{R}}(undef, N, N)
+        P = Hermitian(Matrix{Complex{R}}(undef, N, N))
+        PQ = Matrix{Complex{R}}(undef, N, N)
+        QᴴPQ = Hermitian(Matrix{Complex{R}}(undef, N, N))
+        QP = Matrix{Complex{R}}(undef, N, N)
+        QPQ = Matrix{Complex{R}}(undef, N, N)
+        for A in (G₀⁻¹_diag, Q, P.data, PQ, QᴴPQ.data, QP, QPQ)
             Mem.pin(A)
         end
         return new{R, U, V, W, X}(
             cuworkspace,
-            hostT,
-            hostG₀⁻¹_diag,
-            hostQ,
-            hostP,
-            hostPQ,
-            hostQᴴPQ,
-            hostQP,
-            hostQPQ,
+            T,
+            G₀⁻¹_diag,
+            Q,
+            P,
+            PQ,
+            QᴴPQ,
+            QP,
+            QPQ,
         )
     end
 end
 
 function Base.getproperty(workspace::CuHybridWorkspace, s::Symbol)
-    if startswith(string(s), "host")
-        return getfield(workspace, s)
+    if s in (:ensemble, :s²min, :status)
+        return getproperty(workspace.cuworkspace, s)
     end
-    return getproperty(getfield(workspace, :cuworkspace), s)
+    return getfield(workspace, s)
 end
 
 workspace(ensemble::CuHybridMatrixEnsemble) = CuHybridWorkspace(ensemble)
 
-T(workspace::CuHybridWorkspace) = workspace.hostT
+T(workspace::CuHybridWorkspace) = workspace.T
 
-function G₀⁻¹_diag!(workspace::CuHybridWorkspace, z)
-    if workspace.status.z !== z
-        _G₀⁻¹_diag!(workspace, z)
-        @inbounds copyto!(workspace.hostG₀⁻¹_diag, workspace.G₀⁻¹_diag)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostG₀⁻¹_diag
+function _G₀⁻¹_diag!(workspace::CuHybridWorkspace, z)
+    _G₀⁻¹_diag!(workspace.cuworkspace, z)
+    @inbounds copyto!(workspace.G₀⁻¹_diag, workspace.cuworkspace.G₀⁻¹_diag)
+    synchronize(CuDefaultStream())
+    return nothing
 end
 
-function Q!(workspace::CuHybridWorkspace, objective, z, q)
-    G₀⁻¹_diag!(workspace, z)
-    μq⁻ = -objective.μ * q
-    if workspace.status.μq⁻ !== μq⁻
-        _Q!(workspace, objective, μq⁻)
-        @inbounds copyto!(workspace.hostQ, workspace.Q)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostQ
+function _Q!(workspace::CuHybridWorkspace, objective::Fixr²{QNormal}, μq⁻) where {QNormal}
+    _Q!(workspace.cuworkspace, objective, μq⁻)
+    @inbounds copyto!(workspace.Q, workspace.cuworkspace.Q)
+    synchronize(CuDefaultStream())
+    return nothing
 end
 
-function P!(workspace::CuHybridWorkspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    r² = (typeof(objective), objective.value)
-    if workspace.status.r² !== r²
-        _P!(workspace, objective, r²)
-        @inbounds copyto!(workspace.hostP.data, workspace.P.data)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostP
+function _P!(workspace::CuHybridWorkspace, r²)
+    _P!(workspace.cuworkspace, r²)
+    @inbounds copyto!(workspace.P, workspace.cuworkspace.P)
+    synchronize(CuDefaultStream())
+    return nothing
 end
 
-function PQ!(workspace::CuHybridWorkspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    P!(workspace, objective, z, q)
-    if !workspace.status.PQ
-        _PQ!(workspace)
-        @inbounds copyto!(workspace.hostPQ, workspace.PQ)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostPQ
+function _PQ!(workspace::CuHybridWorkspace)
+    _PQ!(workspace.cuworkspace)
+    @inbounds copyto!(workspace.PQ, workspace.cuworkspace.PQ)
+    synchronize(CuDefaultStream())
+    return nothing
 end
 
-function QᴴPQ!(workspace::CuHybridWorkspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    PQ!(workspace, objective, z, q)
-    if !workspace.status.QᴴPQ
-        _QᴴPQ!(workspace)
-        @inbounds copyto!(workspace.hostQᴴPQ.data, workspace.QᴴPQ.data)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostQᴴPQ
+function _QᴴPQ!(workspace::CuHybridWorkspace)
+    _QᴴPQ!(workspace.cuworkspace)
+    @inbounds copyto!(workspace.QᴴPQ, workspace.cuworkspace.QᴴPQ)
+    synchronize(CuDefaultStream())
+    return nothing
 end
 
-function QP!(workspace::CuHybridWorkspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    P!(workspace, objective, z, q)
-    if !workspace.status.QP
-        _QP!(workspace)
-        @inbounds copyto!(workspace.hostQP, workspace.QP)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostQP
+function _QP!(workspace::CuHybridWorkspace)
+    _QP!(workspace.cuworkspace)
+    @inbounds copyto!(workspace.QP, workspace.cuworkspace.QP)
+    synchronize(CuDefaultStream())
+    return nothing
 end
 
-function QPQ!(workspace::CuHybridWorkspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    PQ!(workspace, objective, z, q)
-    if !workspace.status.QPQ
-        _QPQ!(workspace)
-        @inbounds copyto!(workspace.hostQPQ, workspace.QPQ)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostQPQ
+function _QPQ!(workspace::CuHybridWorkspace)
+    _QPQ!(workspace.cuworkspace)
+    @inbounds copyto!(workspace.QPQ, workspace.cuworkspace.QPQ)
+    synchronize(CuDefaultStream())
+    return nothing
 end
 
-function PL⁻¹R⁻¹!(workspace::CuHybridWorkspace, objective, z, q)
-    P!(workspace, objective, z, q)
-    if !workspace.status.PL⁻¹R⁻¹
-        _PL⁻¹R⁻¹!(workspace)
-        @inbounds copyto!(workspace.hostQPQ, workspace.QPQ)
-        synchronize(CuDefaultStream())
-    end
-    return workspace.hostQPQ
+function _PL⁻¹R⁻¹!(workspace::CuHybridWorkspace)
+    _PL⁻¹R⁻¹!(workspace.cuworkspace)
+    @inbounds copyto!(workspace.QPQ, workspace.cuworkspace.QPQ)
+    synchronize(CuDefaultStream())
+    return nothing
 end
