@@ -1,4 +1,4 @@
-function qsolve!(workspace, objective::Fixγ², z, q₀; verbosity)
+function qsolve!(workspace, objective::Fixγ², z, q₀, verbosity=0)
     f(qv) = qf!(workspace, objective, z, qv)
     j(qv, _) = qj!(workspace, objective, z, qv)
     qv, niters = newton(f, j, (@SVector [real(q₀), imag(q₀)]))
@@ -6,14 +6,14 @@ function qsolve!(workspace, objective::Fixγ², z, q₀; verbosity)
     return complex(qv[1], qv[2])
 end
 
-function qsolve!(workspace, objective::Fixδ², z, q₀; verbosity)
+function qsolve!(workspace, objective::Fixδ², z, q₀, verbosity=0)
     f(qv) = qf!(workspace, objective, z, qv)
     qv, niters = newton(f, (@SVector [real(q₀), imag(q₀)]))
     print_niters(niters, verbosity)
     return complex(qv[1], qv[2])
 end
 
-function qsolve!(workspace, objective::Fixk, z, q₀, δ₀²; verbosity)
+function qsolve!(workspace, objective::Fixk, z, q₀, δ₀², verbosity=0)
     f(qδ²v) = qδ²f!(workspace, objective, z, qδ²v)
     qδ²v, niters = newton(f, (@SVector [real(q₀), imag(q₀), δ₀²]))
     print_niters(niters, verbosity)

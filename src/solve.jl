@@ -161,7 +161,9 @@ function solve!(
     n = length(algorithm)
     if store_trace && (n > 0)
         trace = SpectralTrace{R}(undef, n)
-        solution, ti = solve!(workspace, objective, algorithm, z, trace; verbosity=verbosity)
+        solution, ti = solve!(
+            workspace, objective, algorithm, z, trace; verbosity=verbosity
+        )
         trace = trace[1:ti]
     else
         solution, _ = solve!(workspace, objective, algorithm, z; verbosity=verbosity)
@@ -171,7 +173,7 @@ function solve!(
     return SpectralSolution(solution, algorithm, trace)
 end
 
-function solve!(workspace, objective, algorithm::Ramp, z, trace=nothing, ti=0; verbosity)
+function solve!(workspace, objective, algorithm::Ramp, z, trace=nothing, ti=0; verbosity=0)
     final_sol = nothing
     q_ = q₀!(workspace, algorithm, z)
     δ_² = δ₀²(algorithm)
@@ -229,12 +231,12 @@ function solve!(
     z,
     ::Any=nothing,
     ti=0;
-    verbosity,
+    verbosity=0,
 ) where {QNormal}
     q_, δ_² = q₀!(workspace, algorithm, z), δ₀²(algorithm)
     local q, δ²
     try
-        q, δ² = qsolve!(workspace, objective, z, q_, δ_²; verbosity=verbosity)
+        q, δ² = qsolve!(workspace, objective, z, q_, δ_², verbosity)
     catch err
         if err isa ConvergenceException
             return BareSpectralSolution(objective), ti
@@ -249,12 +251,18 @@ function solve!(
 end
 
 function solve!(
-    workspace, objective::Fixr², algorithm::StraightShot, z, ::Any=nothing, ti=0; verbosity
+    workspace,
+    objective::Fixr²,
+    algorithm::StraightShot,
+    z,
+    ::Any=nothing,
+    ti=0;
+    verbosity=0,
 )
     q_ = q₀!(workspace, algorithm, z)
     local q
     try
-        q = qsolve!(workspace, objective, z, q_; verbosity=verbosity)
+        q = qsolve!(workspace, objective, z, q_, verbosity)
     catch err
         if err isa ConvergenceException
             return BareSpectralSolution(objective), ti
