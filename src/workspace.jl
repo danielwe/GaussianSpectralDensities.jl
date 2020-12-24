@@ -1,7 +1,7 @@
 mutable struct WorkspaceStatus{R}
     z::MissingOr{Complex{R}}
     μq⁻::MissingOr{Complex{R}}
-    r²::MissingOr{Tuple{DataType, R}}
+    r²::MissingOr{Objective{<:Any, R}}
     PQ::Bool
     QᴴPQ::Bool
     QP::Bool
@@ -86,7 +86,7 @@ function _G₀⁻¹_diag!(workspace, z)
     return nothing
 end
 
-function _Q!(workspace, objective::Fixr²{QNormal}, μq⁻) where {QNormal}
+function _Q!(workspace, ::Fixr²{QNormal}, μq⁻) where {QNormal}
     @inbounds set_diag_muladd!(workspace.Q, μq⁻, workspace.ensemble.T, workspace.G₀⁻¹_diag)
     mul!(workspace.QQᴴ.data, workspace.Q, workspace.Q')
     if QNormal
@@ -103,8 +103,8 @@ function _Q!(workspace, objective::Fixr²{QNormal}, μq⁻) where {QNormal}
     return nothing
 end
 
-function _P!(workspace, objective, r²)
-    γ² = _γ²!(objective, workspace.s²min[])
+function _P!(workspace, r²)
+    γ² = _γ²!(r², workspace.s²min[])
     @inbounds copyto!(workspace.P⁻¹f, workspace.QQᴴ.data)
     @inbounds add_to_diag!(workspace.P⁻¹f, γ²)
     LAPACK.potrf!(workspace.P.uplo, workspace.P⁻¹f)
@@ -114,8 +114,8 @@ function _P!(workspace, objective, r²)
     return nothing
 end
 
-_γ²!(objective::Fixγ², ::Any) = objective.value
-_γ²!(objective::Fixδ², s²min) = objective.value - s²min
+_γ²!(r²::Fixγ², ::Any) = r².value
+_γ²!(r²::Fixδ², s²min) = r².value - s²min
 
 function _PQ!(workspace)
     @inbounds copyto!(workspace.PQ, workspace.Q)
@@ -179,11 +179,11 @@ function Q!(workspace, objective, z, q)
     return workspace.Q
 end
 
-function P!(workspace, objective, z, q)
+function P!(workspace, objective::O, z, q) where {O}
     Q!(workspace, objective, z, q)
-    r² = (typeof(objective), objective.value)
+    r² = O(objective.value, one(objective.μ))  # Don't include μ in this status, see Q!
     if workspace.status.r² !== r²
-        _P!(workspace, objective, r²)
+        _P!(workspace, r²)
     end
     return workspace.P
 end

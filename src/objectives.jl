@@ -20,9 +20,9 @@ Fixk{QNormal}(k::R, μ::R) where {QNormal, R} = Fixk{QNormal, R}(k, μ)
 Fixγ²{QNormal}(γ²::R, μ::R) where {QNormal, R} = Fixγ²{QNormal, R}(γ², μ)
 Fixδ²{QNormal}(δ²::R, μ::R) where {QNormal, R} = Fixδ²{QNormal, R}(δ², μ)
 
-Fixk{QNormal}(k::R) where {QNormal, R} = Fixk{QNormal, R}(k, convert(R, default(:μ)))
-Fixγ²{QNormal}(γ²::R) where {QNormal, R} = Fixγ²{QNormal, R}(γ², convert(R, default(:μ)))
-Fixδ²{QNormal}(δ²::R) where {QNormal, R} = Fixδ²{QNormal, R}(δ², convert(R, default(:μ)))
+Fixk{QNormal}(k::R) where {QNormal, R} = Fixk{QNormal, R}(k, R(default(:μ)))
+Fixγ²{QNormal}(γ²::R) where {QNormal, R} = Fixγ²{QNormal, R}(γ², R(default(:μ)))
+Fixδ²{QNormal}(δ²::R) where {QNormal, R} = Fixδ²{QNormal, R}(δ², R(default(:μ)))
 
 Fixk(args...) = Fixk{default(:QNormal)}(args...)
 Fixγ²(args...) = Fixγ²{default(:QNormal)}(args...)
@@ -32,15 +32,15 @@ Fixk{QNormal}() where {QNormal} = Fixk{QNormal}(default(:k))
 Fixγ²{QNormal}() where {QNormal} = Fixγ²{QNormal}(default(:γ²))
 
 function adapt(::Type{R}, objective::Fixk{QNormal}) where {R<:Real, QNormal}
-    return Fixk{QNormal, R}(convert(R, objective.value), convert(R, objective.μ))
+    return Fixk{QNormal, R}(R(objective.value), R(objective.μ))
 end
 
 function adapt(::Type{R}, objective::Fixγ²{QNormal}) where {R<:Real, QNormal}
-    return Fixγ²{QNormal, R}(convert(R, objective.value), convert(R, objective.μ))
+    return Fixγ²{QNormal, R}(R(objective.value), R(objective.μ))
 end
 
 function adapt(::Type{R}, objective::Fixδ²{QNormal}) where {R<:Real, QNormal}
-    return Fixδ²{QNormal, R}(convert(R, objective.value), convert(R, objective.μ))
+    return Fixδ²{QNormal, R}(R(objective.value), R(objective.μ))
 end
 
 adapt(::Type{R}, objective::Fixk{QNormal, R}) where {R<:Real, QNormal} = objective
