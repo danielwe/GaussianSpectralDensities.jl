@@ -3,23 +3,25 @@ phase(z) = exp(im * angle(z))
 
 function partially_hermitize(J, τ::Number)
     ϕ = asin(abs(τ)) / 2
-    ph = phase(τ)
-    return J * cos(ϕ) + J' * (ph * sin(ϕ))
+    return J .* cos(ϕ) .+ J' .* (phase(τ) * sin(ϕ))
 end
 
 function partially_hermitize(J, T::AbstractVector)
-    Tabs = abs.(T)
-    ϕ = asin.(Tabs * Tabs') ./ 2
-    Tph = phase.(T)
-    ph = Tph * transpose(Tph)
-    return J .* cos.(ϕ) .+ J' .* ph .* sin.(ϕ)
+    ϕ = asin.(abs.(T) .* abs.(transpose(T))) ./ 2
+    return J .* cos.(ϕ) .+ J' .* phase.(T) .* phase.(transpose(T)) .* sin.(ϕ)
 end
 
 function sample(rng::AbstractRNG, ::Type{E}, ensemble::AbstractMatrixEnsemble) where {E}
     N = length(ensemble.T)
-    Jiid = randn(rng, E, N, N) / sqrt(real(E)(N))
-    J = partially_hermitize(Jiid, ensemble.T)
-    return (ensemble.M + ensemble.L * J * ensemble.R, J)
+    J = partially_hermitize(randn(rng, E, N, N) / sqrt(real(E)(N)), ensemble.T)
+    A = J * ensemble.R
+    if applicable(lmul!, ensemble.L, A)
+        lmul!(ensemble.L, A)
+    else
+        A = ensemble.L * A
+    end
+    A .+= ensemble.M
+    return A, J
 end
 
 function sample(::Type{E}, ensemble::AbstractMatrixEnsemble) where {E}

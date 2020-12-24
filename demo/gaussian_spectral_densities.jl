@@ -1,6 +1,7 @@
-using GaussianSpectralDensities
+using Revise
 using StableRNGs
 import LazySets
+using GaussianSpectralDensities
 using CUDA
 
 using LinearAlgebra: BLAS; BLAS.set_num_threads(1)
@@ -13,14 +14,16 @@ include("example_problems.jl");
 ftype = Float32
 
 σ = ftype(0.5);
-τ = ftype(0.8);
+τs = [ftype(0.3), ftype(0.8)];
 λ = ftype(0.0);
 
 N_big = 1024;
-ensemble_big = jordan(N_big, λ, σ, τ);
+T_big = repeat(sqrt.(τs), N_big ÷ length(τs))
+ensemble_big = jordan(N_big, λ, σ, T_big);
 
 N = 128;
-ensemble = jordan(N, λ, σ, τ);
+T = repeat(sqrt.(τs), N ÷ length(τs))
+ensemble = jordan(N, λ, σ, T);
 ensemble_gpu = CuMatrixEnsemble(ensemble);
 ensemble_hybrid = CuHybridMatrixEnsemble(ensemble);
 
