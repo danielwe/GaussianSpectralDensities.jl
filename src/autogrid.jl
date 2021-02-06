@@ -1,33 +1,31 @@
-using .LazySets: LazySet, VPolygon, Bloating, overapproximate, radius
-
-function spectral_region(evals::Vector{Complex{R}}) where {R}
-    evalsxy = reinterpret(R, reshape(evals, 1, :))
-    region = VPolygon(evalsxy)
-    region = Bloating(region, R(0.125) * radius(region))
-    region = overapproximate(region, R(0.01) * radius(region))
-    return region
+function autogrid(xmin::Real, xmax::Real, ymin::Real, ymax::Real, n::Integer=64^2)
+    ratio = (xmax - xmin) / (ymax - ymin)
+    nx = sqrt(n * ratio) / 2
+    xs = LinRange(xmin, xmax, 2 * round(Int, nx) + 1)
+    ys = LinRange(ymin, ymax, 2 * round(Int, nx / ratio) + 1)
+    return xs, ys
 end
 
-spectral_region(args...) = spectral_region(eigvals(sample(args...)[1]))
-
-function autogrid(region::LazySet, n::Integer=64^2)
-    bounds = overapproximate(region)
-    xcenter, ycenter = bounds.center
-    xradius, yradius = bounds.radius
-    xmin, xmax = xcenter - xradius, xcenter + xradius
-    ymin, ymax = ycenter - yradius, ycenter + yradius
-    xs = range(xmin, xmax; length=2 * round(Int, sqrt(n * xradius / yradius) / 2) + 1)
-    ys = range(ymin, ymax; length=2 * round(Int, sqrt(n * yradius / xradius) / 2) + 1)
-    zs = [[x, y] in region ? complex(x, y) : missing for y in ys, x in xs]
-    return xs, ys, zs
+function autogrid(evals::Vector{Complex{R}}, args...) where {R}
+    xmin, xmax = extrema(real, evals)
+    ymin, ymax = extrema(imag, evals)
+    margin = R(0.0625) * max(xmax - xmin, ymax - ymin)
+    xmin, xmax = xmin - margin, xmax + margin
+    ymin, ymax = ymin - margin, ymax + margin
+    return autogrid(xmin, xmax, ymin, ymax, args...)
 end
 
-autogrid(x, args...) = autogrid(spectral_region(x), args...)
+autogrid(A::AbstractMatrix, args...) = autogrid(eigvals(A; sortby=nothing), args...)
+autogrid!(A::AbstractMatrix, args...) = autogrid(eigvals!(A; sortby=nothing), args...)
 
-function autogrid(x, ensemble::AbstractMatrixEnsemble, args...)
-    return autogrid(spectral_region(x, ensemble), args...)
+function autogrid(ensemble::AbstractMatrixEnsemble, args...)
+    return autogrid!(sample(ensemble), args...)
 end
 
-function autogrid(x, y, ensemble::AbstractMatrixEnsemble, args...)
-    return autogrid(spectral_region(x, y, ensemble), args...)
+function autogrid(rng_or_type, ensemble::AbstractMatrixEnsemble, args...)
+    return autogrid!(sample(rng_or_type, ensemble), args...)
+end
+
+function autogrid(rng, type, ensemble::AbstractMatrixEnsemble, args...)
+    return autogrid!(sample(rng, type, ensemble), args...)
 end

@@ -47,7 +47,7 @@ function Rampμ(initial_algorithm, ramp)
 end
 
 function Rampμ(initial_algorithm::Algorithm{R}, n::Integer, args...) where {R}
-    return Rampμ(initial_algorithm, collect(range(R(0.0), R(1.0); length=(n + 1))), args...)
+    return Rampμ(initial_algorithm, collect(LinRange(R(0.0), R(1.0), n + 1)), args...)
 end
 
 function adapt(::Type{R}, algorithm::Rampμ) where {R<:Real}

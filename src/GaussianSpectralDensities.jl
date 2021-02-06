@@ -18,6 +18,7 @@ export Rampγ², Rampδ², Rampμ, StraightShot
 export Fixk, Fixγ², Fixδ²
 export solve, solve!
 export spectral_density, partially_hermitize, sample
+export autogrid, autogrid!
 
 const MissingOr{T} = Union{Missing, T}
 
@@ -32,6 +33,7 @@ include("newton.jl")
 include("qsolve.jl")
 include("solve.jl")
 include("density.jl")
+include("autogrid.jl")
 include("printing.jl")
 include("settings.jl")
 
@@ -44,8 +46,8 @@ function __init__()
         include("cudahybrid.jl")
     end
     @require LazySets="b4f0291d-fe17-52bc-9479-3d1a343d9043" begin
-        export spectral_region, autogrid
-        include("autogrid.jl")
+        export spectral_region, spectral_region!
+        include("spectral_region.jl")
     end
 end
 
