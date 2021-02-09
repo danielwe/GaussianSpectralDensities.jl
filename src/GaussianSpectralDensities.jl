@@ -13,11 +13,12 @@ using Printf
   of plots it makes sense to write recipes for, however.
 =#
 
-export MatrixEnsemble, SpectralProblem, SpectralSolver
+export AbstractMatrixEnsemble, MatrixEnsemble
+export partially_hermitize, randiid, randpartialherm, transform, transform!, randsample
 export Rampγ², Rampδ², Rampμ, StraightShot
 export Fixk, Fixγ², Fixδ²
-export solve, solve!
-export spectral_density, partially_hermitize, sample
+export SpectralProblem, SpectralSolver, solve, solve!
+export spectral_density
 export autogrid, autogrid!
 
 const MissingOr{T} = Union{Missing, T}

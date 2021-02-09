@@ -19,13 +19,13 @@ autogrid(A::AbstractMatrix, args...) = autogrid(eigvals(A; sortby=nothing), args
 autogrid!(A::AbstractMatrix, args...) = autogrid(eigvals!(A; sortby=nothing), args...)
 
 function autogrid(ensemble::AbstractMatrixEnsemble, args...)
-    return autogrid!(sample(ensemble), args...)
+    return autogrid!(randsample(ensemble), args...)
 end
 
 function autogrid(rng_or_type, ensemble::AbstractMatrixEnsemble, args...)
-    return autogrid!(sample(rng_or_type, ensemble), args...)
+    return autogrid!(randsample(rng_or_type, ensemble), args...)
 end
 
 function autogrid(rng, type, ensemble::AbstractMatrixEnsemble, args...)
-    return autogrid!(sample(rng, type, ensemble), args...)
+    return autogrid!(randnsample(rng, type, ensemble), args...)
 end

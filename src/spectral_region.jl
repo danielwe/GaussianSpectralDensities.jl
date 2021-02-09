@@ -11,7 +11,7 @@ end
 
 spectral_region(A::AbstractMatrix) = spectral_region(eigvals(A, sortby=nothing))
 spectral_region!(A::AbstractMatrix) = spectral_region(eigvals!(A, sortby=nothing))
-spectral_region(args...) = spectral_region!(sample(args...)[1])
+spectral_region(args...) = spectral_region!(randsample(args...)[1])
 
 function autogrid(region::LazySet, args...)
     bounds = overapproximate(region)
