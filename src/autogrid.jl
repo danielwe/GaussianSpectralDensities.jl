@@ -9,7 +9,7 @@ end
 function autogrid(evals::Vector{Complex{R}}, args...) where {R}
     xmin, xmax = extrema(real, evals)
     ymin, ymax = extrema(imag, evals)
-    margin = R(0.0625) * max(xmax - xmin, ymax - ymin)
+    margin = R(0.05) * max(xmax - xmin, ymax - ymin)
     xmin, xmax = xmin - margin, xmax + margin
     ymin, ymax = ymin - margin, ymax + margin
     return autogrid(xmin, xmax, ymin, ymax, args...)

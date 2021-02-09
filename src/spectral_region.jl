@@ -4,7 +4,7 @@ function spectral_region(evals::Vector{Complex{R}}) where {R}
     evalsxy = reinterpret(R, reshape(evals, 1, :))
     region = VPolygon(evalsxy)
     r = radius(region)
-    region = Bloating(region, R(0.125) * r)
+    region = Bloating(region, R(0.1) * r)
     region = overapproximate(region, R(0.01) * r)
     return region
 end
