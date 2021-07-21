@@ -10,5 +10,6 @@ function default(x)
     if x === :γ²min; return -Inf; end
     if x === :q₀; return complex(Float64(relstep(Float32))); end
     if x === :δ₀²; return 1.0; end
+    if x === :margin; return 0.1; end
     error("no default value for $x")
 end

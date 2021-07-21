@@ -19,7 +19,7 @@ export Rampγ², Rampδ², Rampμ, StraightShot
 export Fixk, Fixγ², Fixδ²
 export SpectralProblem, SpectralSolver, solve, solve!
 export spectral_density
-export autogrid, autogrid!
+export automesh, automesh!
 
 const MissingOr{T} = Union{Missing, T}
 
@@ -34,7 +34,7 @@ include("newton.jl")
 include("qsolve.jl")
 include("solve.jl")
 include("density.jl")
-include("autogrid.jl")
+include("automesh.jl")
 include("printing.jl")
 include("settings.jl")
 
