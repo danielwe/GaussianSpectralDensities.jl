@@ -14,7 +14,7 @@ using Printf
 =#
 
 export AbstractMatrixEnsemble, MatrixEnsemble
-export partially_hermitize, randiid, randpartialherm, transform, transform!, randsample
+export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 export Rampγ², Rampδ², Rampμ, StraightShot
 export Fixk, Fixγ², Fixδ²
 export SpectralProblem, SpectralSolver, solve, solve!
