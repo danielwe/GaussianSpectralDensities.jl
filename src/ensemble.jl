@@ -1,16 +1,16 @@
-const MatrixOrI{R} = Union{AbstractMatrix{R}, UniformScaling{R}}
+const AMOrI{R} = Union{AbstractMatrix{R}, UniformScaling{R}}
 const RealOrComplex{R<:Real} = Union{R, Complex{R}}
 
-abstract type AbstractMatrixEnsemble{R<:Real} end
+abstract type AbstractMatrixEnsemble{
+    R<:Real,
+    U<:AMOrI{<:RealOrComplex{R}},
+    V<:AMOrI{<:RealOrComplex{R}},
+    W<:AMOrI{<:RealOrComplex{R}},
+} end
 
 struct MatrixEnsemble{
-    R,
-    U<:MatrixOrI{<:RealOrComplex{R}},
-    V<:MatrixOrI{<:RealOrComplex{R}},
-    W<:MatrixOrI{<:RealOrComplex{R}},
-    X<:MatrixOrI{Complex{R}},
-    Y<:AbstractMatrix{Complex{R}},
-} <: AbstractMatrixEnsemble{R}
+    R, U, V, W, X<:AMOrI{Complex{R}}, Y<:AbstractMatrix{Complex{R}},
+} <: AbstractMatrixEnsemble{R, U, V, W}
     M::U
     L::V
     R::W
@@ -62,4 +62,11 @@ end
 
 function A⁻¹BC⁻¹(A::UniformScaling, B, C::UniformScaling)
     return B / (A * C)
+end
+
+function Base.eltype(ensemble::AbstractMatrixEnsemble{R, U, V, W}) where {R, U, V, W}
+    if any(T -> eltype(T) <: Complex, (U, V, W))
+        return Complex{R}
+    end
+    return R
 end

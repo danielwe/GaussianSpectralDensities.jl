@@ -1,4 +1,4 @@
-struct CuHybridMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R}
+struct CuHybridMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R, U, V, W}
     ensemble::CuMatrixEnsemble{R, U, V, W}
 end
 
@@ -42,7 +42,7 @@ struct CuHybridWorkspace{R, U, V, W} <: AbstractWorkspace{R}
 end
 
 function Base.getproperty(workspace::CuHybridWorkspace, s::Symbol)
-    if s in (:ensemble, :s²min, :status)
+    if s in (:status, :s²min)
         return getproperty(workspace.cuworkspace, s)
     end
     return getfield(workspace, s)

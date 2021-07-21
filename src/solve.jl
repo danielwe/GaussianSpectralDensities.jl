@@ -36,6 +36,10 @@ function SpectralSolver(problem, algorithm)
     return SpectralSolver(problem.ensemble, problem.objective, algorithm)
 end
 
+function update_ensemble!(solver::SpectralSolver, ensemble)
+    return set_ensemble!(solver.workspace.status, ensemble)
+end
+
 function solve(
     problem::SpectralProblem{R, <:AbstractMatrix}, algorithm; chunks_per_thread=1, kwargs...
 ) where {R}

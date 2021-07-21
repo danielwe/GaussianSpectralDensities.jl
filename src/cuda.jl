@@ -17,12 +17,7 @@ const GeneralCuMatrix{T} = Union{
 }
 const AnyCuMatrix = Union{GeneralCuMatrix, SelfAdjoint{<:Real, <:CuMatrix}}
 
-struct CuMatrixEnsemble{
-    R,
-    U<:MatrixOrI{<:RealOrComplex{R}},
-    V<:MatrixOrI{<:RealOrComplex{R}},
-    W<:MatrixOrI{<:RealOrComplex{R}},
-} <: AbstractMatrixEnsemble{R}
+struct CuMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R, U, V, W}
     M::U
     L::V
     R::W
@@ -62,7 +57,7 @@ function CuMatrixEnsemble(ensemble::MatrixEnsemble)
 end
 
 struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
-    ensemble::CuMatrixEnsemble{R, U, V, W}
+    status::WorkspaceStatus{R, CuMatrixEnsemble{R, U, V, W}}
     G₀⁻¹_diag::CuVector{Complex{R}}
     Q::CuMatrix{Complex{R}}
     QQᴴ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
@@ -73,7 +68,6 @@ struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
     QP::CuMatrix{Complex{R}}
     QPQ::CuMatrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
     s²min::Base.RefValue{R}
-    status::WorkspaceStatus{R}
 
     function CuWorkspace(ensemble::CuMatrixEnsemble{R, U, V, W}) where {R, U, V, W}
         N = length(ensemble.T)
@@ -82,7 +76,7 @@ struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
         PQ = CuMatrix{Complex{R}}(undef, N, N)
         P = Hermitian(similar(PQ))
         return new{R, U, V, W}(
-            ensemble,
+            WorkspaceStatus(ensemble),
             G₀⁻¹_diag,
             Q,
             Hermitian(similar(PQ)),
@@ -93,7 +87,6 @@ struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
             similar(PQ),
             similar(PQ),
             Ref(R(NaN)),
-            WorkspaceStatus{R}(),
         )
     end
 end

@@ -1,4 +1,5 @@
-mutable struct WorkspaceStatus{R}
+mutable struct WorkspaceStatus{R, E<:AbstractMatrixEnsemble{R}}
+    ensemble::E
     z::MissingOr{Complex{R}}
     μq⁻::MissingOr{Complex{R}}
     r²::MissingOr{Objective{<:Any, R}}
@@ -8,24 +9,32 @@ mutable struct WorkspaceStatus{R}
     QPQ::Bool
     PL⁻¹R⁻¹::Bool
 
-    WorkspaceStatus{R}() where {R} = new{R}(
-        missing, missing, missing, false, false, false, false
-    )
+    function WorkspaceStatus(ensemble::AbstractMatrixEnsemble{R}) where {R}
+        return new{R, typeof(ensemble)}(
+            ensemble, missing, missing, missing, false, false, false, false
+        )
+    end
 end
 
-function set_z!(status, z)
+function set_ensemble!(status::WorkspaceStatus{R, E}, ensemble::E) where {R, E}
+    set_z!(status, missing)
+    status.ensemble = ensemble
+    return nothing
+end
+
+function set_z!(status::WorkspaceStatus, z)
     set_μq⁻!(status, missing)
     status.z = z
     return nothing
 end
 
-function set_μq⁻!(status::WorkspaceStatus{R}, μq⁻) where {R}
+function set_μq⁻!(status::WorkspaceStatus, μq⁻)
     set_r²!(status, missing)
     status.μq⁻ = μq⁻
     return nothing
 end
 
-function set_r²!(status, r²)
+function set_r²!(status::WorkspaceStatus, r²)
     status.PL⁻¹R⁻¹ = false
     status.QPQ = false
     status.QP = false
@@ -38,7 +47,7 @@ end
 abstract type AbstractWorkspace{R<:Real} end
 
 struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
-    ensemble::MatrixEnsemble{R, U, V, W, X, Y}
+    status::WorkspaceStatus{R, MatrixEnsemble{R, U, V, W, X, Y}}
     G₀⁻¹_diag::Vector{Complex{R}}
     Q::Y
     QQᴴ::Hermitian{Complex{R},Matrix{Complex{R}}}
@@ -49,7 +58,6 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
     QP::Matrix{Complex{R}}
     QPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
     s²min::Base.RefValue{R}
-    status::WorkspaceStatus{R}
 
     function Workspace(ensemble::MatrixEnsemble{R, U, V, W, X, Y}) where {R, U, V, W, X, Y}
         N = length(ensemble.T)
@@ -58,7 +66,7 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
         PQ = Matrix{Complex{R}}(undef, N, N)
         P = Hermitian(similar(PQ))
         return new{R, U, V, W, X, Y}(
-            ensemble,
+            WorkspaceStatus(ensemble),
             G₀⁻¹_diag,
             Q,
             similar(P),
@@ -69,24 +77,24 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
             similar(PQ),
             similar(PQ),
             Ref(R(NaN)),
-            WorkspaceStatus{R}(),
         )
     end
 end
 
 workspace(ensemble::MatrixEnsemble) = Workspace(ensemble)
 
-T(workspace) = workspace.ensemble.T
+ensemble(workspace::AbstractWorkspace) = workspace.status.ensemble
+T(workspace::AbstractWorkspace) = ensemble(workspace).T
 
 function _G₀⁻¹_diag!(workspace, z)
-    ensemble = workspace.ensemble
-    @inbounds zA⁻B!(workspace.Q, z, ensemble.L⁻¹R⁻¹, ensemble.L⁻¹MR⁻¹)
+    ens = ensemble(workspace)
+    @inbounds zA⁻B!(workspace.Q, z, ens.L⁻¹R⁻¹, ens.L⁻¹MR⁻¹)
     @inbounds copy_diag!(workspace.G₀⁻¹_diag, workspace.Q)
     return nothing
 end
 
 function _Q!(workspace, ::Fixr²{QNormal}, μq⁻) where {QNormal}
-    @inbounds set_diag_muladd!(workspace.Q, μq⁻, workspace.ensemble.T, workspace.G₀⁻¹_diag)
+    @inbounds set_diag_muladd!(workspace.Q, μq⁻, T(workspace), workspace.G₀⁻¹_diag)
     mul!(workspace.QQᴴ.data, workspace.Q, workspace.Q')
     if QNormal
         # This is an attempt to get around the order of limits issue by
@@ -144,10 +152,11 @@ function _QPQ!(workspace)
 end
 
 function _PL⁻¹R⁻¹!(workspace)
-    if workspace.ensemble.L⁻¹R⁻¹ isa UniformScaling
-        mul!(workspace.QPQ, workspace.P, workspace.ensemble.L⁻¹R⁻¹)
+    ens = ensemble(workspace)
+    if ens.L⁻¹R⁻¹ isa UniformScaling
+        mul!(workspace.QPQ, workspace.P, ens.L⁻¹R⁻¹)
     else
-        @inbounds copyto!(workspace.QPQ, workspace.ensemble.L⁻¹R⁻¹)
+        @inbounds copyto!(workspace.QPQ, ens.L⁻¹R⁻¹)
         LAPACK.potrs!(workspace.P.uplo, workspace.P⁻¹f, workspace.QPQ)
     end
     return nothing
