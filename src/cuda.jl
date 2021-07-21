@@ -573,7 +573,7 @@ for (jname, bname, fname, elty, relty) in ((:syevdx!, :cusolverDnSsyevdx_bufferS
         function $jname(jobz::Char,
                         range::Char,
                         uplo::Char,
-                        A::CuMatrix{$elty},
+                        A::StridedCuMatrix{$elty},
                         vl::AbstractFloat,
                         vu::AbstractFloat,
                         il::Integer,
@@ -586,17 +586,21 @@ for (jname, bname, fname, elty, relty) in ((:syevdx!, :cusolverDnSsyevdx_bufferS
                 throw(ArgumentError("lower boundary, $vl, must be less than upper boundary, $vu"))
             end
             lda     = max(1, stride(A, 2))
-            meig    = Ref{Cint}()
+            h_meig  = Ref{Cint}()
             W       = CuArray{$relty}(undef, n)
 
+            function bufferSize()
+                out = Ref{Cint}(0)
+                $bname(dense_handle(), jobz, range, uplo, n, A, lda, vl, vu, il, iu, h_meig,
+                       W, out)
+                return out[]
+            end
+
             devinfo = CuArray{Cint}(undef, 1)
-            @workspace eltyp=$elty size=@argout(
-                    $bname(dense_handle(), jobz, range, uplo, n, A, lda, vl, vu, il, iu,
-                        meig, W, out(Ref{Cint}(0)))
-                )[] buffer->begin
-                    $fname(dense_handle(), jobz, range, uplo, n, A, lda, vl, vu, il, iu,
-                        meig, W, buffer, length(buffer), devinfo)
-                end
+            with_workspace($elty, bufferSize) do buffer
+                $fname(dense_handle(), jobz, range, uplo, n, A, lda, vl, vu, il, iu, h_meig,
+                       W, buffer, length(buffer), devinfo)
+            end
 
             info = @allowscalar devinfo[1]
             unsafe_free!(devinfo)
@@ -604,7 +608,11 @@ for (jname, bname, fname, elty, relty) in ((:syevdx!, :cusolverDnSsyevdx_bufferS
                 throw(ArgumentError("The $(info)th parameter is wrong"))
             end
 
-            return W[1:meig[]], A[:, 1:(jobz == 'N' ? 0 : meig[])]
+            if jobz == 'N'
+                return W[1:h_meig[]], A[:, 1:0]
+            else
+                return W[1:h_meig[]], A[:, 1:h_meig[]]
+            end
         end
     end
 end
