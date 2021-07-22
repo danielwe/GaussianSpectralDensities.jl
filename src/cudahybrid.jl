@@ -27,16 +27,13 @@ struct CuHybridWorkspace{R, U, V, W} <: AbstractWorkspace{R}
         cuworkspace = CuWorkspace(getfield(ensemble, :ensemble))
         N = length(ensemble.T)
         T = Vector(ensemble.T)
-        G₀⁻¹_diag = Vector{Complex{R}}(undef, N)
-        Q = Matrix{Complex{R}}(undef, N, N)
-        P = Hermitian(Matrix{Complex{R}}(undef, N, N))
-        PQ = Matrix{Complex{R}}(undef, N, N)
-        QᴴPQ = Hermitian(Matrix{Complex{R}}(undef, N, N))
-        QP = Matrix{Complex{R}}(undef, N, N)
-        QPQ = Matrix{Complex{R}}(undef, N, N)
-        for A in (G₀⁻¹_diag, Q, P.data, PQ, QᴴPQ.data, QP, QPQ)
-            Mem.pin(A)
-        end
+        G₀⁻¹_diag = Mem.pin(Vector{Complex{R}}(undef, N))
+        Q = Mem.pin(Matrix{Complex{R}}(undef, N, N))
+        P = Mem.pin(Hermitian(Matrix{Complex{R}}(undef, N, N)))
+        PQ = Mem.pin(Matrix{Complex{R}}(undef, N, N))
+        QᴴPQ = Mem.pin(Hermitian(Matrix{Complex{R}}(undef, N, N)))
+        QP = Mem.pin(Matrix{Complex{R}}(undef, N, N))
+        QPQ = Mem.pin(Matrix{Complex{R}}(undef, N, N))
         return new{R, U, V, W}(cuworkspace, T, G₀⁻¹_diag, Q, P, PQ, QᴴPQ, QP, QPQ)
     end
 end
