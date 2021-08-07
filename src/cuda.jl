@@ -17,7 +17,9 @@ const GeneralCuMatrix{T} = Union{
 }
 const AnyCuMatrix = Union{GeneralCuMatrix, SelfAdjoint{<:Real, <:CuMatrix}}
 
-struct CuMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R, U, V, W}
+abstract type AbstractCuMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R, U, V, W} end
+
+struct CuMatrixEnsemble{R, U, V, W} <: AbstractCuMatrixEnsemble{R, U, V, W}
     M::U
     L::V
     R::W
@@ -25,73 +27,100 @@ struct CuMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R, U, V, W}
     L⁻¹MR⁻¹::CuMatrix{Complex{R}}
     T::CuVector{R}
 
-    function CuMatrixEnsemble(M, L, R, T::AbstractVector)
-        T = CUDA.adapt(CuArray, T)
-        N = length(T)
-        for (A, c) in ((M, 'M'), (L, 'L'), (R, 'R'))
-            if !(A isa UniformScaling) && (size(A) != (N, N))
-                throw(DimensionMismatch("the size of $c does not match the length of T"))
-            end
-        end
-        Lf, Rf = _factorize(L), _factorize(_complex(R))
-        L⁻¹R⁻¹ = _dense_cumatrix(A⁻¹BC⁻¹(Lf, I, Rf), N)
-        L⁻¹MR⁻¹ = _dense_cumatrix(A⁻¹BC⁻¹(Lf, M, Rf), N)
-        return new{real(eltype(M)), typeof(M), typeof(L), typeof(R)}(
-            M, L, R, L⁻¹R⁻¹, L⁻¹MR⁻¹, T
+    function CuMatrixEnsemble(ens::MatrixEnsemble{R}) where {R}
+        N = length(ens.T)
+        d_L⁻¹R⁻¹ = _unified_cuarray(Complex{R}, (N, N))
+        d_L⁻¹MR⁻¹ = _unified_cuarray(Complex{R}, (N, N))
+        d_T = _unified_cuarray(R, (N, ))
+        copyto!(d_L⁻¹R⁻¹, _dense(ens.L⁻¹R⁻¹))
+        copyto!(d_L⁻¹MR⁻¹, _dense(ens.L⁻¹MR⁻¹))
+        copyto!(d_T, ens.T)
+        synchronize()
+        return new{R, typeof(ens.M), typeof(ens.L), typeof(ens.R)}(
+            ens.M, ens.L, ens.R, d_L⁻¹R⁻¹, d_L⁻¹MR⁻¹, d_T
         )
     end
 end
 
-_factorize(A::Union{CuMatrix, CUDA.WrappedArray{<:Any, 2, CuArray, CuArray}}) = A
-
-_dense_cumatrix(A::CuMatrix, ::Any) = A
-_dense_cumatrix(A::UniformScaling, N) = CuMatrix(A(N))
-_dense_cumatrix(A, ::Any) = CuMatrix(CUDA.adapt(Array, A))  # Dense without device indexing
-
-function CuMatrixEnsemble(M, L, R, τ::Real)
-    return CuMatrixEnsemble(M, L, R, CUDA.fill(sqrt(τ), size(M, 1)))
+function CuMatrixEnsemble(M, L, R, T)
+    return CuMatrixEnsemble(MatrixEnsemble(M, L, R, T))
 end
 
-function CuMatrixEnsemble(ensemble::MatrixEnsemble)
-    return CuMatrixEnsemble(ensemble.M, ensemble.L, ensemble.R, ensemble.T)
+function _unified_cuarray(::Type{T}, dims::NTuple{N}) where {T, N}
+    buf = Mem.alloc(Mem.Unified, prod(dims) * sizeof(T))
+    array = unsafe_wrap(CuArray{T, N}, convert(CuPtr{T}, buf), dims)
+    finalizer(_ -> Mem.free(buf), array)
+    return array
 end
+
+_dense(A::Union{Array, UniformScaling}) = A
+_dense(A) = Array(A)
 
 struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
     status::WorkspaceStatus{R, CuMatrixEnsemble{R, U, V, W}}
     G₀⁻¹_diag::CuVector{Complex{R}}
     Q::CuMatrix{Complex{R}}
-    QQᴴ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
+    QQᴴ::Hermitian{Complex{R}, CuMatrix{Complex{R}}}
     P⁻¹f::CuMatrix{Complex{R}}
-    P::Hermitian{Complex{R},CuMatrix{Complex{R}}}
+    P::Hermitian{Complex{R}, CuMatrix{Complex{R}}}
     PQ::CuMatrix{Complex{R}}
-    QᴴPQ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
+    QᴴPQ::Hermitian{Complex{R}, CuMatrix{Complex{R}}}
     QP::CuMatrix{Complex{R}}
     QPQ::CuMatrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
     s²min::Base.RefValue{R}
 
     function CuWorkspace(ensemble::CuMatrixEnsemble{R, U, V, W}) where {R, U, V, W}
+        status = WorkspaceStatus(ensemble)
         N = length(ensemble.T)
         G₀⁻¹_diag = CuVector{Complex{R}}(undef, N)
-        Q = similar(ensemble.L⁻¹MR⁻¹)
+        Q = CuMatrix{Complex{R}}(undef, N, N)
+        QQᴴ = Hermitian(CuMatrix{Complex{R}}(undef, N, N))
+        P⁻¹f = CuMatrix{Complex{R}}(undef, N, N)
+        P = Hermitian(CuMatrix{Complex{R}}(undef, N, N))
         PQ = CuMatrix{Complex{R}}(undef, N, N)
-        P = Hermitian(similar(PQ))
+        QᴴPQ = Hermitian(CuMatrix{Complex{R}}(undef, N, N))
+        QP = CuMatrix{Complex{R}}(undef, N, N)
+        QPQ = CuMatrix{Complex{R}}(undef, N, N)
+        synchronize()
         return new{R, U, V, W}(
-            WorkspaceStatus(ensemble),
-            G₀⁻¹_diag,
-            Q,
-            Hermitian(similar(PQ)),
-            similar(PQ),
-            P,
-            PQ,
-            Hermitian(similar(PQ)),
-            similar(PQ),
-            similar(PQ),
-            Ref(R(NaN)),
+            status, G₀⁻¹_diag, Q, QQᴴ, P⁻¹f, P, PQ, QᴴPQ, QP, QPQ, Ref(R(NaN))
         )
     end
 end
 
 workspace(ensemble::CuMatrixEnsemble) = CuWorkspace(ensemble)
+
+function solve(
+    problem::SpectralProblem{R, <:AbstractCuMatrixEnsemble, <:AbstractMatrix},
+    algorithm;
+    chunks_per_thread=1,
+    threads_per_device=1,
+    kwargs...
+) where {R}
+    algorithm = adapt(R, algorithm)
+    ndev = length(devices())
+    nbthreads = min(threads_per_device * ndev, max(1, Threads.nthreads() - 1))
+    solution = GlobalSpectralSolution{R}(undef, size(problem.z))
+    ranges = chunk_ranges(size(problem.z), chunks_per_thread * nbthreads)
+    solvers = asyncmap(1:nbthreads) do i  # async to avoid setting device in main task
+        device!((i - 1) % ndev)
+        SpectralSolver(problem, algorithm)
+    end
+    # manually set up thread pool with a subset of 'nbthreads' background threads
+    twith(ThreadPools.QueuePool(2, nbthreads)) do pool
+        @tthreads pool for range in ranges
+            i = max(1, Threads.threadid() - 1)
+            device!((i - 1) % ndev)
+            solve!(
+                solvers[i],
+                (@view problem.z[range...]),
+                (@view solution[range...]);
+                kwargs...,
+            )
+        end
+    end
+    return solution
+end
 
 NBLOCKS() = 64
 NTHREADS() = 32
@@ -547,7 +576,7 @@ function _sum(a::CuArray{T}) where {T}
     out = CuVector{T}(undef, 1)
     shmem = threads * sizeof(T)
     @cuda threads=threads shmem=shmem _sum_kernel!(out, a)
-    synchronize(CuDefaultStream())
+    synchronize()
     s = @allowscalar out[1]
     unsafe_free!(out)
     return s
@@ -633,13 +662,13 @@ end
 function LinearAlgebra.eigvals!(
     A::RealSymmetric{T, <:CuMatrix}, irange::UnitRange
 ) where {T<:BlasReal}
-    return syevdx!('N', 'I', A.uplo, A.data, T(0.0), T(0.0), irange.start, irange.stop)[1]
+    return syevdx!('N', 'I', A.uplo, A.data, zero(T), zero(T), irange.start, irange.stop)[1]
 end
 
 function LinearAlgebra.eigvals!(
     A::Hermitian{Complex{T}, <:CuMatrix}, irange::UnitRange
 ) where {T<:BlasReal}
-    return heevdx!('N', 'I', A.uplo, A.data, T(0.0), T(0.0), irange.start, irange.stop)[1]
+    return heevdx!('N', 'I', A.uplo, A.data, zero(T), zero(T), irange.start, irange.stop)[1]
 end
 
 function eigmin!(A::SelfAdjoint{<:BlasReal, <:CuMatrix})
@@ -650,23 +679,23 @@ end
 function LinearAlgebra.mul!(
     C::CuMatrix{T}, A::CuMatrix{T}, B::RealSymmetric{T, <:CuMatrix}
 ) where {T<:BlasReal}
-    return CUBLAS.symm!('R', B.uplo, T(1.0), B.data, A, T(0.0), C)
+    return CUBLAS.symm!('R', B.uplo, one(T), B.data, A, zero(T), C)
 end
 
 function LinearAlgebra.mul!(
     C::CuMatrix{T}, A::RealSymmetric{T, <:CuMatrix}, B::CuMatrix{T}
 ) where {T<:BlasReal}
-    return CUBLAS.symm!('L', A.uplo, T(1.0), A.data, B, T(0.0), C)
+    return CUBLAS.symm!('L', A.uplo, one(T), A.data, B, zero(T), C)
 end
 
 function LinearAlgebra.mul!(
     C::CuMatrix{Complex{T}}, A::CuMatrix{Complex{T}}, B::Hermitian{Complex{T}, <:CuMatrix}
 ) where {T<:BlasReal}
-    return CUBLAS.hemm!('R', B.uplo, T(1.0), B.data, A, T(0.0), C)
+    return CUBLAS.hemm!('R', B.uplo, one(T), B.data, A, zero(T), C)
 end
 
 function LinearAlgebra.mul!(
     C::CuMatrix{Complex{T}}, A::Hermitian{Complex{T}, <:CuMatrix}, B::CuMatrix{Complex{T}}
 ) where {T<:BlasReal}
-    return CUBLAS.hemm!('L', A.uplo, T(1.0), A.data, B, T(0.0), C)
+    return CUBLAS.hemm!('L', A.uplo, one(T), A.data, B, zero(T), C)
 end

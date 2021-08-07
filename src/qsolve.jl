@@ -26,11 +26,11 @@ function qf!(workspace, objective, z, qv)
 end
 
 function _qf!(workspace, objective, z, q)
-    T_ = T(workspace)
+    T = ensemble(workspace).T
     Q = Q!(workspace, objective, z, q)
     P = P!(workspace, objective, z, q)
-    f = trTAᴴB(T_, Q, P)  # Tr[TQᴴP]
-    return muladd(f, objective.μ / length(T_), -q)
+    f = trTAᴴB(T, Q, P)  # Tr[TQᴴP]
+    return muladd(f, objective.μ / length(T), -q)
 end
 
 function qj!(workspace, objective, z, qv)
@@ -42,24 +42,24 @@ function qj!(workspace, objective, z, qv)
 end
 
 function _qj!(workspace, objective::Fixγ²{Qnormal}, z, q) where {Qnormal}
-    T_ = T(workspace)
+    T = ensemble(workspace).T
     P = P!(workspace, objective, z, q)
     PQ = PQ!(workspace, objective, z, q)
     QᴴPQ = QᴴPQ!(workspace, objective, z, q)
-    df_dq = trTAᴴTB(T_, PQ, PQ')  # Tr[(TQᴴP)²]
-    df_dq⁺ = trTAᴴTB(T_, QᴴPQ, P)  # Tr[TQᴴPQTP]
+    df_dq = trTAᴴTB(T, PQ, PQ')  # Tr[(TQᴴP)²]
+    df_dq⁺ = trTAᴴTB(T, QᴴPQ, P)  # Tr[TQᴴPQTP]
 
     if Qnormal
         QP = QP!(workspace, objective, z, q)
         QPQ = QPQ!(workspace, objective, z, q)
-        df_dq += trTAᴴTB(T_, QPQ, P)  # Tr[TQᴴPQᴴTP]
-        df_dq⁺ += trTAᴴTB(T_, PQ, QP)  # Tr[TQᴴPTQP]
+        df_dq += trTAᴴTB(T, QPQ, P)  # Tr[TQᴴPQᴴTP]
+        df_dq⁺ += trTAᴴTB(T, PQ, QP)  # Tr[TQᴴPTQP]
         df_dq /= 2
         df_dq⁺ /= 2
     end
 
-    df_dq⁺ -= trT²A(T_, P)  # Tr[T²P]
-    μ²N⁻¹ = objective.μ^2 / length(T_)
+    df_dq⁺ -= trT²A(T, P)  # Tr[T²P]
+    μ²N⁻¹ = objective.μ^2 / length(T)
     df_dq = muladd(df_dq, μ²N⁻¹, -one(q))
     df_dq⁺ *= μ²N⁻¹
     return df_dq, df_dq⁺

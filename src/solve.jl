@@ -1,14 +1,20 @@
 const ConvergenceException = Union{NewtonException, SingularException, LAPACKException}
 
-struct SpectralProblem{R, Z<:Union{MissingOr{Complex{R}}, Matrix{<:MissingOr{Complex{R}}}}}
-    ensemble::AbstractMatrixEnsemble{R}
+struct SpectralProblem{
+    R,
+    E<:AbstractMatrixEnsemble{R},
+    Z<:Union{MissingOr{Complex{R}}, Matrix{<:MissingOr{Complex{R}}}},
+}
+    ensemble::E
     objective::Objective{<:Any, R}
     z::Z
 
-    function SpectralProblem(ensemble::AbstractMatrixEnsemble{R}, objective, z) where {R}
+    function SpectralProblem(
+        ensemble::E, objective, z
+    ) where {R, E<:AbstractMatrixEnsemble{R}}
         objective = adapt(R, objective)
         z = convert.(MissingOr{Complex{R}}, z)
-        return new{R, typeof(z)}(ensemble, objective, z)
+        return new{R, E, typeof(z)}(ensemble, objective, z)
     end
 end
 
@@ -37,22 +43,24 @@ function SpectralSolver(problem, algorithm)
 end
 
 function update_ensemble!(solver::SpectralSolver, ensemble)
-    return set_ensemble!(solver.workspace.status, ensemble)
+    return set_ensemble!(solver.workspace, ensemble)
 end
 
 function solve(
-    problem::SpectralProblem{R, <:AbstractMatrix}, algorithm; chunks_per_thread=1, kwargs...
+    problem::SpectralProblem{R, <:Any, <:AbstractMatrix},
+    algorithm;
+    chunks_per_thread=1,
+    kwargs...
 ) where {R}
     algorithm = adapt(R, algorithm)
-    solvers = [SpectralSolver(problem, algorithm) for _ in 1:Threads.nthreads()]
+    nbthreads = max(1, Threads.nthreads() - 1)
+    solvers = [SpectralSolver(problem, algorithm) for _ in 1:nbthreads]
     solution = GlobalSpectralSolution{R}(undef, size(problem.z))
-    ranges = chunk_ranges(size(problem.z), chunks_per_thread * Threads.nthreads())
-    @qthreads for range in ranges
+    ranges = chunk_ranges(size(problem.z), chunks_per_thread * nbthreads)
+    @qbthreads for range in ranges
+        i = max(1, Threads.threadid() - 1)
         solve!(
-            solvers[Threads.threadid()],
-            (@view problem.z[range...]),
-            (@view solution[range...]);
-            kwargs...,
+            solvers[i], (@view problem.z[range...]), (@view solution[range...]); kwargs...
         )
     end
     return solution

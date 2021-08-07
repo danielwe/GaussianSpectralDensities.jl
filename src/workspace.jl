@@ -60,23 +60,19 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
     s²min::Base.RefValue{R}
 
     function Workspace(ensemble::MatrixEnsemble{R, U, V, W, X, Y}) where {R, U, V, W, X, Y}
+        status = WorkspaceStatus(ensemble)
         N = length(ensemble.T)
         G₀⁻¹_diag = Vector{Complex{R}}(undef, N)
         Q = similar(ensemble.L⁻¹MR⁻¹)
+        QQᴴ = Hermitian(Matrix{Complex{R}}(undef, N, N))
+        P⁻¹f = Matrix{Complex{R}}(undef, N, N)
+        P = Hermitian(Matrix{Complex{R}}(undef, N, N))
         PQ = Matrix{Complex{R}}(undef, N, N)
-        P = Hermitian(similar(PQ))
+        QᴴPQ = Hermitian(Matrix{Complex{R}}(undef, N, N))
+        QP = Matrix{Complex{R}}(undef, N, N)
+        QPQ = Matrix{Complex{R}}(undef, N, N)
         return new{R, U, V, W, X, Y}(
-            WorkspaceStatus(ensemble),
-            G₀⁻¹_diag,
-            Q,
-            similar(P),
-            similar(PQ),
-            P,
-            PQ,
-            similar(P),
-            similar(PQ),
-            similar(PQ),
-            Ref(R(NaN)),
+            status, G₀⁻¹_diag, Q, QQᴴ, P⁻¹f, P, PQ, QᴴPQ, QP, QPQ, Ref(R(NaN))
         )
     end
 end
@@ -84,7 +80,10 @@ end
 workspace(ensemble::MatrixEnsemble) = Workspace(ensemble)
 
 ensemble(workspace::AbstractWorkspace) = workspace.status.ensemble
-T(workspace::AbstractWorkspace) = ensemble(workspace).T
+
+function update_ensemble!(workspace::AbstractWorkspace, ensemble)
+    return set_ensemble!(workspace.status, ensemble)
+end
 
 function _G₀⁻¹_diag!(workspace, z)
     ens = ensemble(workspace)
@@ -94,7 +93,7 @@ function _G₀⁻¹_diag!(workspace, z)
 end
 
 function _Q!(workspace, ::Fixr²{QNormal}, μq⁻) where {QNormal}
-    @inbounds set_diag_muladd!(workspace.Q, μq⁻, T(workspace), workspace.G₀⁻¹_diag)
+    @inbounds set_diag_muladd!(workspace.Q, μq⁻, ensemble(workspace).T, workspace.G₀⁻¹_diag)
     mul!(workspace.QQᴴ.data, workspace.Q, workspace.Q')
     if QNormal
         # This is an attempt to get around the order of limits issue by
@@ -267,7 +266,7 @@ function r!(workspace, objective, z, q)
 end
 
 function q∞!(workspace, γ∞², z)
-    T_ = T(workspace)
-    q = _dot(G₀⁻¹_diag!(workspace, z), T_)
-    return q / (γ∞² * length(T_))
+    T = ensemble(workspace).T
+    q = _dot(G₀⁻¹_diag!(workspace, z), T)
+    return q / (γ∞² * length(T))
 end

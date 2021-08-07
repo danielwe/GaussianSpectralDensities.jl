@@ -57,11 +57,10 @@ for (problem, algorithm) in zip(problems, algorithms)
     );
 end
 
-solutions = [];
-for (problem, algorithm) in zip(problems, algorithms)
-    solution = @time solve(problem, algorithm; chunks_per_thread=1);
-    push!(solutions, solution);
-end
+solutions = [
+    @time solve(problem, algorithm; chunks_per_thread=1)
+    for (problem, algorithm) in zip(problems, algorithms)
+];
 
 # Jacobian check
 using GaussianSpectralDensities: workspace, qf!, qj!, @SVector, finite_difference_jacobian
