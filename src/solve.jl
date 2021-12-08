@@ -42,7 +42,7 @@ function SpectralSolver(problem, algorithm)
     return SpectralSolver(problem.ensemble, problem.objective, algorithm)
 end
 
-function update_ensemble!(solver::SpectralSolver, ensemble)
+function set_ensemble!(solver::SpectralSolver, ensemble)
     return set_ensemble!(solver.workspace, ensemble)
 end
 

@@ -81,7 +81,7 @@ workspace(ensemble::MatrixEnsemble) = Workspace(ensemble)
 
 ensemble(workspace::AbstractWorkspace) = workspace.status.ensemble
 
-function update_ensemble!(workspace::AbstractWorkspace, ensemble)
+function set_ensemble!(workspace::AbstractWorkspace, ensemble)
     return set_ensemble!(workspace.status, ensemble)
 end
 

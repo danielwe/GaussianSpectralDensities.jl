@@ -1,4 +1,3 @@
-using Revise
 using StableRNGs
 import LazySets
 using GaussianSpectralDensities

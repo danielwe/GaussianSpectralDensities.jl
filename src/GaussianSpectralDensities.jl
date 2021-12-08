@@ -17,7 +17,7 @@ export AbstractMatrixEnsemble, MatrixEnsemble
 export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 export Rampγ², Rampδ², Rampμ, StraightShot
 export Fixk, Fixγ², Fixδ²
-export SpectralProblem, SpectralSolver, update_ensemble!, solve, solve!
+export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
 export spectral_density
 export automesh, automesh!
 

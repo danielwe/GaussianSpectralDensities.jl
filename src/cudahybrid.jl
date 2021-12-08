@@ -53,8 +53,8 @@ end
 
 workspace(ensemble::CuHybridMatrixEnsemble) = CuHybridWorkspace(ensemble)
 
-function update_ensemble!(workspace::CuHybridWorkspace, ensemble)
-    update_ensemble!(workspace.cuworkspace, ensemble.cuensemble)
+function set_ensemble!(workspace::CuHybridWorkspace, ensemble)
+    set_ensemble!(workspace.cuworkspace, ensemble.cuensemble)
     return set_ensemble!(workspace.status, ensemble)
 end
 

@@ -56,7 +56,7 @@ function transform!(A, ensemble::AbstractMatrixEnsemble, J; hermitize=true)
     if hermitize
         J = partially_hermitize(J, ensemble.T)
     end
-    copy!(A, J)
+    copyto!(A, J)
     if applicable(rmul!, A, ensemble.R)
         rmul!(A, ensemble.R)
     else
