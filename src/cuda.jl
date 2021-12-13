@@ -35,6 +35,9 @@ struct CuMatrixEnsemble{R, U, V, W} <: AbstractCuMatrixEnsemble{R, U, V, W}
         copyto!(d_L⁻¹R⁻¹, _dense(ens.L⁻¹R⁻¹))
         copyto!(d_L⁻¹MR⁻¹, _dense(ens.L⁻¹MR⁻¹))
         copyto!(d_T, ens.T)
+        Mem.advise(d_L⁻¹R⁻¹.storage.buffer, Mem.ADVISE_SET_READ_MOSTLY)
+        Mem.advise(d_L⁻¹MR⁻¹.storage.buffer, Mem.ADVISE_SET_READ_MOSTLY)
+        Mem.advise(d_T.storage.buffer, Mem.ADVISE_SET_READ_MOSTLY)
         synchronize()
         return new{R, typeof(ens.M), typeof(ens.L), typeof(ens.R)}(
             ens.M, ens.L, ens.R, d_L⁻¹R⁻¹, d_L⁻¹MR⁻¹, d_T

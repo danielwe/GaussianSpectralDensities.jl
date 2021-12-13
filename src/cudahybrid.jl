@@ -18,6 +18,7 @@ end
 struct CuHybridWorkspace{R, U, V, W} <: AbstractWorkspace{R}
     cuworkspace::CuWorkspace{R, U, V, W}
     status::WorkspaceStatus{R, CuHybridMatrixEnsemble{R, U, V, W}}
+    # Could use unified memory instead of explicit host mirrors
     G₀⁻¹_diag::Vector{Complex{R}}
     Q::Matrix{Complex{R}}
     P::Hermitian{Complex{R},Matrix{Complex{R}}}
