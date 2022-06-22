@@ -659,7 +659,7 @@ function Base.convert(::Type{cusolverEigRange_t}, range::Char)
     if range == 'I'
         return CUSOLVER_EIG_RANGE_I
     end
-    throw(ArgumentError("unkonwn eigenvalue solver range $range"))
+    throw(ArgumentError("unknown eigenvalue solver range $range"))
 end
 
 function LinearAlgebra.eigvals!(

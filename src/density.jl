@@ -1,6 +1,10 @@
 function spectral_density(solution::GlobalSpectralSolution{R}, xs, ys) where {R}
     if !all(solution.k .≈ one(R))
-        error("Can only compute density from solution with objective=Fixk(1.0)")
+        throw(
+            DomainError(
+                solution, "can only compute density for solution with objective Fixk(1.0)"
+            )
+        )
     end
     rx = (
         (solution.r[2:end - 1, 3:end] .- solution.r[2:end - 1, 1:end - 2])

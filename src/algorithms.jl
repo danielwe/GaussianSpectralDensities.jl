@@ -1,19 +1,18 @@
-abstract type Algorithm{R<:Real} end
-abstract type Ramp{R} <: Algorithm{R} end
-abstract type Downramp{R} <: Ramp{R} end
+abstract type AbstractAlgorithm{T<:Real} end
+abstract type AbstractRamp{T} <: AbstractAlgorithm{T} end
+abstract type AbstractDownramp{T} <: AbstractRamp{T} end
 
-struct Rampγ²{R} <: Downramp{R}
-    ramp::Vector{R}
+struct γRamp{T} <: AbstractDownramp{T}
+    values::Vector{T}
 end
 
-Rampγ²() = Rampγ²(default(:r²ramp))
-Rampγ²(base, startexp, stopexp) = Rampγ²(base.^(startexp:-1:stopexp))
+γRamp() = γRamp(default(:downramp))
+γRamp(base, startexp, stopexp) = γRamp(base.^(startexp:-1:stopexp))
 
-function adapt(::Type{R}, algorithm::Rampγ²) where {R<:Real}
-    return Rampγ²(R.(algorithm.ramp))
-end
+Base.convert(::Type{P}, ramp::Q) where {P<:γRamp,Q<:γRamp} = P(ramp.values)
+Base.convert(::Type{P}, ramp::P) where {P<:γRamp} = ramp
 
-adapt(::Type{R}, algorithm::Rampγ²{R}) where {R<:Real} = algorithm
+# adapt(::Type{T}, ramp::γRamp) where {T<:Real} = convert(γRamp{T}, ramp)
 
 struct Rampδ²{R} <: Downramp{R}
     ramp::Vector{R}
@@ -28,7 +27,7 @@ function adapt(::Type{R}, algorithm::Rampδ²) where {R<:Real}
     return Rampδ²(R.(algorithm.ramp), R(algorithm.γ²min))
 end
 
-adapt(::Type{R}, algorithm::Rampδ²{R}) where {R<:Real} = algorithm
+adapt(::Type{R}, algorithm::Rampδ²{R}) where {R} = algorithm
 
 struct Rampμ{R, A<:Algorithm{R}} <: Ramp{R}
     initial_algorithm::A
@@ -47,7 +46,7 @@ function Rampμ(initial_algorithm, ramp)
 end
 
 function Rampμ(initial_algorithm::Algorithm{R}, n::Integer, args...) where {R}
-    return Rampμ(initial_algorithm, collect(LinRange(R(0.0), R(1.0), n + 1)), args...)
+    return Rampμ(initial_algorithm, collect(LinRange(zero(R), one(R), n + 1)), args...)
 end
 
 function adapt(::Type{R}, algorithm::Rampμ) where {R<:Real}
@@ -56,7 +55,7 @@ function adapt(::Type{R}, algorithm::Rampμ) where {R<:Real}
     )
 end
 
-adapt(::Type{R}, algorithm::Rampμ{R}) where {R<:Real} = algorithm
+adapt(::Type{R}, algorithm::Rampμ{R}) where {R} = algorithm
 
 struct StraightShot{R} <: Algorithm{R}
     q₀::Complex{R}
@@ -64,37 +63,39 @@ struct StraightShot{R} <: Algorithm{R}
 end
 
 StraightShot() = StraightShot(default(:q₀))
-StraightShot(q₀) = StraightShot(q₀, real(typeof(q₀))(default(:δ₀²)))
+StraightShot(q₀::C) where {C} = StraightShot(q₀, real(C)(default(:δ₀²)))
 
 function adapt(::Type{R}, algorithm::StraightShot) where {R<:Real}
     return StraightShot(Complex{R}(algorithm.q₀), R(algorithm.δ₀²))
 end
 
-adapt(::Type{R}, algorithm::StraightShot{R}) where {R<:Real} = algorithm
+adapt(::Type{R}, algorithm::StraightShot{R}) where {R} = algorithm
 
 Base.length(algorithm::Rampμ) = length(algorithm.initial_algorithm) + length(algorithm.ramp)
 Base.length(algorithm::Downramp) = length(algorithm.ramp)
 Base.length(::Algorithm) = 0
 
-q₀!(workspace, algorithm::Downramp, z) = q∞!(workspace, δ₀²(algorithm), z)
-q₀!(workspace, algorithm::Rampμ, z) = q₀!(workspace, algorithm.initial_algorithm, z)
-q₀!(::Any, algorithm, z) = algorithm.q₀
-
+# TODO: Is δ₀² what we need a function for? Is γ∞² better? # function q∞!(problem, γ∞², ws)
 δ₀²(algorithm::Downramp) = algorithm.ramp[1]
 δ₀²(algorithm::Rampμ) = δ₀²(algorithm.initial_algorithm)
 δ₀²(algorithm) = algorithm.δ₀²
 
+q₀!(problem, algorithm::Downramp, ws) = q∞!(problem, δ₀²(algorithm), ws)
+q₀!(problem, algorithm::Rampμ, ws) = q₀!(problem, algorithm.initial_algorithm, ws)
+q₀!(::Any, algorithm, ::Any) = algorithm.q₀
+
 initial_algorithm(algorithm::Rampμ, ::Any, ::Any) = algorithm.initial_algorithm
 initial_algorithm(algorithm, q₀, δ₀²) = StraightShot(q₀, δ₀²)
 
-function step_objective(objective::Objective{QNormal}, algorithm::Rampδ², i) where {QNormal}
-    return Fixδ²{QNormal}(algorithm.ramp[i], objective.μ)
+function step_objective(objective, algorithm::Rampδ², i)
+    return Fixδ²(algorithm.ramp[i])
 end
 
-function step_objective(objective::Objective{QNormal}, algorithm::Rampγ², i) where {QNormal}
-    return Fixγ²{QNormal}(algorithm.ramp[i], objective.μ)
+function step_objective(objective, algorithm::Rampγ², i)
+    return Fixγ²(algorithm.ramp[i])
 end
 
+# TODO: that ain't working---does μ need to be in the objective after all?
 function step_objective(objective::O, algorithm::Rampμ, i) where {O}
     return O(objective.value, algorithm.ramp[i])
 end

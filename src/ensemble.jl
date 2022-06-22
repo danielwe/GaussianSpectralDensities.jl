@@ -11,6 +11,7 @@ abstract type AbstractMatrixEnsemble{
 struct MatrixEnsemble{
     R, U, V, W, X<:AMOrI{Complex{R}}, Y<:AbstractMatrix{Complex{R}},
 } <: AbstractMatrixEnsemble{R, U, V, W}
+    N::Int
     M::U
     L::V
     R::W
@@ -32,7 +33,7 @@ struct MatrixEnsemble{
             L⁻¹MR⁻¹ = L⁻¹MR⁻¹(N)
         end
         return new{real(eltype(M)), U, V, W, typeof(L⁻¹R⁻¹), typeof(L⁻¹MR⁻¹)}(
-            M, L, R, L⁻¹R⁻¹, L⁻¹MR⁻¹, T
+            N, M, L, R, L⁻¹R⁻¹, L⁻¹MR⁻¹, T
         )
     end
 end

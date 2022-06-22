@@ -1,5 +1,6 @@
 module GaussianSpectralDensities
 
+using CommonSolve
 using LinearAlgebra
 using StaticArrays
 using StructArrays
@@ -36,7 +37,7 @@ include("solve.jl")
 include("density.jl")
 include("automesh.jl")
 include("printing.jl")
-include("settings.jl")
+include("defaults.jl")
 
 using Requires
 

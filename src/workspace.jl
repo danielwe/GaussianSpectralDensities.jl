@@ -1,67 +1,101 @@
 mutable struct WorkspaceStatus{R, E<:AbstractMatrixEnsemble{R}}
+    N::Int
     ensemble::E
-    z::MissingOr{Complex{R}}
-    μq⁻::MissingOr{Complex{R}}
-    r²::MissingOr{Objective{<:Any, R}}
-    PQ::Bool
-    QᴴPQ::Bool
-    QP::Bool
-    QPQ::Bool
-    PL⁻¹R⁻¹::Bool
+    z::MissingOr{Complex{R}}  # Also G₀⁻¹_diag::Bool
+    nμq::MissingOr{Complex{R}}  # Also Q::Bool depends G₀⁻¹_diag
+    r²::MissingOr{Fixr²{R}}  # Also P::Bool depends Q
+    PQ::Bool  # depends P
+    QᴴPQ::Bool  # depends PQ
+    QPQ::Bool  # depends PQ, voids PL⁻¹R⁻¹
+    QP::Bool  # depends P
+    PL⁻¹R⁻¹::Bool  # depends P, voids QPQ
 
     function WorkspaceStatus(ensemble::AbstractMatrixEnsemble{R}) where {R}
         return new{R, typeof(ensemble)}(
-            ensemble, missing, missing, missing, false, false, false, false
+            ensemble.N, ensemble, missing, missing, missing, false, false, false, false, false
         )
     end
 end
 
 function set_ensemble!(status::WorkspaceStatus{R, E}, ensemble::E) where {R, E}
+    if !(ensemble.N == status.N)
+        throw(ArgumentError("ensemble and workspace dimension do not match"))
+    end
     set_z!(status, missing)
     status.ensemble = ensemble
     return nothing
 end
 
 function set_z!(status::WorkspaceStatus, z)
-    set_μq⁻!(status, missing)
+    set_nμq!(status, missing)
     status.z = z
     return nothing
 end
 
-function set_μq⁻!(status::WorkspaceStatus, μq⁻)
+function set_nμq!(status::WorkspaceStatus, nμq)
     set_r²!(status, missing)
-    status.μq⁻ = μq⁻
+    status.nμq = nμq
     return nothing
 end
 
 function set_r²!(status::WorkspaceStatus, r²)
-    status.PL⁻¹R⁻¹ = false
-    status.QPQ = false
-    status.QP = false
-    status.QᴴPQ = false
-    status.PQ = false
+    set_PL⁻¹R⁻¹!(status, false)
+    set_QP!(status, false)
+    set_PQ!(status, false)
     status.r² = r²
+    return nothing
+end
+
+function set_PQ!(status::WorkspaceStatus, PQ)
+    set_QPQ!(status, false)
+    set_QᴴPQ!(status, false)
+    status.PQ = PQ
+    return nothing
+end
+
+function set_QᴴPQ!(status::WorkspaceStatus, QᴴPQ)
+    status.QᴴPQ = QᴴPQ
+    return nothing
+end
+
+function set_QPQ!(status::WorkspaceStatus, QPQ)
+    if QPQ
+        set_PL⁻¹R⁻¹!(status, false)
+    end
+    status.QPQ = QPQ
+    return nothing
+end
+
+function set_QP!(status::WorkspaceStatus, QᴴPQ)
+    status.QP = QP
+    return nothing
+end
+
+function set_PL⁻¹R⁻¹!(status::WorkspaceStatus, PL⁻¹R⁻¹)
+    PL⁻¹R⁻¹ && set_QPQ!(status, false)
+    status.PL⁻¹R⁻¹ = PL⁻¹R⁻¹
     return nothing
 end
 
 abstract type AbstractWorkspace{R<:Real} end
 
 struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
+    N::Int
     status::WorkspaceStatus{R, MatrixEnsemble{R, U, V, W, X, Y}}
     G₀⁻¹_diag::Vector{Complex{R}}
     Q::Y
     QQᴴ::Hermitian{Complex{R},Matrix{Complex{R}}}
+    s²min::Base.RefValue{R}
     P⁻¹f::Matrix{Complex{R}}
     P::Hermitian{Complex{R},Matrix{Complex{R}}}
     PQ::Matrix{Complex{R}}
     QᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
+    QPQ_PL⁻¹R⁻¹::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
     QP::Matrix{Complex{R}}
-    QPQ::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
-    s²min::Base.RefValue{R}
 
     function Workspace(ensemble::MatrixEnsemble{R, U, V, W, X, Y}) where {R, U, V, W, X, Y}
-        status = WorkspaceStatus(ensemble)
         N = length(ensemble.T)
+        status = WorkspaceStatus(ensemble)
         G₀⁻¹_diag = Vector{Complex{R}}(undef, N)
         Q = similar(ensemble.L⁻¹MR⁻¹)
         QQᴴ = Hermitian(Matrix{Complex{R}}(undef, N, N))
@@ -69,204 +103,198 @@ struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
         P = Hermitian(Matrix{Complex{R}}(undef, N, N))
         PQ = Matrix{Complex{R}}(undef, N, N)
         QᴴPQ = Hermitian(Matrix{Complex{R}}(undef, N, N))
+        QPQ_PL⁻¹R⁻¹ = Matrix{Complex{R}}(undef, N, N)
         QP = Matrix{Complex{R}}(undef, N, N)
-        QPQ = Matrix{Complex{R}}(undef, N, N)
         return new{R, U, V, W, X, Y}(
-            status, G₀⁻¹_diag, Q, QQᴴ, P⁻¹f, P, PQ, QᴴPQ, QP, QPQ, Ref(R(NaN))
+            N, status, G₀⁻¹_diag, Q, QQᴴ, Ref(R(NaN)), P⁻¹f, P, PQ, QᴴPQ, QPQ_PL⁻¹R⁻¹, QP
         )
     end
 end
 
 workspace(ensemble::MatrixEnsemble) = Workspace(ensemble)
 
-ensemble(workspace::AbstractWorkspace) = workspace.status.ensemble
-
-function set_ensemble!(workspace::AbstractWorkspace, ensemble)
-    return set_ensemble!(workspace.status, ensemble)
-end
-
-function _G₀⁻¹_diag!(workspace, z)
-    ens = ensemble(workspace)
-    @inbounds zA⁻B!(workspace.Q, z, ens.L⁻¹R⁻¹, ens.L⁻¹MR⁻¹)
-    @inbounds copy_diag!(workspace.G₀⁻¹_diag, workspace.Q)
+function _G₀⁻¹_diag!(problem, ws)
+    ens = problem.ensemble
+    @inbounds zA⁻B!(ws.Q, problem.z, ens.L⁻¹R⁻¹, ens.L⁻¹MR⁻¹)
+    @inbounds copy_diag!(ws.G₀⁻¹_diag, ws.Q)
     return nothing
 end
 
-function _Q!(workspace, ::Fixr²{QNormal}, μq⁻) where {QNormal}
-    @inbounds set_diag_muladd!(workspace.Q, μq⁻, ensemble(workspace).T, workspace.G₀⁻¹_diag)
-    mul!(workspace.QQᴴ.data, workspace.Q, workspace.Q')
-    if QNormal
+function _Q!(problem::LocalSpectralProblem{NormalizeQ}, nμq, ws) where {NormalizeQ}
+    @inbounds muladd_diag!(ws.Q, nμq, problem.ensemble.T, ws.G₀⁻¹_diag)
+    mul!(ws.QQᴴ.data, ws.Q, ws.Q')
+    if NormalizeQ
         # This is an attempt to get around the order of limits issue by
         # replacing QQ' with (QQ' + Q'Q) / 2, cancelling any non-normality in
         # Q. This is not mathematically sound in general, but it does the trick
         # in certain experiments.
-        half = one(eltype(workspace.Q)) / 2
-        mul!(workspace.QQᴴ.data, workspace.Q', workspace.Q, half, half)
+        half = one(eltype(ws.Q)) / 2
+        mul!(ws.QQᴴ.data, ws.Q', ws.Q, half, half)
     end
-    @inbounds copyto!(workspace.P.data, workspace.QQᴴ.data)
-    workspace.s²min[] = eigmin!(workspace.P)
+    @inbounds copyto!(ws.P.data, ws.QQᴴ.data)
+    ws.s²min[] = eigmin!(ws.P)
     return nothing
 end
 
-function _P!(workspace, r²)
-    γ² = _γ²!(r², workspace.s²min[])
-    @inbounds copyto!(workspace.P⁻¹f, workspace.QQᴴ.data)
-    @inbounds add_to_diag!(workspace.P⁻¹f, γ²)
-    LAPACK.potrf!(workspace.P.uplo, workspace.P⁻¹f)
-    @inbounds copyto!(workspace.P.data, workspace.P⁻¹f)
-    LAPACK.potri!(workspace.P.uplo, workspace.P.data)
+function _P!(problem, ws)
+    @inbounds copyto!(ws.P⁻¹f, ws.QQᴴ)
+    @inbounds add_to_diag!(ws.P⁻¹f, _γ²!(problem.objective, ws))
+    _, info = LAPACK.potrf!(ws.P.uplo, ws.P⁻¹f)
+    (info == 0) || throw(PosDefException(info))
+    @inbounds copyto!(ws.P.data, ws.P⁻¹f)
+    LAPACK.potri!(ws.P.uplo, ws.P.data)
     return nothing
+end
+
+function _PQ!(ws)
+    @inbounds copyto!(ws.PQ, ws.Q)
+    LAPACK.potrs!(ws.P.uplo, ws.P⁻¹f, ws.PQ)
+    return nothing
+end
+
+function _QᴴPQ!(ws)
+    mul!(ws.QᴴPQ.data, ws.Q', ws.PQ)
+    return nothing
+end
+
+function _QPQ!(ws)
+    mul!(ws.QPQ_PL⁻¹R⁻¹, ws.Q, ws.PQ)
+    return nothing
+end
+
+function _QP!(ws)
+    if ws.P.uplo == 'L'
+        L = LowerTriangular(ws.P⁻¹f)
+        U = L'
+    else
+        U = UpperTriangular(ws.P⁻¹f)
+        L = U'
+    end
+    @inbounds copyto!(ws.QP, ws.Q)
+    rdiv!(ws.QP, U)
+    rdiv!(ws.QP, L)
+    return nothing
+end
+
+function _PL⁻¹R⁻¹!(problem, ws)
+    ens = problem.ensemble
+    if ens.L⁻¹R⁻¹ isa UniformScaling
+        mul!(ws.QPQ_PL⁻¹R⁻¹, ws.P, ens.L⁻¹R⁻¹)
+    else
+        @inbounds copyto!(ws.QPQ_PL⁻¹R⁻¹, ens.L⁻¹R⁻¹)
+        LAPACK.potrs!(ws.P.uplo, ws.P⁻¹f, ws.QPQ_PL⁻¹R⁻¹)
+    end
+    return nothing
+end
+
+function G₀⁻¹_diag!(problem, ws)
+    if ws.status.ensemble !== problem.ensemble
+        set_ensemble!(ws.status, problem.ensemble)
+    end
+    if ws.status.z !== problem.z
+        _G₀⁻¹_diag!(problem.z, ws)
+        set_z!(ws.status, problem.z)
+    end
+    return ws.G₀⁻¹_diag
+end
+
+function Q!(problem, q, ws)
+    G₀⁻¹_diag!(problem, ws)
+    nμq = -problem.μ * q
+    if ws.status.nμq !== nμq
+        _Q!(problem, nμq, ws)
+        set_nμq!(ws.status, nμq)
+    end
+    return ws.Q
+end
+
+function P!(problem, q, ws)
+    Q!(problem, q, ws)
+    if ws.status.r² !== problem.objective
+        _P!(problem, ws)
+        set_r²!(ws.status, problem.objective)
+    end
+    return ws.P
+end
+
+function PQ!(problem, q, ws)
+    P!(problem, q, ws)
+    if !ws.status.PQ
+        _PQ!(ws)
+        set_PQ!(ws.status, true)
+    end
+    return ws.PQ
+end
+
+function QᴴPQ!(problem, q, ws)
+    PQ!(problem, q, ws)
+    if !ws.status.QᴴPQ
+        _QᴴPQ!(ws)
+        set_QᴴPQ!(ws.status, true)
+    end
+    return ws.QᴴPQ
+end
+
+function QPQ!(problem, q, ws)
+    PQ!(problem, q, ws)
+    if !ws.status.QPQ
+        _QPQ!(ws)
+        set_QPQ!(ws.status, true)
+    end
+    return ws.QPQ_PL⁻¹R⁻¹
+end
+
+function QP!(problem, q, ws)
+    P!(problem, q, ws)
+    if !ws.status.QP
+        _QP!(ws)
+        set_QP!(ws.status, true)
+    end
+    return ws.QP
+end
+
+function PL⁻¹R⁻¹!(problem, q, ws)
+    P!(problem, q, ws)
+    if !ws.status.PL⁻¹R⁻¹
+        _PL⁻¹R⁻¹!(ws)
+        set_PL⁻¹R⁻¹!(ws.status, true)
+    end
+    return ws.QPQ_PL⁻¹R⁻¹
 end
 
 _γ²!(r²::Fixγ², ::Any) = r².value
-_γ²!(r²::Fixδ², s²min) = r².value - s²min
+_γ²!(r²::Fixδ², ws) = r².value - ws.s²min[]
+_δ²!(r²::Fixγ², ws) = r².value + ws.s²min[]
+_δ²!(r²::Fixδ², ::Any) = r².value
 
-function _PQ!(workspace)
-    @inbounds copyto!(workspace.PQ, workspace.Q)
-    LAPACK.potrs!(workspace.P.uplo, workspace.P⁻¹f, workspace.PQ)
-    return nothing
-end
-
-function _QᴴPQ!(workspace)
-    mul!(workspace.QᴴPQ.data, workspace.Q', workspace.PQ)
-    return nothing
-end
-
-function _QP!(workspace)
-    if workspace.P.uplo === 'L'
-        L = LowerTriangular(workspace.P⁻¹f)
-        U = L'
-    else
-        U = UpperTriangular(workspace.P⁻¹f)
-        L = U'
+function γ²!(problem, q, ws)
+    r² = problem.objective
+    if !(r² isa Fixγ²)
+        Q!(problem, q, ws)
     end
-    @inbounds copyto!(workspace.QP, workspace.Q)
-    rdiv!(rdiv!(workspace.QP, U), L)
-    return nothing
+    return _γ²(r², ws)
 end
 
-function _QPQ!(workspace)
-    mul!(workspace.QPQ, workspace.Q, workspace.PQ)
-    return nothing
-end
-
-function _PL⁻¹R⁻¹!(workspace)
-    ens = ensemble(workspace)
-    if ens.L⁻¹R⁻¹ isa UniformScaling
-        mul!(workspace.QPQ, workspace.P, ens.L⁻¹R⁻¹)
-    else
-        @inbounds copyto!(workspace.QPQ, ens.L⁻¹R⁻¹)
-        LAPACK.potrs!(workspace.P.uplo, workspace.P⁻¹f, workspace.QPQ)
+function δ²!(problem, q, ws)
+    r² = problem.objective
+    if !(r² isa Fixδ²)
+        Q!(problem, q, ws)
     end
-    return nothing
+    return _δ²(r², ws)
 end
 
-function G₀⁻¹_diag!(workspace, z)
-    if workspace.status.z !== z
-        _G₀⁻¹_diag!(workspace, z)
-        set_z!(workspace.status, z)
-    end
-    return workspace.G₀⁻¹_diag
-end
-
-function Q!(workspace, objective, z, q)
-    G₀⁻¹_diag!(workspace, z)
-    μq⁻ = -objective.μ * q
-    if workspace.status.μq⁻ !== μq⁻
-        _Q!(workspace, objective, μq⁻)
-        set_μq⁻!(workspace.status, μq⁻)
-    end
-    return workspace.Q
-end
-
-function P!(workspace, objective::O, z, q) where {O}
-    Q!(workspace, objective, z, q)
-    r² = O(objective.value, one(objective.μ))  # Don't include μ in this status, see Q!
-    if workspace.status.r² !== r²
-        _P!(workspace, r²)
-        set_r²!(workspace.status, r²)
-    end
-    return workspace.P
-end
-
-function PQ!(workspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    P!(workspace, objective, z, q)
-    if !workspace.status.PQ
-        _PQ!(workspace)
-        workspace.status.PQ = true
-    end
-    return workspace.PQ
-end
-
-function QᴴPQ!(workspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    PQ!(workspace, objective, z, q)
-    if !workspace.status.QᴴPQ
-        _QᴴPQ!(workspace)
-        workspace.status.QᴴPQ = true
-    end
-    return workspace.QᴴPQ
-end
-
-function QP!(workspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    P!(workspace, objective, z, q)
-    if !workspace.status.QP
-        _QP!(workspace)
-        workspace.status.QP = true
-    end
-    return workspace.QP
-end
-
-function QPQ!(workspace, objective, z, q)
-    Q!(workspace, objective, z, q)
-    PQ!(workspace, objective, z, q)
-    if !workspace.status.QPQ
-        workspace.status.PL⁻¹R⁻¹ = false
-        _QPQ!(workspace)
-        workspace.status.QPQ = true
-    end
-    return workspace.QPQ
-end
-
-function PL⁻¹R⁻¹!(workspace, objective, z, q)
-    P!(workspace, objective, z, q)
-    if !workspace.status.PL⁻¹R⁻¹
-        workspace.status.QPQ = false
-        _PL⁻¹R⁻¹!(workspace)
-        workspace.status.PL⁻¹R⁻¹ = true
-    end
-    return workspace.QPQ
-end
-
-γ²!(::Any, objective::Fixγ², ::Any, ::Any) = objective.value
-
-function γ²!(workspace, objective::Fixδ², z, q)
-    Q!(workspace, objective, z, q)
-    return objective.value - workspace.s²min[]
-end
-
-δ²!(::Any, objective::Fixδ², ::Any, ::Any) = objective.value
-
-function δ²!(workspace, objective::Fixγ², z, q)
-    Q!(workspace, objective, z, q)
-    return objective.value + workspace.s²min[]
-end
-
-function k!(workspace, objective, z, q)
-    P = P!(workspace, objective, z, q)
+function k!(problem, q, ws)
+    P = P!(problem, q, ws)
     return _tr(P) / size(P, 1)
 end
 
-function r!(workspace, objective, z, q)
-    Q = Q!(workspace, objective, z, q)
-    PL⁻¹R⁻¹ = PL⁻¹R⁻¹!(workspace, objective, z, q)
-    return _dot(Q, PL⁻¹R⁻¹)
+# r is a bad name for this variable, or r² is a bad common name for γ² and δ²
+function r!(problem, q, ws)
+    return _dot(Q!(problem, q, ws), PL⁻¹R⁻¹!(problem, q, ws))
 end
 
-function q∞!(workspace, γ∞², z)
-    T = ensemble(workspace).T
-    q = _dot(G₀⁻¹_diag!(workspace, z), T)
+function q∞!(problem, γ∞², ws)
+    T = problem.ensemble.T
+    q = _dot(G₀⁻¹_diag!(problem, ws), T)
     return q / (γ∞² * length(T))
 end

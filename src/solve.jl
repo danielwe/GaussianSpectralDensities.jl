@@ -1,57 +1,99 @@
-const ConvergenceException = Union{NewtonException, SingularException, LAPACKException}
+const ConvergenceException = Union{NewtonException,SingularException,LAPACKException}
 
-struct SpectralProblem{
-    R,
-    E<:AbstractMatrixEnsemble{R},
-    Z<:Union{MissingOr{Complex{R}}, Matrix{<:MissingOr{Complex{R}}}},
-}
+struct SpectralProblem{R,O<:Objective{R},E<:AbstractMatrixEnsemble{R}}
+    objective::O
     ensemble::E
-    objective::Objective{<:Any, R}
-    z::Z
+    z::Matrix{MissingOr{Complex{R}}}
+    normalizeQ::Bool
 
     function SpectralProblem(
-        ensemble::E, objective, z
+        objective, ensemble::E, z; normalizeQ=default(:normalizeQ)
     ) where {R, E<:AbstractMatrixEnsemble{R}}
         objective = adapt(R, objective)
-        z = convert.(MissingOr{Complex{R}}, z)
-        return new{R, E, typeof(z)}(ensemble, objective, z)
+        return new{R,typeof(objective),E}(objective, ensemble, z, normalizeQ)
     end
 end
 
-struct SpectralSolver{R, W<:AbstractWorkspace{R}, O<:Objective{<:Any, R}, A<:Algorithm{R}}
-    workspace::W
+#= WIP automesh is not ready for this yet, probably put this in the file that is loaded
+conditional on LazySets.jl
+
+function SpectralProblem(objective, ensemble; NormalizeQ=default(:NormalizeQ))
+    return SpectralProblem(objective, ensemble, automesh(ensemble); NormalizeQ=NormalizeQ)
+end
+=#
+
+struct LocalSpectralProblem{NormalizeQ, R, O<:Objective{R}, E<:AbstractMatrixEnsemble{R}}
     objective::O
+    ensemble::E
+    z::Complex{R}
+    μ::R
+
+    function LocalSpectralProblem{NormalizeQ}(
+        objective, ensemble::E, z, μ=one(R)
+    ) where {NormalizeQ, R, E<:AbstractMatrixEnsemble{R}}
+        objective = adapt(R, objective)
+        return new{NormalizeQ, R, typeof(objective), E}(objective, ensemble, z, μ)
+    end
+end
+
+function LocalSpectralProblem(args...; kwargs...)
+    return LocalSpectralProblem{default(:NormalizeQ)}(args...; kwargs...)
+end
+
+struct SpectralSolver{
+    R,
+    P<:SpectralProblem{R},
+    A<:Algorithm{R},
+    W<:AbstractWorkspace{R},
+}
+    problem::P
     algorithm::A
+    workspaces::Vector{W}
+    chunks_per_thread::Int
 
     function SpectralSolver(
-        workspace::AbstractWorkspace{R}, objective, algorithm
-    ) where {R}
-        objective = adapt(R, objective)
+        problem::SpectralProblem{R},
+        algorithm::Algorithm,
+        workspaces::Vector{W};
+        chunks_per_thread=1,
+    ) where {R, W<:AbstractWorkspace{R}}
         algorithm = adapt(R, algorithm)
-        return new{R, typeof(workspace), typeof(objective), typeof(algorithm)}(
-            workspace, objective, algorithm
+        for ws in workspaces
+            set_ensemble!(ws, problem.ensemble)
+        end
+        return new{R, typeof(problem), typeof(algorithm), eltype(workspaces)}(
+            problem, algorithm, workspaces, chunks_per_thread
         )
     end
 end
 
-function SpectralSolver(ensemble::AbstractMatrixEnsemble, objective, algorithm)
-    return SpectralSolver(workspace(ensemble), objective, algorithm)
+function SpectralSolver(
+    problem::SpectralProblem{R},
+    algorithm::Algorithm;
+    nthreads=max(1, Threads.nthreads() - 1),
+    chunks_per_thread=1,
+) where {R}
+    workspaces = [workspace(problem.ensemble) for _ in 1:nthreads]
+    return new{R, typeof(problem), typeof(algorithm), eltype(workspaces)}(
+        problem, algorithm, workspaces, chunks_per_thread
+    )
 end
 
-function SpectralSolver(problem, algorithm)
-    return SpectralSolver(problem.ensemble, problem.objective, algorithm)
+function SpectralSolver(ensemble::AbstractMatrixEnsemble, objective, algorithm; kwargs...)
+    return SpectralSolver(workspace(ensemble), objective, algorithm; kwargs...)
+end
+
+function SpectralSolver(problem, algorithm; kwargs...)
+    return SpectralSolver(problem.ensemble, problem.objective, algorithm; kwargs...)
 end
 
 function set_ensemble!(solver::SpectralSolver, ensemble)
-    return set_ensemble!(solver.workspace, ensemble)
+    for ws in solver.workspaces
+        set_ensemble!(ws, ensemble)
+    end
 end
 
-function solve(
-    problem::SpectralProblem{R, <:Any, <:AbstractMatrix},
-    algorithm;
-    chunks_per_thread=1,
-    kwargs...
-) where {R}
+function solve!(solver::SpectralSolver{R}) where {R}
     algorithm = adapt(R, algorithm)
     nbthreads = max(1, Threads.nthreads() - 1)
     solvers = [SpectralSolver(problem, algorithm) for _ in 1:nbthreads]
@@ -238,13 +280,13 @@ end
 
 function solve!(
     workspace,
-    objective::Fixk{QNormal},
+    objective::Fixk{NormalizeQ},
     algorithm::StraightShot,
     z,
     ::Any=nothing,
     ti=0;
     verbosity=0,
-) where {QNormal}
+) where {NormalizeQ}
     q_, δ_² = q₀!(workspace, algorithm, z), δ₀²(algorithm)
     local q, δ²
     try
@@ -255,7 +297,7 @@ function solve!(
         end
         rethrow()
     end
-    sol = BareSpectralSolution(workspace, Fixδ²{QNormal}(δ², objective.μ), z, q)
+    sol = BareSpectralSolution(workspace, Fixδ²{NormalizeQ}(δ², objective.μ), z, q)
     if invalid(sol, algorithm)
         sol = BareSpectralSolution(objective)
     end

@@ -9,14 +9,14 @@ struct BareSpectralSolution{R} <: AbstractSpectralSolution{R}
     r::MissingOr{Complex{R}}
 end
 
-function BareSpectralSolution(workspace, objective, z, q)
+function BareSpectralSolution(ws, objective, z, q)
     return BareSpectralSolution(
         objective.μ,
         q,
-        γ²!(workspace, objective, z, q),
-        δ²!(workspace, objective, z, q),
-        k!(workspace, objective, z, q),
-        r!(workspace, objective, z, q),
+        γ²!(ws, objective, z, q),
+        δ²!(ws, objective, z, q),
+        k!(ws, objective, z, q),
+        r!(ws, objective, z, q),
     )
 end
 

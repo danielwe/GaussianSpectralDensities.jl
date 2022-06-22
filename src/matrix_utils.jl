@@ -108,22 +108,22 @@ Base.@propagate_inbounds copy_diag!(d, A::Tridiagonal) = copyto!(d, A.d)
     return d
 end
 
-Base.@propagate_inbounds function set_diag_muladd!(A::Diagonal, λ, v1, v2)
+Base.@propagate_inbounds function muladd_diag!(A::Diagonal, λ, v1, v2)
     A.diag .= muladd.(λ, v1, v2)
     return nothing
 end
 
-Base.@propagate_inbounds function set_diag_muladd!(A::BiSymTri, λ, v1, v2)
+Base.@propagate_inbounds function muladd_diag!(A::BiSymTri, λ, v1, v2)
     A.dv .= muladd.(λ, v1, v2)
     return nothing
 end
 
-Base.@propagate_inbounds function set_diag_muladd!(A::Tridiagonal, λ, v1, v2)
+Base.@propagate_inbounds function muladd_diag!(A::Tridiagonal, λ, v1, v2)
     A.d .= muladd.(λ, v1, v2)
     return nothing
 end
 
-@inline function set_diag_muladd!(A, λ, v1, v2)
+@inline function muladd_diag!(A, λ, v1, v2)
     N = length(v1)
     @boundscheck (@assert size(A) == (N, N) && length(v2) == N)
     @inbounds for i in 1:N
