@@ -5,6 +5,32 @@ using LinearAlgebra
 using StaticArrays
 
 @testset "GaussianSpectralDensities.jl" begin
+    @testset "ensembles" begin
+        @testset "MatrixEnsemble" begin
+            N = 2
+            @test MatrixEnsemble(N, I, I, I, I).N == 2
+
+            D32 = 0.5f0I(N)
+            D64 = 0.5I(N)
+            @testset "$args" for (args, e32, e64) in (
+                ("M=D, L=I, R=I, T=I", map(D -> MatrixEnsemble(D, I, I, I), (D32, D64))...),
+                ("M=I, L=D, R=I, T=I", map(D -> MatrixEnsemble(I, D, I, I), (D32, D64))...),
+                ("M=I, L=I, R=D, T=I", map(D -> MatrixEnsemble(I, I, D, I), (D32, D64))...),
+                ("M=I, L=I, R=I, T=D", map(D -> MatrixEnsemble(I, I, I, D), (D32, D64))...),
+            )
+                @test e32.N == N
+                @test e64.N == N
+                @test e32 isa MatrixEnsemble{Float32}
+                @test e64 isa MatrixEnsemble{Float64}
+            end
+
+            @test_throws ArgumentError MatrixEnsemble(I, I, I, I)
+            @test_throws DimensionMismatch MatrixEnsemble(N + 1, D64, I, I, I)
+            @test_throws DimensionMismatch MatrixEnsemble(D64, I, I, 0.5I(N + 1))
+            @test_throws ArgumentError MatrixEnsemble(I, I, I, Matrix(D64))
+            @test_throws ArgumentError MatrixEnsemble(I, I, I, -D64)
+        end
+    end
     @testset "newton" begin
         @testset "scalar" begin
             f(x) = cos(x) - x^3

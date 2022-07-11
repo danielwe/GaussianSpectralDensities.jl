@@ -1,73 +1,105 @@
-const AMOrI{R} = Union{AbstractMatrix{R}, UniformScaling{R}}
-const RealOrComplex{R<:Real} = Union{R, Complex{R}}
+# TODO: consider generalizations where M, L, R can be LinearMaps etc.
+const AbstractMatrixOrUniform{T} = Union{<:AbstractMatrix{<:T},UniformScaling{<:T}}
+const DiagonalOrUniform{T} = Union{<:Diagonal{<:T},UniformScaling{<:T}}
+const RealOrComplex{T<:Real} = Union{T,Complex{T}}
 
 abstract type AbstractMatrixEnsemble{
-    R<:Real,
-    U<:AMOrI{<:RealOrComplex{R}},
-    V<:AMOrI{<:RealOrComplex{R}},
-    W<:AMOrI{<:RealOrComplex{R}},
+    F<:AbstractFloat,
+    TM<:AbstractMatrixOrUniform{RealOrComplex{F}},
+    TL<:AbstractMatrixOrUniform{RealOrComplex{F}},
+    TR<:AbstractMatrixOrUniform{RealOrComplex{F}},
 } end
 
-struct MatrixEnsemble{
-    R, U, V, W, X<:AMOrI{Complex{R}}, Y<:AbstractMatrix{Complex{R}},
-} <: AbstractMatrixEnsemble{R, U, V, W}
-    N::Int
-    M::U
-    L::V
-    R::W
-    L⁻¹R⁻¹::X
-    L⁻¹MR⁻¹::Y
-    T::Vector{R}
+"""
 
-    function MatrixEnsemble(M::U, L::V, R::W, T::AbstractVector) where {U, V, W}
-        N = length(T)
-        for (A, c) in ((M, 'M'), (L, 'L'), (R, 'R'))
-            if !(A isa UniformScaling) && (size(A) != (N, N))
-                throw(DimensionMismatch("the size of $c does not match the length of T"))
+    MatrixEnsemble([N::Integer], M, L, R, T)
+
+Ensemble of square matrices on the form ``M + LJR`` where ``J`` has Girko ``T``-distribution
+
+Providing the size `N` is not necessary as long as it can be inferred from one of `M`, `L`,
+`R`, or `T`, but is required if, for example, all of them are of `UniformScaling` type.
+
+The Girko ``T``-ensemble is a generalized Girko ensemble where the scalar symmetry parameter
+``τ`` is replaced by a diagonal matrix ``T``. The ordinary Girko ensemble is recovered by
+choosing `T = sqrt(τ) * I`.
+"""
+struct MatrixEnsemble{
+    F,
+    TM,
+    TL,
+    TR,
+    TT<:DiagonalOrUniform{F},
+    TLiRi<:AbstractMatrixOrUniform{Complex{F}},
+    TLiMRi<:AbstractMatrix{Complex{F}},
+} <: AbstractMatrixEnsemble{F,TM,TL,TR}
+    N::Int
+    M::TM
+    L::TL
+    R::TR
+    T::TT
+    LiRi::TLiRi
+    LiMRi::TLiMRi
+
+    function MatrixEnsemble(N, M, L, R, T)
+        for (A, name) in ((M, 'M'), (L, 'L'), (R, 'R'), (T, 'T'))
+            if applicable(size, A) && (size(A) != (N, N))
+                throw(DimensionMismatch("size($name) must be (N, N) == ($N, $N)"))
             end
         end
-        Lf, Rf = _factorize(L), _factorize(_complex(R))
-        L⁻¹R⁻¹ = A⁻¹BC⁻¹(Lf, I, Rf)
-        L⁻¹MR⁻¹ = A⁻¹BC⁻¹(Lf, M, Rf)
-        if L⁻¹MR⁻¹ isa UniformScaling
-            L⁻¹MR⁻¹ = L⁻¹MR⁻¹(N)
+        if !((T isa DiagonalOrUniform{<:Real}) && _ispossemidef(T))
+            msg = "T must be Diagonal or UniformScaling and positive semidefinite"
+            throw(ArgumentError(msg))
         end
-        return new{real(eltype(M)), U, V, W, typeof(L⁻¹R⁻¹), typeof(L⁻¹MR⁻¹)}(
-            N, M, L, R, L⁻¹R⁻¹, L⁻¹MR⁻¹, T
+        # Include eltypes of R and T early by pre-promoting L; avoids surprises if, e.g.,
+        # M == L == I isa UniformScaling{Bool}, but eltype(R) === Float32, in which case the
+        # desired behavior is to promote to Float32 but L \ M would give Float64
+        L = _elpromote(promote_type(eltype(R), eltype(T)), L)
+        LiMRi = _complex(_float((L \ M) / R))
+        if LiMRi isa UniformScaling
+            LiMRi = LiMRi(N)
+        end
+        CF = eltype(LiMRi)
+        LiRi =_elconvert(CF, (L \ I) / R)  # Always complex
+        F = real(CF)
+        M, L, R = map(A -> _elpromote(F, A), (M, L, R))
+        T = _elconvert(F, T)  # Always real
+        return new{F,map(typeof, (M, L, R, T, LiRi, LiMRi))...}(N, M, L, R, T, LiRi, LiMRi)
+    end
+end
+
+function MatrixEnsemble(M, L, R, T)
+    N = _apply_earliest(size, (M, L, R, T), 1)
+    if N === nothing
+        msg = (
+            "ensemble size N cannot be inferred from M, L, R, or T, so must be supplied "
+            * "manually using the signature MatrixEnsemble(N, M, L, R, T)"
         )
+        throw(ArgumentError(msg))
     end
+    return MatrixEnsemble(N, M, L, R, T)
 end
 
-function MatrixEnsemble(M, L, R, τ::Real)
-    return MatrixEnsemble(M, L, R, fill(sqrt(τ), size(M, 1)))
+_ispossemidef(a::Number) = ((imag(a) == 0) && (real(a) >= 0))
+_ispossemidef(A::Diagonal) = all(_ispossemidef(a) for a in A.diag)
+_ispossemidef(A::UniformScaling) = _ispossemidef(A.λ)
+
+_complex(A) = _elconvert(complex(eltype(A)), A)
+
+_float(A) = _elconvert(float(eltype(A)), A)
+
+_elpromote(T, A) = _elconvert(promote_type(T, eltype(A)), A)
+
+function _elconvert(T, A)
+    (T === eltype(A)) && return A
+    return convert.(T, A)
 end
 
-_complex(A::UniformScaling) = UniformScaling(complex(A.λ))
-_complex(A) = complex(A)
+_elconvert(T, A::UniformScaling) = UniformScaling(convert(T, A.λ))
 
-function _factorize(A)
-    if applicable(factorize, A)
-        return factorize(A)
-    end
-    return A
+function _apply_earliest(f, As, args...; kwargs...)
+    A = first(As)
+    applicable(f, A, args...; kwargs...) && return f(A, args...; kwargs...)
+    return _apply_earliest(f, Base.tail(As), args...; kwargs...)
 end
 
-function A⁻¹BC⁻¹(A, B, C)
-    tmp = B / C
-    if applicable(ldiv!, A, tmp)
-        ldiv!(A, tmp)
-        return tmp
-    end
-    return A \ tmp
-end
-
-function A⁻¹BC⁻¹(A::UniformScaling, B, C::UniformScaling)
-    return B / (A * C)
-end
-
-function Base.eltype(ensemble::AbstractMatrixEnsemble{R, U, V, W}) where {R, U, V, W}
-    if any(T -> eltype(T) <: Complex, (U, V, W))
-        return Complex{R}
-    end
-    return R
-end
+_apply_earliest(f, ::Tuple{}, args...; kwargs...) = nothing

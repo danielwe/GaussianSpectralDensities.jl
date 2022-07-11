@@ -1,7 +1,7 @@
 module GaussianSpectralDensities
 
 # using CommonSolve
-# using LinearAlgebra
+using LinearAlgebra
 using StaticArrays
 # using StructArrays
 # using Random
@@ -14,7 +14,7 @@ using StaticArrays
   of plots it makes sense to write recipes for, however.
 =#
 
-# export AbstractMatrixEnsemble, MatrixEnsemble
+export MatrixEnsemble
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 # export Rampγ², Rampδ², Rampμ, StraightShot
 # export Fixk, Fixγ², Fixδ²
@@ -25,7 +25,7 @@ using StaticArrays
 # const MissingOr{T} = Union{Missing, T}
 
 # include("matrix_utils.jl")
-# include("ensemble.jl")
+include("ensemble.jl")
 # include("sampling.jl")
 # include("objectives.jl")
 # include("workspace.jl")
