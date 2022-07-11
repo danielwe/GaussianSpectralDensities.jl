@@ -1,6 +1,9 @@
+using Aqua
 using GaussianSpectralDensities
 using Test
 
-@testset "GaussianSpectralDensities.jl" begin
-    # Write your tests here.
+@testset "Aqua" begin
+    Aqua.test_all(GaussianSpectralDensities)
 end
+
+include("tests.jl")
