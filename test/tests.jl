@@ -1,4 +1,5 @@
 using GaussianSpectralDensities
+using GaussianSpectralDensities: DEFAULTS, adapt
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
 using LinearAlgebra
@@ -30,6 +31,44 @@ using StaticArrays
             @test_throws ArgumentError MatrixEnsemble(I, I, I, Matrix(D64))
             @test_throws ArgumentError MatrixEnsemble(I, I, I, -D64)
         end
+    end
+    @testset "objectives" begin
+        @test TraceObjective().value === DEFAULTS[:k]
+        @test RegularizerObjective().value === DEFAULTS[:γ]
+        @test RegularizerObjective().kind === Regularizers.γ
+        @test RegularizerObjective(0.0).kind === Regularizers.γ
+
+        k32, k64 = map(TraceObjective, (1.0f0, 1.0))
+        γ32, γ64 = map(RegularizerObjective, (0.0f0, 0.0))
+        δ32, δ64 = map(δ -> RegularizerObjective(δ, Regularizers.δ), (0.5f0, 0.5))
+
+        @test k32.value === 1.0f0
+        @test γ32.value === 0.0f0
+        @test δ32.value === 0.5f0
+        @test γ32.kind === Regularizers.γ
+        @test δ32.kind === Regularizers.δ
+
+        @test k64.value === 1.0
+        @test γ64.value === 0.0
+        @test δ64.value === 0.5
+        @test γ64.kind === Regularizers.γ
+        @test δ64.kind === Regularizers.δ
+
+        @test convert(TraceObjective{Float32}, k64) === k32
+        @test convert(RegularizerObjective{Float32}, γ64) === γ32
+        @test convert(RegularizerObjective{Float32}, δ64) === δ32
+
+        @test convert(TraceObjective{Float64}, k64) === k64
+        @test convert(RegularizerObjective{Float64}, γ64) === γ64
+        @test convert(RegularizerObjective{Float64}, δ64) === δ64
+
+        @test adapt(Float32, k64) === k32
+        @test adapt(Float32, γ64) === γ32
+        @test adapt(Float32, δ64) === δ32
+
+        @test adapt(Float64, k64) === k64
+        @test adapt(Float64, γ64) === γ64
+        @test adapt(Float64, δ64) === δ64
     end
     @testset "newton" begin
         @testset "scalar" begin

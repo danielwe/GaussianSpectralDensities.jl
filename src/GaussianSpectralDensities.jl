@@ -3,6 +3,7 @@ module GaussianSpectralDensities
 # using CommonSolve
 using LinearAlgebra
 using StaticArrays
+using EnumX
 # using StructArrays
 # using Random
 # using ThreadPools
@@ -15,9 +16,9 @@ using StaticArrays
 =#
 
 export MatrixEnsemble
+export TraceObjective, RegularizerObjective, Regularizers
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 # export Rampγ², Rampδ², Rampμ, StraightShot
-# export Fixk, Fixγ², Fixδ²
 # export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
 # export spectral_density
 # export automesh, automesh!
@@ -27,7 +28,7 @@ export MatrixEnsemble
 # include("matrix_utils.jl")
 include("ensemble.jl")
 # include("sampling.jl")
-# include("objectives.jl")
+include("objectives.jl")
 # include("workspace.jl")
 # include("algorithms.jl")
 # include("solutions.jl")
@@ -37,7 +38,21 @@ include("newton.jl")
 # include("density.jl")
 # include("automesh.jl")
 # include("printing.jl")
-# include("defaults.jl")
+
+const DEFAULTS = Dict(
+    :normalizeQ => false,
+    :verbosity => 0,
+    :store_trace => false,
+    :k => 1.0,
+    :γ => 0.0,
+    :μ => 1.0,
+    :regularizerschedule => 2.0.^(4:-0.5:-4),
+    :μschedule => LinRange(0.0, 1.0, 9),
+    :γ²min => -Inf,
+    :q0 => complex(Float64(sqrt(eps(Float32)))),
+    :δ0 => 1.0,
+    :margin => 0.1,
+)
 
 # using Requires
 #
