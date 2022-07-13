@@ -17,6 +17,7 @@ using EnumX
 
 export MatrixEnsemble
 export TraceObjective, RegularizerObjective, Regularizers
+export ResolventProblem
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 # export Rampγ², Rampδ², Rampμ, StraightShot
 # export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
@@ -27,8 +28,9 @@ export TraceObjective, RegularizerObjective, Regularizers
 
 # include("matrix_utils.jl")
 include("ensemble.jl")
-# include("sampling.jl")
 include("objectives.jl")
+include("problems.jl")
+# include("sampling.jl")
 # include("workspace.jl")
 # include("algorithms.jl")
 # include("solutions.jl")
@@ -40,7 +42,6 @@ include("newton.jl")
 # include("printing.jl")
 
 const DEFAULTS = Dict(
-    :normalizeQ => false,
     :verbosity => 0,
     :store_trace => false,
     :k => 1.0,

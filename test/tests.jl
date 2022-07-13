@@ -70,6 +70,35 @@ using StaticArrays
         @test adapt(Float64, γ64) === γ64
         @test adapt(Float64, δ64) === δ64
     end
+    @testset "problems" begin
+        ensemble = MatrixEnsemble(0.5f0I(2), I, I, I)
+
+        # z deliberately not complex and/or Float32
+        z = 1.0
+        prob = ResolventProblem(ensemble, z)
+        @test prob.z == z
+        @test prob.z isa ComplexF32
+        @test prob.objective === adapt(Float32, TraceObjective())
+        @test !prob.normalizeQ 
+
+        # eltype(zm) deliberately not complex and/or Float32
+        @testset "$label" for (label, zm) in (
+            ("without missing", [0.0 1.0]), ("with missing", [0.0 1.0; missing missing])
+        )
+            probm = ResolventProblem(ensemble, zm)
+            @test isequal(probm.z, zm)  # isequal to handle missing correctly for tests
+            @test eltype(probm.z) === Union{Missing,ComplexF32}
+        end
+
+        # regularizer deliberately not Float32
+        regularizer = adapt(Float64, RegularizerObjective())
+        probreg = ResolventProblem(ensemble, z, regularizer)
+        @test probreg.objective === adapt(Float32, regularizer)
+
+        # hitting all the signatures
+        @test ResolventProblem(ensemble, z; normalizeQ=true).normalizeQ
+        @test ResolventProblem(ensemble, z, regularizer; normalizeQ=true).normalizeQ
+    end
     @testset "newton" begin
         @testset "scalar" begin
             f(x) = cos(x) - x^3
