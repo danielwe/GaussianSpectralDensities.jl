@@ -41,19 +41,21 @@ include("newton.jl")
 # include("automesh.jl")
 # include("printing.jl")
 
-const DEFAULTS = Dict(
-    :verbosity => 0,
-    :store_trace => false,
-    :k => 1.0,
-    :γ => 0.0,
-    :μ => 1.0,
-    :regularizerschedule => 2.0.^(4:-0.5:-4),
-    :μschedule => LinRange(0.0, 1.0, 9),
-    :γ²min => -Inf,
-    :q0 => complex(Float64(sqrt(eps(Float32)))),
-    :δ0 => 1.0,
-    :margin => 0.1,
-)
+Base.@kwdef mutable struct Defaults
+    verbosity::Int = 0
+    store_trace::Bool = false
+    k::Float64 = 1.0
+    γ::Float64 = 0.0
+    μ::Float64 = 1.0
+    regularizerschedule::Vector{Float64} = 2.0.^(4:-0.5:-4)
+    μschedule::Vector{Float64} = LinRange(0.0, 1.0, 9)
+    γ²min::Float64 = -Inf
+    q0::ComplexF64 = sqrt(eps(Float32))
+    δ0::Float64 = 1.0
+    margin::Float64 = 0.1
+end
+
+const DEFAULTS = Defaults()
 
 # using Requires
 #

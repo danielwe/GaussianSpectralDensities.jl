@@ -2,7 +2,7 @@ abstract type AbstractObjective{T<:Real} end
 
 """
 
-    TraceObjective(value=DEFAULTS[:k])
+    TraceObjective(value=DEFAULTS.k)
 
 Set a target value for ``\\tr [QQ^† + γ²I]⁻¹`` when solving averaged resolvent equations
 """
@@ -10,13 +10,13 @@ struct TraceObjective{T} <: AbstractObjective{T}
     value::T
 end
 
-TraceObjective() = TraceObjective(DEFAULTS[:k])
+TraceObjective() = TraceObjective(DEFAULTS.k)
 
 @enumx Regularizers γ δ
 
 """
 
-    RegularizerObjective(value=DEFAULTS[:γ], kind=Regularizers.γ)
+    RegularizerObjective(value=DEFAULTS.γ, kind=Regularizers.γ)
 
 Set a target value for a regularizer when solving averaged resolvent equations
 
@@ -32,7 +32,7 @@ struct RegularizerObjective{T} <: AbstractObjective{T}
 end
 
 RegularizerObjective(value) = RegularizerObjective(value, Regularizers.γ)
-RegularizerObjective() = RegularizerObjective(DEFAULTS[:γ])
+RegularizerObjective() = RegularizerObjective(DEFAULTS.γ)
 
 ## eltype conversion and adaption
 ## ==============================

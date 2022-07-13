@@ -33,8 +33,8 @@ using StaticArrays
         end
     end
     @testset "objectives" begin
-        @test TraceObjective().value === DEFAULTS[:k]
-        @test RegularizerObjective().value === DEFAULTS[:γ]
+        @test TraceObjective().value === DEFAULTS.k
+        @test RegularizerObjective().value === DEFAULTS.γ
         @test RegularizerObjective().kind === Regularizers.γ
         @test RegularizerObjective(0.0).kind === Regularizers.γ
 
