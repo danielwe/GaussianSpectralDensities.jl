@@ -3,7 +3,6 @@ module GaussianSpectralDensities
 # using CommonSolve
 using LinearAlgebra
 using StaticArrays
-using EnumX
 # using StructArrays
 # using Random
 # using ThreadPools
@@ -16,7 +15,7 @@ using EnumX
 =#
 
 export MatrixEnsemble
-export TraceObjective, RegularizerObjective, Regularizers
+export TraceObjective, RegularizerObjective, Regularizer
 export ResolventProblem
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 # export Rampγ², Rampδ², Rampμ, StraightShot
@@ -28,6 +27,7 @@ export ResolventProblem
 
 # include("matrix_utils.jl")
 include("ensemble.jl")
+include("regularizers.jl")
 include("objectives.jl")
 include("problems.jl")
 # include("sampling.jl")
@@ -44,8 +44,8 @@ include("newton.jl")
 Base.@kwdef mutable struct Defaults
     verbosity::Int = 0
     store_trace::Bool = false
-    k::Float64 = 1.0
-    γ::Float64 = 0.0
+    kobjective::Float64 = 1.0
+    robjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
     μ::Float64 = 1.0
     regularizerschedule::Vector{Float64} = 2.0.^(4:-0.5:-4)
     μschedule::Vector{Float64} = LinRange(0.0, 1.0, 9)
@@ -56,6 +56,8 @@ Base.@kwdef mutable struct Defaults
 end
 
 const DEFAULTS = Defaults()
+
+# score(value, reference) = inv(abs(value - reference))
 
 # using Requires
 #

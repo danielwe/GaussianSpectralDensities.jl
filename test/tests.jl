@@ -32,27 +32,55 @@ using StaticArrays
             @test_throws ArgumentError MatrixEnsemble(I, I, I, -D64)
         end
     end
-    @testset "objectives" begin
-        @test TraceObjective().value === DEFAULTS.k
-        @test RegularizerObjective().value === DEFAULTS.γ
-        @test RegularizerObjective().kind === Regularizers.γ
-        @test RegularizerObjective(0.0).kind === Regularizers.γ
+    @testset "regularizers" begin
+        γ32, γ64 = Regularizer.(:γ, (0.0f0, 0.0))
+        δ32, δ64 = Regularizer.(:δ, (0.5f0, 0.5))
 
-        k32, k64 = map(TraceObjective, (1.0f0, 1.0))
-        γ32, γ64 = map(RegularizerObjective, (0.0f0, 0.0))
-        δ32, δ64 = map(δ -> RegularizerObjective(δ, Regularizers.δ), (0.5f0, 0.5))
-
-        @test k32.value === 1.0f0
         @test γ32.value === 0.0f0
         @test δ32.value === 0.5f0
-        @test γ32.kind === Regularizers.γ
-        @test δ32.kind === Regularizers.δ
+        @test γ32.kind == :γ
+        @test δ32.kind == :δ
+        @test :γ == γ32.kind 
+        @test :δ == δ32.kind
 
-        @test k64.value === 1.0
         @test γ64.value === 0.0
         @test δ64.value === 0.5
-        @test γ64.kind === Regularizers.γ
-        @test δ64.kind === Regularizers.δ
+        @test γ64.kind == :γ
+        @test δ64.kind == :δ
+        @test :γ == γ64.kind 
+        @test :δ == δ64.kind
+
+        @test convert(Regularizer{Float32}, γ64) === γ32
+        @test convert(Regularizer{Float32}, δ64) === δ32
+
+        @test convert(Regularizer{Float64}, γ64) === γ64
+        @test convert(Regularizer{Float64}, δ64) === δ64
+
+        @test adapt(Float32, γ64) === γ32
+        @test adapt(Float32, δ64) === δ32
+
+        @test adapt(Float64, γ64) === γ64
+        @test adapt(Float64, δ64) === δ64
+    end
+    @testset "objectives" begin
+        @test TraceObjective() === TraceObjective(DEFAULTS.kobjective)
+        @test TraceObjective(1.0) === TraceObjective(value=1.0)
+        @test RegularizerObjective() === RegularizerObjective(DEFAULTS.robjective)
+        r = Regularizer(:γ, 0.0)
+        @test RegularizerObjective(kind=:γ, value=0.0) === RegularizerObjective(value=r)
+        @test RegularizerObjective(r) === RegularizerObjective(value=r)
+
+        k32, k64 = map(TraceObjective, (1.0f0, 1.0))
+        γ32, γ64 = map(r -> RegularizerObjective(kind=:γ, value=r), (0.0f0, 0.0))
+        δ32, δ64 = map(r -> RegularizerObjective(kind=:δ, value=r), (0.5f0, 0.5))
+
+        @test k32.value === 1.0f0
+        @test γ32.value === Regularizer(:γ, 0.0f0)
+        @test δ32.value === Regularizer(:δ, 0.5f0)
+
+        @test k64.value === 1.0
+        @test γ64.value === Regularizer(:γ, 0.0)
+        @test δ64.value === Regularizer(:δ, 0.5)
 
         @test convert(TraceObjective{Float32}, k64) === k32
         @test convert(RegularizerObjective{Float32}, γ64) === γ32

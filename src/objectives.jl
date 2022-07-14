@@ -2,63 +2,51 @@ abstract type AbstractObjective{T<:Real} end
 
 """
 
-    TraceObjective(value=DEFAULTS.k)
+    TraceObjective(value)
+    TraceObjective(; value=DEFAULTS.kobjective)
 
-Set a target value for ``\\tr [QQ^† + γ²I]⁻¹`` when solving averaged resolvent equations
+Set a target value for ``k = \\tr [QQ^† + γ²I]⁻¹`` when solving averaged resolvent equations
 """
-struct TraceObjective{T} <: AbstractObjective{T}
-    value::T
+Base.@kwdef struct TraceObjective{T} <: AbstractObjective{T}
+    value::T = DEFAULTS.kobjective
 end
 
-TraceObjective() = TraceObjective(DEFAULTS.k)
-
-@enumx Regularizers γ δ
-
 """
 
-    RegularizerObjective(value=DEFAULTS.γ, kind=Regularizers.γ)
+    RegularizerObjective(value::Regularizer)
+    RegularizerObjective(kind, value)
+    RegularizerObjective(; kind=nothing, value=DEFAULTS.robjective)
 
 Set a target value for a regularizer when solving averaged resolvent equations
 
-The available kinds of regularizers are:
+If `kind` is provided, `value` should be a numerical value, otherwise it should be
+a `Regularizer`. See [`Regularizer`](@ref) for the available kinds of regularizers.
 
-- `Regularizers.γ`: the simple additive regularizer in the denominator ``[QQ^† + γ²I]⁻¹``
-- `Regularizers.δ`: refers to the smallest eigenvalue of the entire denominator, such that
-    `δ^2 == γ^2 - eigmin(Q * Q')`
+See [`Regularizer`](@ref) for the available kinds of regularizers.
 """
 struct RegularizerObjective{T} <: AbstractObjective{T}
-    value::T
-    kind::Regularizers.T
+    value::Regularizer{T}
 end
 
-RegularizerObjective(value) = RegularizerObjective(value, Regularizers.γ)
-RegularizerObjective() = RegularizerObjective(DEFAULTS.γ)
+RegularizerObjective(kind, value) = RegularizerObjective(Regularizer(kind, value))
+
+function RegularizerObjective(; kind=nothing, value=DEFAULTS.robjective)
+    (kind !== nothing) && return RegularizerObjective(kind, value)
+    return RegularizerObjective(value)
+end
 
 ## eltype conversion and adaption
 ## ==============================
 
-Base.convert(::Type{P}, obj::Q) where {P<:TraceObjective,Q<:TraceObjective} = P(obj.value)
-
-function Base.convert(
-    ::Type{P}, obj::Q
-) where {P<:RegularizerObjective,Q<:RegularizerObjective}
-    return P(obj.value, obj.kind)
-end
-
 for O in (TraceObjective, RegularizerObjective)
-    @eval Base.convert(::Type{P}, obj::P) where {P<:$O} = obj
-    @eval adapt(::Type{T}, obj::$O) where {T<:Real} = convert($O{T}, obj)
+    @eval Base.convert(::Type{P}, obj::Q) where {P<:$O,Q<:$O} = P(obj.value)
+    @eval adapt(::Type{T}, obj::$O) where {T} = convert($O{T}, obj)
 end
 
-# ## solution score
-# ## ==============
-#
-# score(solution, obj::TraceObjective) = _score(log(solution.k), log(obj.value))
-#
-# function score(solution, obj::RegularizerObjective)
-#     (obj.kind === Regularizers.γ) && return _score(solution.γ, obj.value)
-#     (obj.kind === Regularizers.δ) && return _score(solution.δ, obj.value)
-#     error("unknown regularizer")
-# end
-#
-# _score(value, reference) = inv(abs(value - reference))
+#=
+## solution score
+## ==============
+
+score(solution, obj::TraceObjective) = score(log(solution.k), log(obj.value))
+score(solution, obj::RegularizerObjective) = score(solution, obj.value)
+=#
