@@ -127,6 +127,77 @@ using StaticArrays
         @test ResolventProblem(ensemble, z; normalizeQ=true).normalizeQ
         @test ResolventProblem(ensemble, z, regularizer; normalizeQ=true).normalizeQ
     end
+    @testset "algorithms" begin
+        @testset "DirectSolve" begin
+            q0 = complex(eps())
+            δ0 = 0.0
+            @testset "$desc" for (desc, D) in (
+                ("DirectSolve", DirectSolve),
+                ("DirectSolve{Float32}", DirectSolve{Float32}),
+                ("DirectSolve{Float64}", DirectSolve{Float64}),
+            )
+                @test D() === D(DEFAULTS.q0, DEFAULTS.δ0)
+                @test D(q0, δ0) === D(q0=q0, δ0=δ0)
+                @test length(D()) == 0
+            end
+
+            ds32, ds64 = DirectSolve{Float32}(), DirectSolve{Float64}()
+            @test convert(DirectSolve{Float32}, ds64) === ds32
+            @test convert(DirectSolve{Float64}, ds64) === ds64
+            @test adapt(Float32, ds64) === ds32
+            @test adapt(Float64, ds64) === ds64
+        end
+        @testset "RegularizerSchedule" begin
+            k, v = :δ, 2.0.^(2:-1:-2)
+            schedule = Regularizer.(k, v)
+            γ²min = 0.0
+            @testset "$desc" for (desc, R) in (
+                ("RegularizerSchedule", RegularizerSchedule),
+                ("RegularizerSchedule{Float32}", RegularizerSchedule{Float32}),
+                ("RegularizerSchedule{Float64}", RegularizerSchedule{Float64}),
+            )
+                @test R() == R(DEFAULTS.rschedule, DEFAULTS.γ²min)
+                @test R(schedule, γ²min) == R(schedule=schedule, γ²min=γ²min)
+                @test R(schedule, γ²min) == R(k, v, γ²min)
+                @test R(schedule, γ²min) == R(kind=k, schedule=v, γ²min=γ²min)
+                @test length(R(schedule=schedule)) == length(schedule)
+            end
+
+            rs32, rs64 = RegularizerSchedule{Float32}(), RegularizerSchedule{Float64}()
+            @test convert(RegularizerSchedule{Float32}, rs64) == rs32
+            @test convert(RegularizerSchedule{Float64}, rs64) === rs64
+            @test adapt(Float32, rs64) == rs32
+            @test adapt(Float64, rs64) === rs64
+        end
+        @testset "SymmetrySchedule" begin
+            steps = 3
+            schedule = range(0, 1, steps)
+            vschedule = [0.0, 0.5, 1.0]
+            γ²min = 0.0
+            ialg = RegularizerSchedule()
+            @testset "$desc" for (desc, S) in (
+                ("SymmetrySchedule", SymmetrySchedule),
+                ("SymmetrySchedule{Float32}", SymmetrySchedule{Float32}),
+                ("SymmetrySchedule{Float64}", SymmetrySchedule{Float64}),
+            )
+                @test S() == S(DEFAULTS.μschedule, DEFAULTS.γ²min, DirectSolve())
+                ss = S(schedule=schedule, γ²min=γ²min, initialalg=ialg)
+                @test ss == S(steps, γ²min, ialg)
+                @test ss == S(schedule, γ²min, ialg)
+                @test ss == S(schedule=steps, γ²min=γ²min, initialalg=ialg)
+                @test length(S(vschedule, γ²min, ialg)) == length(vschedule) + length(ialg)
+                @test_throws ArgumentError S(schedule=range(0.0, 0.8, 3))
+                @test_throws ArgumentError S(schedule=range(0.2, 1.0, 3))
+                @test_throws ArgumentError S(schedule=[0.0, 0.75, 0.25, 1.0])
+            end
+
+            ss32, ss64 = SymmetrySchedule{Float32}(), SymmetrySchedule{Float64}()
+            @test convert(SymmetrySchedule{Float32}, ss64) == ss32
+            @test convert(SymmetrySchedule{Float64}, ss64) === ss64
+            @test adapt(Float32, ss64) == ss32
+            @test adapt(Float64, ss64) === ss64
+        end
+    end
     @testset "newton" begin
         @testset "scalar" begin
             f(x) = cos(x) - x^3

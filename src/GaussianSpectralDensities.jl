@@ -17,8 +17,8 @@ using StaticArrays
 export MatrixEnsemble
 export TraceObjective, RegularizerObjective, Regularizer
 export ResolventProblem
+export DirectSolve, RegularizerSchedule, SymmetrySchedule
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
-# export Rampγ², Rampδ², Rampμ, StraightShot
 # export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
 # export spectral_density
 # export automesh, automesh!
@@ -30,9 +30,9 @@ include("ensemble.jl")
 include("regularizers.jl")
 include("objectives.jl")
 include("problems.jl")
+include("algorithms.jl")
 # include("sampling.jl")
 # include("workspace.jl")
-# include("algorithms.jl")
 # include("solutions.jl")
 include("newton.jl")
 # include("qsolve.jl")
@@ -46,12 +46,11 @@ Base.@kwdef mutable struct Defaults
     store_trace::Bool = false
     kobjective::Float64 = 1.0
     robjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
-    μ::Float64 = 1.0
-    regularizerschedule::Vector{Float64} = 2.0.^(4:-0.5:-4)
-    μschedule::Vector{Float64} = LinRange(0.0, 1.0, 9)
-    γ²min::Float64 = -Inf
     q0::ComplexF64 = sqrt(eps(Float32))
     δ0::Float64 = 1.0
+    rschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0.^(4:-0.5:-4))
+    μschedule::typeof(0.0:1.0) = range(0, 1, 11)
+    γ²min::Float64 = -Inf
     margin::Float64 = 0.1
 end
 
