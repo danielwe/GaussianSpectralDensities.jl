@@ -36,11 +36,10 @@ end
 Regularizer(kind, value::T) where {T} = Regularizer{T}(kind, value)
 
 
-## value type conversion and adaption
-## ==================================
+## number type conversion
+## ======================
 
 Base.convert(::Type{P}, r::Q) where {P<:Regularizer,Q<:Regularizer} = P(r.kind, r.value)
-adapt(::Type{T}, r::Regularizer) where {T} = convert(Regularizer{T}, r)
 
 #=
 ## solution score

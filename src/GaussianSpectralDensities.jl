@@ -56,6 +56,7 @@ end
 
 const DEFAULTS = Defaults()
 
+adapt(::Type{F}, x::U) where {F,U} = convert(@eval($(U.name.name){$F}), x)
 # score(value, reference) = inv(abs(value - reference))
 
 # using Requires

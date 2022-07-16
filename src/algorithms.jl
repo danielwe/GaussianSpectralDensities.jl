@@ -215,8 +215,8 @@ Base.length(alg::AbstractAlgorithm) = 0
 Base.length(alg::AbstractSchedule) = length(alg.schedule)
 Base.length(alg::SymmetrySchedule) = length(alg.schedule) + length(alg.initialalg)
 
-## number type conversion and adaption
-## ===================================
+## number type conversion
+## ======================
 
 Base.convert(::Type{P}, alg::Q) where {P<:DirectSolve,Q<:DirectSolve} = P(alg.q0, alg.δ0)
 
@@ -228,10 +228,6 @@ end
 
 function Base.convert(::Type{P}, alg::Q) where {P<:SymmetrySchedule,Q<:SymmetrySchedule}
     return P(alg.schedule, alg.γ²min, alg.initialalg)
-end
-
-for A in (DirectSolve, RegularizerSchedule, SymmetrySchedule)
-    @eval adapt(::Type{F}, alg::$A) where {F} = convert($A{F}, alg)
 end
 
 #=

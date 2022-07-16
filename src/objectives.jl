@@ -35,12 +35,11 @@ function RegularizerObjective(; kind=nothing, value=DEFAULTS.robjective)
     return RegularizerObjective(value)
 end
 
-## eltype conversion and adaption
-## ==============================
+## number type conversion
+## ======================
 
 for O in (TraceObjective, RegularizerObjective)
     @eval Base.convert(::Type{P}, obj::Q) where {P<:$O,Q<:$O} = P(obj.value)
-    @eval adapt(::Type{T}, obj::$O) where {T} = convert($O{T}, obj)
 end
 
 #=
