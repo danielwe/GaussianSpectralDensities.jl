@@ -9,10 +9,20 @@ using StaticArrays
     @testset "ensembles" begin
         @testset "MatrixEnsemble" begin
             N = 2
-            @test MatrixEnsemble(N, I, I, I, I).N == 2
+            D32, D64 = 0.5f0I(N), 0.5I(N)
+            @testset "$desc" for (desc, M) in (
+                ("MatrixEnsemble", MatrixEnsemble),
+                ("MatrixEnsemble{Float32}", MatrixEnsemble{Float32}),
+                ("MatrixEnsemble{Float64}", MatrixEnsemble{Float64}),
+            )
+                @test M(N, I, I, I, I).N == 2
+                @test_throws ArgumentError M(I, I, I, I)
+                @test_throws DimensionMismatch M(N + 1, D64, I, I, I)
+                @test_throws DimensionMismatch M(D64, I, I, 0.5I(N + 1))
+                @test_throws ArgumentError M(I, I, I, Matrix(D64))
+                @test_throws ArgumentError M(I, I, I, -D64)
+            end
 
-            D32 = 0.5f0I(N)
-            D64 = 0.5I(N)
             @testset "$args" for (args, e32, e64) in (
                 ("M=D, L=I, R=I, T=I", map(D -> MatrixEnsemble(D, I, I, I), (D32, D64))...),
                 ("M=I, L=D, R=I, T=I", map(D -> MatrixEnsemble(I, D, I, I), (D32, D64))...),
@@ -24,12 +34,6 @@ using StaticArrays
                 @test e32 isa MatrixEnsemble{Float32}
                 @test e64 isa MatrixEnsemble{Float64}
             end
-
-            @test_throws ArgumentError MatrixEnsemble(I, I, I, I)
-            @test_throws DimensionMismatch MatrixEnsemble(N + 1, D64, I, I, I)
-            @test_throws DimensionMismatch MatrixEnsemble(D64, I, I, 0.5I(N + 1))
-            @test_throws ArgumentError MatrixEnsemble(I, I, I, Matrix(D64))
-            @test_throws ArgumentError MatrixEnsemble(I, I, I, -D64)
         end
     end
     @testset "regularizers" begin

@@ -1,18 +1,19 @@
 # TODO: consider generalizations where M, L, R can be LinearMaps etc.
-const AbstractMatrixOrUniform{T} = Union{<:AbstractMatrix{<:T},UniformScaling{<:T}}
-const DiagonalOrUniform{T} = Union{<:Diagonal{<:T},UniformScaling{<:T}}
-const RealOrComplex{T<:Real} = Union{T,Complex{T}}
+const AbstractMatrixOrUniform{E} = Union{<:AbstractMatrix{E},UniformScaling{E}}
+const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
+const RealOrComplex{F<:Real} = Union{F,Complex{F}}
 
 abstract type AbstractMatrixEnsemble{
     F<:AbstractFloat,
-    TM<:AbstractMatrixOrUniform{RealOrComplex{F}},
-    TL<:AbstractMatrixOrUniform{RealOrComplex{F}},
-    TR<:AbstractMatrixOrUniform{RealOrComplex{F}},
+    TM<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
+    TL<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
+    TR<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
 } end
 
 """
 
     MatrixEnsemble([N::Integer], M, L, R, T)
+    MatrixEnsemble{F}([N::Integer], M, L, R, T)
 
 Ensemble of square matrices on the form ``M + LJR`` where ``J`` has Girko ``T``-distribution
 
@@ -22,6 +23,8 @@ Providing the size `N` is not necessary as long as it can be inferred from one o
 The Girko ``T``-ensemble is a generalized Girko ensemble where the scalar symmetry parameter
 ``τ`` is replaced by a diagonal matrix ``T``. The ordinary Girko ensemble is recovered by
 choosing `T = sqrt(τ) * I`.
+
+All constructors support an optional type parameter `F` to enforce the floating point type.
 """
 struct MatrixEnsemble{
     F,
@@ -40,7 +43,7 @@ struct MatrixEnsemble{
     LiRi::TLiRi
     LiMRi::TLiMRi
 
-    function MatrixEnsemble(N, M, L, R, T)
+    function MatrixEnsemble{F}(N, M, L, R, T) where {F}
         for (A, name) in ((M, 'M'), (L, 'L'), (R, 'R'), (T, 'T'))
             if applicable(size, A) && (size(A) != (N, N))
                 throw(DimensionMismatch("size($name) must be (N, N) == ($N, $N)"))
@@ -50,24 +53,18 @@ struct MatrixEnsemble{
             msg = "T must be Diagonal or UniformScaling and positive semidefinite"
             throw(ArgumentError(msg))
         end
-        # Include eltypes of R and T early by pre-promoting L; avoids surprises if, e.g.,
-        # M == L == I isa UniformScaling{Bool}, but eltype(R) === Float32, in which case the
-        # desired behavior is to promote to Float32 but L \ M would give Float64
-        L = _elpromote(promote_type(eltype(R), eltype(T)), L)
-        LiMRi = _complex(_float((L \ M) / R))
+        M, L, R = _floatconvert.(F, (M, L, R))
+        T = _elconvert(F, T)  # Always real
+        LiMRi = _elconvert(Complex{F}, (L \ M) / R)  # Always complex
+        LiRi =_elconvert(Complex{F}, (L \ I) / R)
         if LiMRi isa UniformScaling
             LiMRi = LiMRi(N)
         end
-        CF = eltype(LiMRi)
-        LiRi =_elconvert(CF, (L \ I) / R)  # Always complex
-        F = real(CF)
-        M, L, R = map(A -> _elpromote(F, A), (M, L, R))
-        T = _elconvert(F, T)  # Always real
         return new{F,map(typeof, (M, L, R, T, LiRi, LiMRi))...}(N, M, L, R, T, LiRi, LiMRi)
     end
 end
 
-function MatrixEnsemble(M, L, R, T)
+function MatrixEnsemble{F}(M, L, R, T) where {F}
     N = _apply_earliest(size, (M, L, R, T), 1)
     if N === nothing
         msg = (
@@ -76,30 +73,37 @@ function MatrixEnsemble(M, L, R, T)
         )
         throw(ArgumentError(msg))
     end
-    return MatrixEnsemble(N, M, L, R, T)
+    return MatrixEnsemble{F}(N, M, L, R, T)
 end
+
+MatrixEnsemble(M, L, R, T) = MatrixEnsemble{_floattype(M, L, R, T)}(M, L, R, T)
+MatrixEnsemble(N, M, L, R, T) = MatrixEnsemble{_floattype(M, L, R, T)}(N, M, L, R, T)
 
 _ispossemidef(a::Number) = ((imag(a) == 0) && (real(a) >= 0))
 _ispossemidef(A::Diagonal) = all(_ispossemidef(a) for a in A.diag)
 _ispossemidef(A::UniformScaling) = _ispossemidef(A.λ)
 
-_complex(A) = _elconvert(complex(eltype(A)), A)
-
-_float(A) = _elconvert(float(eltype(A)), A)
-
-_elpromote(T, A) = _elconvert(promote_type(T, eltype(A)), A)
-
-function _elconvert(T, A)
-    (T === eltype(A)) && return A
-    return convert.(T, A)
+function _floatconvert(::Type{F}, A) where {F<:Real}
+    (eltype(A) <: Complex) && return _elconvert(Complex{F}, A)
+    return _elconvert(F, A)
 end
 
-_elconvert(T, A::UniformScaling) = UniformScaling(convert(T, A.λ))
+function _elconvert(::Type{E}, A) where {E}
+    (E === eltype(A)) && return A
+    return convert.(E, A)
+end
 
-function _apply_earliest(f, As, args...; kwargs...)
+_elconvert(::Type{E}, A::UniformScaling) where {E} = UniformScaling(convert(E, A.λ))
+
+function _apply_earliest(f, As, args...)
     A = first(As)
-    applicable(f, A, args...; kwargs...) && return f(A, args...; kwargs...)
-    return _apply_earliest(f, Base.tail(As), args...; kwargs...)
+    applicable(f, A, args...) && return f(A, args...)
+    return _apply_earliest(f, Base.tail(As), args...)
 end
 
-_apply_earliest(f, ::Tuple{}, args...; kwargs...) = nothing
+_apply_earliest(f, ::Tuple{}, args...) = nothing
+
+function _floattype(M, L, R, T)
+    Mu, Lu, Ru, Tu = (oneunit ∘ eltype).((M, L, R, T))
+    return real(typeof((Mu + (Lu * (Tu * Ru))) / (Lu * Ru)))
+end
