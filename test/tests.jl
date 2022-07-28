@@ -1,9 +1,12 @@
 using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt
+using GaussianSpectralDensities: _factorize, _factorize!, _ldiv!, _inv, _inv!
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
 using LinearAlgebra
 using StaticArrays
+using SparseArrays
+using SuiteSparse
 
 @testset "GaussianSpectralDensities.jl" begin
     @testset "ensembles" begin
@@ -200,6 +203,101 @@ using StaticArrays
             @test convert(SymmetrySchedule{Float64}, ss64) === ss64
             @test adapt(Float32, ss64) == ss32
             @test adapt(Float64, ss64) === ss64
+        end
+    end
+    @testset "linalg" begin
+        _isequal(C1, C2) = isequal(C1, C2)
+
+        function _isequal(C1::C, C2::C) where {C<:Cholesky}
+            return (
+                isequal(C1.info, C2.info)
+                && isequal(C1.uplo, C2.uplo)
+                && isequal(C1.L, C2.L)
+            )
+        end
+
+        function _isequal(C1::C, C2::C) where {C<:SuiteSparse.CHOLMOD.Factor}
+            return (
+                isequal(issuccess(C1), issuccess(C2))
+                && isequal(C1.p, C2.p)
+                && isequal(sparse(C1.L), sparse(C2.L))
+            )
+        end
+
+        function test_factorize(shift, B, A, Ai_true, Asi_true, A_B_true, As_B_true)
+            F = _factorize(A)
+            Ai = _inv(F)
+            @test Ai ≈ Ai_true
+            A_B = copy(B)
+            _ldiv!(F, A_B)
+            @test A_B ≈ A_B_true
+            F = _factorize!(F, A; shift=shift)
+            @test _isequal(F, _factorize(A; shift=shift))
+            Ai = _inv!(Ai, F)
+            @test Ai ≈ Asi_true
+            copyto!(A_B, B)
+            _ldiv!(F, A_B)
+            @test A_B ≈ As_B_true
+        end
+
+        @testset "$E" for E in (Float32, Float64, ComplexF32, ComplexF64)
+            shift = 0.5
+            D = Diagonal(E[1.5, 2.0])
+            Di = Diagonal(E[2, 1.5] / 3)
+            Dsi = Diagonal(E[0.5, 0.4])
+            U = E(2) * I
+            Ui = E(0.5) * I
+            Usi = E(0.4) * I
+            if E <: Real
+                B = E[1 -1; 1 1]
+                Adata = E[1.5 -1; 1 2]  # deliberate asymmetry, masked in two different ways
+                Aidata = E[1 0.5; -0.5 0.75]
+                Asidata = E[5 2; -2 4] / 8
+                A_B = Dict(:U => E[1.5 -0.5; 1.25 0.25], :L => E[0.5 -1.5; 0.25 1.25])
+                As_B = Dict(:U => E[7 -3; 6 2] / 8, :L => E[3 -7; 2 6] / 8)
+                D_B = E[2 -2; 1.5 1.5] / 3
+                Ds_B = E[0.5 -0.5; 0.4 0.4]
+                U_B = E[0.5 -0.5; 0.5 0.5]
+                Us_B = E[0.4 -0.4; 0.4 0.4]
+            else
+                B = E[(1 + im) -1; 1 (1 - im)]
+                Adata = E[1.5 (-1 + im); (1 + im) 2]  # deliberate ahermiticity
+                Aidata = E[2 (1 - im); (-1 - im) 1.5]
+                shift = 0.5
+                Asidata = E[5 (2 - 2im); (-2 - 2im) 4] / 6
+                A_B = Dict(
+                    :U => E[(3 + im) (-2 - 2im); (1.5 + 2im) (0.5 - 2.5im)],
+                    :L => E[(1 + 3im) (-2 + 2im); (1.5 - 2im) (2.5 - 0.5im)],
+                )
+                As_B = Dict(
+                    :U => E[(7 + 3im) (-5 - 4im); (4 + 4im) (2 - 6im)] / 6,
+                    :L => E[(3 + 7im) (-5 + 4im); (4 - 4im) (6 - 2im)] / 6,
+                )
+                D_B = E[(2 + 2im) -2; 1.5 (1.5 - 1.5im)] / 3
+                Ds_B = E[(0.5 + 0.5im) -0.5; 0.4 (0.4 - 0.4im)]
+                U_B = E[(0.5 + 0.5im) -0.5; 0.5 (0.5 - 0.5im)]
+                Us_B = E[(0.4 + 0.4im) -0.4; 0.4 (0.4 - 0.4im)]
+            end
+            @testset "uplo=:$uplo" for uplo in (:U, :L)
+                Ai = Hermitian(Aidata, uplo)
+                Asi = Hermitian(Asidata, uplo)
+                @testset "dense" begin
+                    A = Hermitian(Adata, uplo)
+                    @test_throws DomainError _factorize(A; shift=im)
+                    test_factorize(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo])
+                end
+                @testset "sparse" begin
+                    A = Hermitian(sparse(Adata), uplo)
+                    @test_throws TypeError _factorize(A; shift=im)
+                    test_factorize(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo])
+                end
+            end
+            @testset "diagonal" begin
+                test_factorize(shift, B, D, Di, Dsi, D_B, Ds_B)
+            end
+            @testset "uniform" begin
+                test_factorize(shift, B, U, Ui, Usi, U_B, Us_B)
+            end
         end
     end
     @testset "newton" begin

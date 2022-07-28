@@ -3,6 +3,8 @@ module GaussianSpectralDensities
 # using CommonSolve
 using LinearAlgebra
 using StaticArrays
+using SparseArrays
+using SuiteSparse
 # using StructArrays
 # using Random
 # using ThreadPools
@@ -25,12 +27,17 @@ export DirectSolve, RegularizerSchedule, SymmetrySchedule
 
 # const MissingOr{T} = Union{Missing, T}
 
+const AbstractMatrixOrUniform{E} = Union{<:AbstractMatrix{E},UniformScaling{E}}
+const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
+const RealOrComplex{F<:Real} = Union{F,Complex{F}}
+
 # include("matrix_utils.jl")
 include("ensemble.jl")
 include("regularizers.jl")
 include("objectives.jl")
 include("problems.jl")
 include("algorithms.jl")
+include("linalg.jl")
 # include("sampling.jl")
 # include("workspace.jl")
 # include("solutions.jl")

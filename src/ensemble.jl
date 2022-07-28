@@ -1,8 +1,4 @@
 # TODO: consider generalizations where M, L, R can be LinearMaps etc.
-const AbstractMatrixOrUniform{E} = Union{<:AbstractMatrix{E},UniformScaling{E}}
-const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
-const RealOrComplex{F<:Real} = Union{F,Complex{F}}
-
 abstract type AbstractMatrixEnsemble{
     F<:AbstractFloat,
     TM<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
@@ -55,7 +51,7 @@ struct MatrixEnsemble{
         end
         M, L, R = _floatconvert.(F, (M, L, R))
         T = _elconvert(F, T)  # Always real
-        LiMRi = _elconvert(Complex{F}, (L \ M) / R)  # Always complex
+        LiMRi = _elconvert(Complex{F}, (L \ M) / R)  # Always complex---though, necessary?
         LiRi =_elconvert(Complex{F}, (L \ I) / R)
         if LiMRi isa UniformScaling
             LiMRi = LiMRi(N)
