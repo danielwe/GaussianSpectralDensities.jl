@@ -9,7 +9,7 @@ abstract type AbstractMatrixEnsemble{
 """
 
     MatrixEnsemble([N::Integer], M, L, R, T)
-    MatrixEnsemble{F}([N::Integer], M, L, R, T)
+    MatrixEnsemble{F}([N::Integer], M, L, R, T) where {F<:AbstractFloat}
 
 Ensemble of square matrices on the form ``M + LJR`` where ``J`` has Girko ``T``-distribution
 
@@ -28,8 +28,8 @@ struct MatrixEnsemble{
     TL,
     TR,
     TT<:DiagonalOrUniform{F},
-    TLiRi<:AbstractMatrixOrUniform{Complex{F}},
-    TLiMRi<:AbstractMatrix{Complex{F}},
+    TLiRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
+    TLiMRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
 } <: AbstractMatrixEnsemble{F,TM,TL,TR}
     N::Int
     M::TM
@@ -51,11 +51,8 @@ struct MatrixEnsemble{
         end
         M, L, R = _floatconvert.(F, (M, L, R))
         T = _elconvert(F, T)  # Always real
-        LiMRi = _elconvert(Complex{F}, (L \ M) / R)  # Always complex---though, necessary?
-        LiRi =_elconvert(Complex{F}, (L \ I) / R)
-        if LiMRi isa UniformScaling
-            LiMRi = LiMRi(N)
-        end
+        LiRi =_floatconvert(F, (L \ I) / R)
+        LiMRi = _floatconvert(F, (L \ M) / R)
         return new{F,map(typeof, (M, L, R, T, LiRi, LiMRi))...}(N, M, L, R, T, LiRi, LiMRi)
     end
 end
@@ -79,17 +76,17 @@ _ispossemidef(a::Number) = ((imag(a) == 0) && (real(a) >= 0))
 _ispossemidef(A::Diagonal) = all(_ispossemidef(a) for a in A.diag)
 _ispossemidef(A::UniformScaling) = _ispossemidef(A.λ)
 
-function _floatconvert(::Type{F}, A) where {F<:Real}
-    (eltype(A) <: Complex) && return _elconvert(Complex{F}, A)
-    return _elconvert(F, A)
-end
-
 function _elconvert(::Type{E}, A) where {E}
     (E === eltype(A)) && return A
     return convert.(E, A)
 end
 
 _elconvert(::Type{E}, A::UniformScaling) where {E} = UniformScaling(convert(E, A.λ))
+
+function _floatconvert(::Type{F}, A) where {F<:Real}
+    (eltype(A) <: Complex) && return _elconvert(Complex{F}, A)
+    return _elconvert(F, A)
+end
 
 function _apply_earliest(f, As, args...)
     A = first(As)

@@ -1,9 +1,88 @@
-mutable struct WorkspaceStatus{R, E<:AbstractMatrixEnsemble{R}}
+abstract type AbstractWorkspace{F<:AbstractFloat} end
+
+"""
+
+    Workspace(ensemble::MatrixEnsemble)
+
+Workspace holding intermediate arrays used to compute the average resolvent from an ensemble
+"""
+mutable struct Workspace{
+    F,
+    TE<:MatrixEnsemble{F},
+    TG0i_diag<:Union{Complex{F},Vector{Complex{F}}},
+    TQ<:AbstractMatrixOrUniform{Complex{F}},
+    TQQh<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
+    TPifact<:Union{<:DiagonalOrUniform{F},<:Factorization{Complex{F}}},
+    TP<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
+} <: AbstractWorkspace{F}
+    ensemble::TE
+    z::Complex{F}
+    q::Complex{F}  # Depends on G0i_diag
+    regularizer::Regularizer{F}  # Depends on Q
+    G0i_diag::TG0i_diag  # Depends on z, used when updating Q with new q
+    Q::TQ
+    QQh::TQQh
+    Pifact::TPifact
+    P::TP
+    s²min::F  # Depends on Q (smallest eigenvalue of QQh)
+    G0i_diag_current::Bool
+    Q_current::Bool  # Depends on G0i_diag
+    P_current::Bool  # Depends on Q
+    # PQ::TQ
+    # QP::TQ
+    # PLiRi_or_QPQ::Matrix{Complex{F}}
+    # QhPQ::Hermitian{Complex{F},Matrix{Complex{F}}}
+    # PQ_current::Bool  # Depends on P
+    # QP_current::Bool  # Depends on P
+    # PLiRi_current::Bool  # Depends on P, voids QPQ
+    # QPQ_current::Bool  # Depends on PQ, voids PLiRi
+    # QhPQ_current::Bool  # Depends on PQ
+
+    function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
+        z = zero(Complex{F})
+        q = convert(Complex{F}, DEFAULTS.q0)
+        regularizer = first(DEFAULTS.rschedule)
+        G0i = z * ensemble.LiRi - ensemble.LiMRi
+        G0i_diag = (G0i isa UniformScaling) ? G0i.λ : diag(G0i)
+        Q = G0i - q * ensemble.T
+        QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
+        Pifact = _factorize(QQh)
+        P = _inv(Pifact)
+        s²min = _eigmin(QQh)
+        return new{F,E,typeof(G0i_diag),typeof(Q),typeof(QQh),typeof(Pifact),typeof(P)}(
+            ensemble,
+            z,
+            q,
+            regularizer,
+            G0i_diag,
+            Q,
+            QQh,
+            Pifact,
+            P,
+            s²min,
+            true,
+            true,
+            true,
+            # PQ,
+            # QhPQ,
+            # QPQ_PLiRi,
+            # QP,
+            # true,
+            # true,
+            # true,
+            # true,
+            # false,
+        )
+    end
+end
+
+#=
+mutable struct WorkspaceStatus{R,E<:AbstractMatrixEnsemble{R}}
     N::Int
     ensemble::E
-    z::MissingOr{Complex{R}}  # Also G₀⁻¹_diag::Bool
-    nμq::MissingOr{Complex{R}}  # Also Q::Bool depends G₀⁻¹_diag
-    r²::MissingOr{Fixr²{R}}  # Also P::Bool depends Q
+    z::Union{Missing,Complex{R}}  # Also G₀⁻¹_diag::Bool
+    nμq::Union{Missing,Complex{R}}  # Also Q::Bool depends G₀⁻¹_diag
+    r²::Union{Missing,Fixr²{R}}  # Also P::Bool depends Q
     PQ::Bool  # depends P
     QᴴPQ::Bool  # depends PQ
     QPQ::Bool  # depends PQ, voids PL⁻¹R⁻¹
@@ -76,41 +155,9 @@ function set_PL⁻¹R⁻¹!(status::WorkspaceStatus, PL⁻¹R⁻¹)
     status.PL⁻¹R⁻¹ = PL⁻¹R⁻¹
     return nothing
 end
+=#
 
-abstract type AbstractWorkspace{R<:Real} end
-
-struct Workspace{R, U, V, W, X, Y} <: AbstractWorkspace{R}
-    N::Int
-    status::WorkspaceStatus{R, MatrixEnsemble{R, U, V, W, X, Y}}
-    G₀⁻¹_diag::Vector{Complex{R}}
-    Q::Y
-    QQᴴ::Hermitian{Complex{R},Matrix{Complex{R}}}
-    s²min::Base.RefValue{R}
-    P⁻¹f::Matrix{Complex{R}}
-    P::Hermitian{Complex{R},Matrix{Complex{R}}}
-    PQ::Matrix{Complex{R}}
-    QᴴPQ::Hermitian{Complex{R},Matrix{Complex{R}}}
-    QPQ_PL⁻¹R⁻¹::Matrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
-    QP::Matrix{Complex{R}}
-
-    function Workspace(ensemble::MatrixEnsemble{R, U, V, W, X, Y}) where {R, U, V, W, X, Y}
-        N = length(ensemble.T)
-        status = WorkspaceStatus(ensemble)
-        G₀⁻¹_diag = Vector{Complex{R}}(undef, N)
-        Q = similar(ensemble.L⁻¹MR⁻¹)
-        QQᴴ = Hermitian(Matrix{Complex{R}}(undef, N, N))
-        P⁻¹f = Matrix{Complex{R}}(undef, N, N)
-        P = Hermitian(Matrix{Complex{R}}(undef, N, N))
-        PQ = Matrix{Complex{R}}(undef, N, N)
-        QᴴPQ = Hermitian(Matrix{Complex{R}}(undef, N, N))
-        QPQ_PL⁻¹R⁻¹ = Matrix{Complex{R}}(undef, N, N)
-        QP = Matrix{Complex{R}}(undef, N, N)
-        return new{R, U, V, W, X, Y}(
-            N, status, G₀⁻¹_diag, Q, QQᴴ, Ref(R(NaN)), P⁻¹f, P, PQ, QᴴPQ, QPQ_PL⁻¹R⁻¹, QP
-        )
-    end
-end
-
+#=
 workspace(ensemble::MatrixEnsemble) = Workspace(ensemble)
 
 function _G₀⁻¹_diag!(problem, ws)
@@ -137,15 +184,14 @@ function _Q!(problem::LocalSpectralProblem{NormalizeQ}, nμq, ws) where {Normali
 end
 
 function _P!(problem, ws)
-    @inbounds copyto!(ws.P⁻¹f, ws.QQᴴ)
-    @inbounds add_to_diag!(ws.P⁻¹f, _γ²!(problem.objective, ws))
-    _, info = LAPACK.potrf!(ws.P.uplo, ws.P⁻¹f)
-    (info == 0) || throw(PosDefException(info))
-    @inbounds copyto!(ws.P.data, ws.P⁻¹f)
-    LAPACK.potri!(ws.P.uplo, ws.P.data)
+    copyto!(ws.Pichol, ws.QQᴴ)
+    add_to_diag!(ws.Pichol, _γ²!(problem.objective, ws))
+    _cholinv!(ws.P, ws.Pichol)
     return nothing
 end
+=#
 
+#=
 function _PQ!(ws)
     @inbounds copyto!(ws.PQ, ws.Q)
     LAPACK.potrs!(ws.P.uplo, ws.P⁻¹f, ws.PQ)
@@ -261,7 +307,9 @@ function PL⁻¹R⁻¹!(problem, q, ws)
     end
     return ws.QPQ_PL⁻¹R⁻¹
 end
+=#
 
+#=
 _γ²!(r²::Fixγ², ::Any) = r².value
 _γ²!(r²::Fixδ², ws) = r².value - ws.s²min[]
 _δ²!(r²::Fixγ², ws) = r².value + ws.s²min[]
@@ -288,7 +336,8 @@ function k!(problem, q, ws)
     return _tr(P) / size(P, 1)
 end
 
-# r is a bad name for this variable, or r² is a bad common name for γ² and δ²
+# TODO: Ahmadian calls this E(z) so why not use that? r is a bad name for this variable and
+# conflicts with r² as a common name for γ² and δ²
 function r!(problem, q, ws)
     return _dot(Q!(problem, q, ws), PL⁻¹R⁻¹!(problem, q, ws))
 end
@@ -298,3 +347,4 @@ function q∞!(problem, γ∞², ws)
     q = _dot(G₀⁻¹_diag!(problem, ws), T)
     return q / (γ∞² * length(T))
 end
+=#

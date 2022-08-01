@@ -1,6 +1,7 @@
 using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt
 using GaussianSpectralDensities: _factorize, _factorize!, _ldiv!, _inv, _inv!
+using GaussianSpectralDensities: Workspace
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
 using LinearAlgebra
@@ -297,6 +298,21 @@ using SuiteSparse
             end
             @testset "uniform" begin
                 test_factorize(shift, B, U, Ui, Usi, U_B, Us_B)
+            end
+        end
+    end
+    @testset "workspace" begin
+        @testset "Workspace" begin
+            N = 2
+            D = 0.5I(N)
+            @testset "$args" for (args, ensemble) in (
+                ("M=I, L=I, R=I, T=I", MatrixEnsemble{Float32}(N, I, I, I, I)),
+                ("M=D, L=I, R=I, T=I", MatrixEnsemble{Float32}(D, I, I, I)),
+                ("M=I, L=D, R=I, T=I", MatrixEnsemble{Float32}(I, D, I, I)),
+                ("M=I, L=I, R=D, T=I", MatrixEnsemble{Float32}(I, I, D, I)),
+                ("M=I, L=I, R=I, T=D", MatrixEnsemble{Float32}(I, I, I, D)),
+            )
+                @test Workspace(ensemble) isa Workspace{Float32}
             end
         end
     end

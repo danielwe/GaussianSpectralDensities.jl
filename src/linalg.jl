@@ -1,3 +1,5 @@
+## Factorization and inversion
+## ===========================
 """
 
     _factorize(A::Hermitian{E}; shift=zero(E)) where {E}
@@ -188,3 +190,16 @@ function _shift_diag!(A, shift)
     end
     return nothing
 end
+
+## Eigenvalues
+## ===========
+"""
+    _eigmin(A)
+    _eigmin(A::UniformScaling{<:Real})
+
+Find the smallest eigenvalue of `A`
+
+Works for `A::UniformScaling{<:Real}`, and falls back to `LinearAlgebra.eigmin` otherwise.
+"""
+_eigmin(A) = eigmin(A)
+_eigmin(A::UniformScaling{<:Real}) = A.λ
