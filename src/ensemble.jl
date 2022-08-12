@@ -67,8 +67,8 @@ struct MatrixEnsemble{
         end
         M, L, R = _floatconvert.(F, (M, L, R))
         T = _elconvert(F, _diag(T))  # Always real and stored internally as scalar or vector
-        LiRi =_floatconvert(F, (L \ I) / R)
-        LiMRi = _floatconvert(F, (L \ M) / R)
+        LiRi =_floatconvert(F, _rdiv(_ldiv(L, I), R))
+        LiMRi = _floatconvert(F, _rdiv(_ldiv(L, M), R))
         return new{F,map(typeof, (M, L, R, T, LiRi, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
     end
 end
@@ -96,3 +96,9 @@ function _floatconvert(::Type{F}, A) where {F<:Real}
     (eltype(A) <: Complex) && return _elconvert(Complex{F}, A)
     return _elconvert(F, A)
 end
+
+_ldiv(L, A) = L \ A
+_ldiv(L, A::UniformScaling) = inv(L) * A  # Work around StaticMatrix \ UniformScaling issue
+
+_rdiv(A, R) = A / R
+_rdiv(A::UniformScaling, R) = A * inv(R)  # Should file an issue

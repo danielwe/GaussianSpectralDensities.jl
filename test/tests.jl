@@ -9,39 +9,46 @@ using StaticArrays
 using SparseArrays
 using SuiteSparse
 
+smatrix(A) = SMatrix{size(A)...}(A)
+smatrix(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
+
 @testset "GaussianSpectralDensities.jl" begin
     @testset "ensembles" begin
         @testset "MatrixEnsemble" begin
             A32, A64 = ComplexF32[1 -1; 1 1], ComplexF64[1 -1; 1 1]
             D32, D64 = Diagonal.((Float32[0.75, 0.25], Float64[0.75, 0.25]))
+            N = length(D64.diag)
 
-            @testset "$label" for (label, M, A, D, cA, cD) in (
+            @testset "$label" for (label, M, arrays...) in (
                 ("MatrixEnsemble{Float32}", MatrixEnsemble{Float32}, A32, D32, A64, D64),
                 ("MatrixEnsemble{Float64}", MatrixEnsemble{Float64}, A64, D64, A32, D32),
             )
-                # Floattype enforcing constructor
-                @test M(I, I, I, I) isa M
-                @test M(cA, I, I, I) isa M
-                @test M(I, cA, I, I) isa M
-                @test M(I, I, cA, I) isa M
-                @test M(I, I, I, cD) isa M
+                @testset "$label" for (label, A, D, cA, cD) in (
+                    ("Array", arrays...), ("StaticArray", smatrix.(arrays)...)
+                )
+                    # Floattype enforcing constructor
+                    @test M(I, I, I, I) isa M
+                    @test M(cA, I, I, I) isa M
+                    @test M(I, cA, I, I) isa M
+                    @test M(I, I, cA, I) isa M
+                    @test M(I, I, I, cD) isa M
 
-                # Floattype inferring constructor
-                @test MatrixEnsemble(A, I, I, I) isa M
-                @test MatrixEnsemble(I, A, I, I) isa M
-                @test MatrixEnsemble(I, I, A, I) isa M
-                @test MatrixEnsemble(I, I, I, D) isa M
+                    # Floattype inferring constructor
+                    @test MatrixEnsemble(A, I, I, I) isa M
+                    @test MatrixEnsemble(I, A, I, I) isa M
+                    @test MatrixEnsemble(I, I, A, I) isa M
+                    @test MatrixEnsemble(I, I, I, D) isa M
+                end
             end
 
             # Sanity checks
-            wrongsize = 3
             @test_throws ArgumentError MatrixEnsemble(I, I, I, real(A64))  # T not diagonal
             @test_throws ArgumentError MatrixEnsemble(I, I, I, complex(D64))  # T not real
             @test_throws ArgumentError MatrixEnsemble(I, I, I, 2I)  # T not in unit interval
             @test_throws ArgumentError MatrixEnsemble(I, I, I, -I)  # T not in unit interval
-            @test_throws DimensionMismatch MatrixEnsemble(A64, I(wrongsize), I, I)
-            @test_throws DimensionMismatch MatrixEnsemble(A64, I, I(wrongsize), I)
-            @test_throws DimensionMismatch MatrixEnsemble(A64, I, I, I(wrongsize))
+            @test_throws DimensionMismatch MatrixEnsemble(A64, I(N + 1), I, I)
+            @test_throws DimensionMismatch MatrixEnsemble(A64, I, I(N + 1), I)
+            @test_throws DimensionMismatch MatrixEnsemble(A64, I, I, I(N + 1))
             @test_throws DimensionMismatch MatrixEnsemble(hcat(A64, D64), I, I, I)
         end
     end

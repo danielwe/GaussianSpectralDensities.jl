@@ -40,12 +40,11 @@ mutable struct Workspace{
 
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
-        q = convert(Complex{F}, DEFAULTS.q0)
+        q = zero(Complex{F})
         regularizer = first(DEFAULTS.rschedule)
         G0i = muladd(z, ensemble.LiRi, -ensemble.LiMRi)
-        G0i = muladd(zero(q), _diagonaloruniform(ensemble.T), G0i)  # Promote to same type as Q
-        G0i_diag = _diag(G0i)
         Q = muladd(-q, _diagonaloruniform(ensemble.T), G0i)
+        G0i_diag = _diag(Q)  # Matrix(Q) == Matrix(G0i) since q == 0 during construction
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
         Pifact = _factorize(QQh)
         P = _inv(Pifact)
