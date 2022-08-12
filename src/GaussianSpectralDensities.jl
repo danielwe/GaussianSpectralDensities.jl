@@ -31,6 +31,15 @@ const AbstractMatrixOrUniform{E} = Union{<:AbstractMatrix{E},UniformScaling{E}}
 const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
 const RealOrComplex{F<:Real} = Union{F,Complex{F}}
 
+_diagonaloruniform(A::DiagonalOrUniform) = A
+_diagonaloruniform(a::Number) = UniformScaling(a)
+_diagonaloruniform(a) = Diagonal(a)
+
+_diag(a::Union{<:Number,<:AbstractVector}) = a
+_diag(A::Diagonal) = A.diag
+_diag(A::UniformScaling) = A.λ
+_diag(A) = diag(A)
+
 # include("matrix_utils.jl")
 include("ensemble.jl")
 include("regularizers.jl")

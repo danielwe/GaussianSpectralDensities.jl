@@ -42,9 +42,10 @@ mutable struct Workspace{
         z = zero(Complex{F})
         q = convert(Complex{F}, DEFAULTS.q0)
         regularizer = first(DEFAULTS.rschedule)
-        G0i = z * ensemble.LiRi - ensemble.LiMRi
-        G0i_diag = (G0i isa UniformScaling) ? G0i.λ : diag(G0i)
-        Q = G0i - q * ensemble.T
+        G0i = muladd(z, ensemble.LiRi, -ensemble.LiMRi)
+        G0i = muladd(zero(q), _diagonaloruniform(ensemble.T), G0i)  # Promote to same type as Q
+        G0i_diag = _diag(G0i)
+        Q = muladd(-q, _diagonaloruniform(ensemble.T), G0i)
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
         Pifact = _factorize(QQh)
         P = _inv(Pifact)

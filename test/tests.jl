@@ -12,32 +12,37 @@ using SuiteSparse
 @testset "GaussianSpectralDensities.jl" begin
     @testset "ensembles" begin
         @testset "MatrixEnsemble" begin
-            N = 2
-            D32, D64 = 0.5f0I(N), 0.5I(N)
-            @testset "$desc" for (desc, M) in (
-                ("MatrixEnsemble", MatrixEnsemble),
-                ("MatrixEnsemble{Float32}", MatrixEnsemble{Float32}),
-                ("MatrixEnsemble{Float64}", MatrixEnsemble{Float64}),
+            A32, A64 = ComplexF32[1 -1; 1 1], ComplexF64[1 -1; 1 1]
+            D32, D64 = Diagonal.((Float32[0.75, 0.25], Float64[0.75, 0.25]))
+
+            @testset "$label" for (label, M, A, D, cA, cD) in (
+                ("MatrixEnsemble{Float32}", MatrixEnsemble{Float32}, A32, D32, A64, D64),
+                ("MatrixEnsemble{Float64}", MatrixEnsemble{Float64}, A64, D64, A32, D32),
             )
-                @test M(N, I, I, I, I).N == 2
-                @test_throws ArgumentError M(I, I, I, I)
-                @test_throws DimensionMismatch M(N + 1, D64, I, I, I)
-                @test_throws DimensionMismatch M(D64, I, I, 0.5I(N + 1))
-                @test_throws ArgumentError M(I, I, I, Matrix(D64))
-                @test_throws ArgumentError M(I, I, I, -D64)
+                # Floattype enforcing constructor
+                @test M(I, I, I, I) isa M
+                @test M(cA, I, I, I) isa M
+                @test M(I, cA, I, I) isa M
+                @test M(I, I, cA, I) isa M
+                @test M(I, I, I, cD) isa M
+
+                # Floattype inferring constructor
+                @test MatrixEnsemble(A, I, I, I) isa M
+                @test MatrixEnsemble(I, A, I, I) isa M
+                @test MatrixEnsemble(I, I, A, I) isa M
+                @test MatrixEnsemble(I, I, I, D) isa M
             end
 
-            @testset "$args" for (args, e32, e64) in (
-                ("M=D, L=I, R=I, T=I", map(D -> MatrixEnsemble(D, I, I, I), (D32, D64))...),
-                ("M=I, L=D, R=I, T=I", map(D -> MatrixEnsemble(I, D, I, I), (D32, D64))...),
-                ("M=I, L=I, R=D, T=I", map(D -> MatrixEnsemble(I, I, D, I), (D32, D64))...),
-                ("M=I, L=I, R=I, T=D", map(D -> MatrixEnsemble(I, I, I, D), (D32, D64))...),
-            )
-                @test e32.N == N
-                @test e64.N == N
-                @test e32 isa MatrixEnsemble{Float32}
-                @test e64 isa MatrixEnsemble{Float64}
-            end
+            # Sanity checks
+            wrongsize = 3
+            @test_throws ArgumentError MatrixEnsemble(I, I, I, real(A64))  # T not diagonal
+            @test_throws ArgumentError MatrixEnsemble(I, I, I, complex(D64))  # T not real
+            @test_throws ArgumentError MatrixEnsemble(I, I, I, 2I)  # T not in unit interval
+            @test_throws ArgumentError MatrixEnsemble(I, I, I, -I)  # T not in unit interval
+            @test_throws DimensionMismatch MatrixEnsemble(A64, I(wrongsize), I, I)
+            @test_throws DimensionMismatch MatrixEnsemble(A64, I, I(wrongsize), I)
+            @test_throws DimensionMismatch MatrixEnsemble(A64, I, I, I(wrongsize))
+            @test_throws DimensionMismatch MatrixEnsemble(hcat(A64, D64), I, I, I)
         end
     end
     @testset "regularizers" begin
@@ -139,7 +144,7 @@ using SuiteSparse
         @testset "DirectSolve" begin
             q0 = complex(eps())
             δ0 = 0.0
-            @testset "$desc" for (desc, D) in (
+            @testset "$label" for (label, D) in (
                 ("DirectSolve", DirectSolve),
                 ("DirectSolve{Float32}", DirectSolve{Float32}),
                 ("DirectSolve{Float64}", DirectSolve{Float64}),
@@ -159,7 +164,7 @@ using SuiteSparse
             k, v = :δ, 2.0.^(2:-1:-2)
             schedule = Regularizer.(k, v)
             γ²min = 0.0
-            @testset "$desc" for (desc, R) in (
+            @testset "$label" for (label, R) in (
                 ("RegularizerSchedule", RegularizerSchedule),
                 ("RegularizerSchedule{Float32}", RegularizerSchedule{Float32}),
                 ("RegularizerSchedule{Float64}", RegularizerSchedule{Float64}),
@@ -183,7 +188,7 @@ using SuiteSparse
             vschedule = [0.0, 0.5, 1.0]
             γ²min = 0.0
             ialg = RegularizerSchedule()
-            @testset "$desc" for (desc, S) in (
+            @testset "$label" for (label, S) in (
                 ("SymmetrySchedule", SymmetrySchedule),
                 ("SymmetrySchedule{Float32}", SymmetrySchedule{Float32}),
                 ("SymmetrySchedule{Float64}", SymmetrySchedule{Float64}),
@@ -303,16 +308,14 @@ using SuiteSparse
     end
     @testset "workspace" begin
         @testset "Workspace" begin
-            N = 2
-            D = 0.5I(N)
-            @testset "$args" for (args, ensemble) in (
-                ("M=I, L=I, R=I, T=I", MatrixEnsemble{Float32}(N, I, I, I, I)),
-                ("M=D, L=I, R=I, T=I", MatrixEnsemble{Float32}(D, I, I, I)),
-                ("M=I, L=D, R=I, T=I", MatrixEnsemble{Float32}(I, D, I, I)),
-                ("M=I, L=I, R=D, T=I", MatrixEnsemble{Float32}(I, I, D, I)),
-                ("M=I, L=I, R=I, T=D", MatrixEnsemble{Float32}(I, I, I, D)),
-            )
-                @test Workspace(ensemble) isa Workspace{Float32}
+            A = ComplexF64[1 -1; 1 1]
+            D = Diagonal(Float64[0.75, 0.25])
+            @testset "$label" for (label, F) in (("Float32", Float32), ("Float64", Float64))
+                @test Workspace(MatrixEnsemble{F}(I, I, I, I)) isa Workspace{F}
+                @test Workspace(MatrixEnsemble{F}(A, I, I, I)) isa Workspace{F}
+                @test Workspace(MatrixEnsemble{F}(I, A, I, I)) isa Workspace{F}
+                @test Workspace(MatrixEnsemble{F}(I, I, A, I)) isa Workspace{F}
+                @test Workspace(MatrixEnsemble{F}(I, I, I, D)) isa Workspace{F}
             end
         end
     end
