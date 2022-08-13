@@ -1,6 +1,6 @@
 using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt
-using GaussianSpectralDensities: _factorize, _factorize!, _ldiv!, _inv, _inv!
+using GaussianSpectralDensities: _factorize, _factorize!!, _ldiv!!, _inv, _inv!!
 using GaussianSpectralDensities: Workspace
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
@@ -9,8 +9,8 @@ using StaticArrays
 using SparseArrays
 using SuiteSparse
 
-smatrix(A) = SMatrix{size(A)...}(A)
-smatrix(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
+sarray(A::AbstractMatrix) = SMatrix{size(A)...}(A)
+sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
 
 @testset "GaussianSpectralDensities.jl" begin
     @testset "ensembles" begin
@@ -24,7 +24,7 @@ smatrix(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
                 ("MatrixEnsemble{Float64}", MatrixEnsemble{Float64}, A64, D64, A32, D32),
             )
                 @testset "$label" for (label, A, D, cA, cD) in (
-                    ("Array", arrays...), ("StaticArray", smatrix.(arrays)...)
+                    ("Array", arrays...), ("SArray", sarray.(arrays)...)
                 )
                     # Floattype enforcing constructor
                     @test M(I, I, I, I) isa M
@@ -241,15 +241,13 @@ smatrix(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             F = _factorize(A)
             Ai = _inv(F)
             @test Ai ≈ Ai_true
-            A_B = copy(B)
-            _ldiv!(F, A_B)
+            A_B = _ldiv!!(F, copy(B))
             @test A_B ≈ A_B_true
-            F = _factorize!(F, A; shift=shift)
+            F = _factorize!!(F, A; shift=shift)
             @test _isequal(F, _factorize(A; shift=shift))
-            Ai = _inv!(Ai, F)
+            Ai = _inv!!(Ai, F)
             @test Ai ≈ Asi_true
-            copyto!(A_B, B)
-            _ldiv!(F, A_B)
+            A_B = _ldiv!!(F, copy(B))
             @test A_B ≈ As_B_true
         end
 
@@ -276,7 +274,6 @@ smatrix(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
                 B = E[(1 + im) -1; 1 (1 - im)]
                 Adata = E[1.5 (-1 + im); (1 + im) 2]  # deliberate ahermiticity
                 Aidata = E[2 (1 - im); (-1 - im) 1.5]
-                shift = 0.5
                 Asidata = E[5 (2 - 2im); (-2 - 2im) 4] / 6
                 A_B = Dict(
                     :U => E[(3 + im) (-2 - 2im); (1.5 + 2im) (0.5 - 2.5im)],
@@ -294,19 +291,33 @@ smatrix(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             @testset "uplo=:$uplo" for uplo in (:U, :L)
                 Ai = Hermitian(Aidata, uplo)
                 Asi = Hermitian(Asidata, uplo)
-                @testset "dense" begin
+                @testset "Matrix" begin
                     A = Hermitian(Adata, uplo)
                     @test_throws DomainError _factorize(A; shift=im)
                     test_factorize(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo])
                 end
-                @testset "sparse" begin
+                @testset "SparseMatrixCSC" begin
                     A = Hermitian(sparse(Adata), uplo)
                     @test_throws TypeError _factorize(A; shift=im)
                     test_factorize(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo])
                 end
+                @testset "SMatrix" begin
+                    A = Hermitian(sarray(Adata), uplo)
+                    Ai = Hermitian(sarray(Aidata), uplo)
+                    Asi = Hermitian(sarray(Asidata), uplo)
+                    @test_throws DomainError _factorize(A; shift=im)
+                    test_factorize(
+                        shift, sarray(B), A, Ai, Asi, sarray.((A_B[uplo], As_B[uplo]))...
+                    )
+                end
             end
             @testset "diagonal" begin
-                test_factorize(shift, B, D, Di, Dsi, D_B, Ds_B)
+                @testset "Vector" begin
+                    test_factorize(shift, B, D, Di, Dsi, D_B, Ds_B)
+                end
+                @testset "SVector" begin
+                    test_factorize(shift, sarray.((B, D, Di, Dsi, D_B, Ds_B))...)
+                end
             end
             @testset "uniform" begin
                 test_factorize(shift, B, U, Ui, Usi, U_B, Us_B)
