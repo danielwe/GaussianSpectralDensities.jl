@@ -9,7 +9,7 @@ Workspace holding intermediate arrays used to compute the average resolvent from
 mutable struct Workspace{
     F,
     TE<:MatrixEnsemble{F},
-    TG0i_diag<:Union{Complex{F},Vector{Complex{F}}},
+    TG0i_diag<:Union{Complex{F},AbstractVector{Complex{F}}},
     TQ<:AbstractMatrixOrUniform{Complex{F}},
     TQQh<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
     TPifact<:Union{<:DiagonalOrUniform{F},<:Factorization{Complex{F}}},

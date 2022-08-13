@@ -326,14 +326,18 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
     end
     @testset "workspace" begin
         @testset "Workspace" begin
-            A = ComplexF64[1 -1; 1 1]
-            D = Diagonal(Float64[0.75, 0.25])
-            @testset "$label" for (label, F) in (("Float32", Float32), ("Float64", Float64))
-                @test Workspace(MatrixEnsemble{F}(I, I, I, I)) isa Workspace{F}
-                @test Workspace(MatrixEnsemble{F}(A, I, I, I)) isa Workspace{F}
-                @test Workspace(MatrixEnsemble{F}(I, A, I, I)) isa Workspace{F}
-                @test Workspace(MatrixEnsemble{F}(I, I, A, I)) isa Workspace{F}
-                @test Workspace(MatrixEnsemble{F}(I, I, I, D)) isa Workspace{F}
+            A_ = ComplexF64[1 -1; 1 1]
+            D_ = Diagonal(Float64[0.75, 0.25])
+            @testset "$label" for (label, A, D) in (
+                ("Array", A_, D_), ("SArray", sarray.((A_, D_))...)
+            )
+                @testset "$label" for (label, F) in (("Float32", Float32), ("Float64", Float64))
+                    @test Workspace(MatrixEnsemble{F}(I, I, I, I)) isa Workspace{F}
+                    @test Workspace(MatrixEnsemble{F}(A, I, I, I)) isa Workspace{F}
+                    @test Workspace(MatrixEnsemble{F}(I, A, I, I)) isa Workspace{F}
+                    @test Workspace(MatrixEnsemble{F}(I, I, A, I)) isa Workspace{F}
+                    @test Workspace(MatrixEnsemble{F}(I, I, I, D)) isa Workspace{F}
+                end
             end
         end
     end
