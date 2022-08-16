@@ -27,7 +27,7 @@ struct MatrixEnsemble{
     TM,
     TL,
     TR,
-    TT<:Union{F,<:AbstractVector{F}},
+    TT<:DiagonalOrUniform{F},
     TLiRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
     TLiMRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
 } <: AbstractMatrixEnsemble{F,TM,TL,TR}
@@ -45,12 +45,12 @@ struct MatrixEnsemble{
         )
         if length(sizes) > 0
             function throwsizeerror()
-                exception = DimensionMismatch(
+                msg = (
                     "M, L, R, and T must all be square matrices of the same size or "
                     * "UniformScaling. Got: "
                     * join(("size($name) == $s" for (name, s) in pairs(sizes)), "; ")
                 )
-                throw(exception)
+                throw(DimensionMismatch(msg))
             end
             s = first(sizes)
             N = first(s)
@@ -60,13 +60,11 @@ struct MatrixEnsemble{
             end
         end
         if !((T isa DiagonalOrUniform{<:Real}) && _inunitinterval(T))
-            exception = ArgumentError(
-                "T must be Diagonal or UniformScaling with elements in [0, 1]"
-            )
-            throw(exception)
+            msg = "T must be Diagonal or UniformScaling with elements in [0, 1]"
+            throw(ArgumentError(msg))
         end
         M, L, R = _floatconvert.(F, (M, L, R))
-        T = _elconvert(F, _diag(T))  # Always real and stored internally as scalar or vector
+        T = _elconvert(F, T)  # Always real
         LiRi =_floatconvert(F, _rdiv(_ldiv(L, I), R))
         LiMRi = _floatconvert(F, _rdiv(_ldiv(L, M), R))
         return new{F,map(typeof, (M, L, R, T, LiRi, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
@@ -88,6 +86,12 @@ end
 function _elconvert(::Type{E}, A) where {E}
     (E === eltype(A)) && return A
     return convert.(E, A)
+end
+
+# Work around lack of structure-preserving broadcast with SArray storage
+function _elconvert(::Type{E}, A::Diagonal) where {E}
+    (E === eltype(A)) && return A
+    return Diagonal(convert.(E, A.diag))
 end
 
 _elconvert(::Type{E}, A::UniformScaling) where {E} = UniformScaling(convert(E, A.λ))

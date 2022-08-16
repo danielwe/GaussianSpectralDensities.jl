@@ -9,7 +9,7 @@ Workspace holding intermediate arrays used to compute the average resolvent from
 mutable struct Workspace{
     F,
     TE<:MatrixEnsemble{F},
-    TG0i_diag<:Union{Complex{F},AbstractVector{Complex{F}}},
+    TG0i<:AbstractMatrixOrUniform{Complex{F}},
     TQ<:AbstractMatrixOrUniform{Complex{F}},
     TQQh<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
     TPifact<:Union{<:DiagonalOrUniform{F},<:Factorization{Complex{F}}},
@@ -17,16 +17,16 @@ mutable struct Workspace{
 } <: AbstractWorkspace{F}
     ensemble::TE
     z::Complex{F}
-    q::Complex{F}  # Depends on G0i_diag
+    q::Complex{F}  # Depends on G0i
     regularizer::Regularizer{F}  # Depends on Q
-    G0i_diag::TG0i_diag  # Depends on z, used when updating Q with new q
+    G0i::TG0i  # Depends on z, used when updating Q with new q
     Q::TQ
     QQh::TQQh
     Pifact::TPifact
     P::TP
     s²min::F  # Depends on Q (smallest eigenvalue of QQh)
-    G0i_diag_current::Bool
-    Q_current::Bool  # Depends on G0i_diag
+    G0i_current::Bool
+    Q_current::Bool  # Depends on G0i
     P_current::Bool  # Depends on Q
     # PQ::TQ
     # QP::TQ
@@ -40,21 +40,20 @@ mutable struct Workspace{
 
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
-        q = zero(Complex{F})
+        q = convert(Complex{F}, DEFAULTS.q0)
         regularizer = first(DEFAULTS.rschedule)
         G0i = muladd(z, ensemble.LiRi, -ensemble.LiMRi)
-        Q = muladd(-q, _diagonaloruniform(ensemble.T), G0i)
-        G0i_diag = _diag(Q)  # Matrix(Q) == Matrix(G0i) since q == 0 during construction
+        Q = muladd(-q, ensemble.T, G0i)
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
         Pifact = _factorize(QQh)
         P = _inv(Pifact)
         s²min = _eigmin(QQh)
-        return new{F,E,typeof(G0i_diag),typeof(Q),typeof(QQh),typeof(Pifact),typeof(P)}(
+        return new{F,E,typeof(G0i),typeof(Q),typeof(QQh),typeof(Pifact),typeof(P)}(
             ensemble,
             z,
             q,
             regularizer,
-            G0i_diag,
+            G0i,
             Q,
             QQh,
             Pifact,
