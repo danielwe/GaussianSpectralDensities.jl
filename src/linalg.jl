@@ -3,9 +3,8 @@
 """
 
     _factorize(A::Hermitian{E}; shift=zero(E)) where {E}
-    _factorize(A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0)
 
-Find the Cholesky factorization of `A + shift * I` with Hermitian `A` and real `shift`
+Get the Cholesky factorization of `A + shift * I` with Hermitian `A` and real `shift`
 """
 function _factorize(A::Hermitian{E}; shift=zero(E)) where {E}
     if (A.data isa StaticMatrix) && (A.uplo == 'L')  # Work around StaticArrays bug
@@ -16,7 +15,13 @@ function _factorize(A::Hermitian{E}; shift=zero(E)) where {E}
     return cholesky(Hermitian(A.data + convert(E, shift) * I, Symbol(A.uplo)))
 end
 
-_factorize(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = cholesky(A; kwargs...)
+"""
+
+    _factorize(A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0)
+
+Get the LDLt factorization of `A + shift * I` with Hermitian `A` and real `shift`
+"""
+_factorize(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = ldlt(A; kwargs...)
 
 """
 
@@ -67,8 +72,7 @@ end
 function _factorize!!(
     F::SuiteSparse.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...
 )
-   cholesky!(F, A; kwargs...)
-   return F
+   return ldlt!(F, A; kwargs...)
 end
 
 function _factorize!!(F::Diagonal{E}, A::Diagonal{E}; shift=zero(E)) where {E}
@@ -109,35 +113,23 @@ end
 """
 
     _ldiv!!(A, B)
-    _ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B)
 
-Left divide `A` into `B` in-place such that `B` is overwritten by `A \\ B`, and return B
-
-Provides a custom implementation for `A::SuiteSparse.CHOLMOD.Factor`, falls back to
-LinearAlgebra.ldiv! otherwise.
+Left-divide `A` into `B` in-place such that `B` is overwritten by `A \\ B`, and return B
 """
 _ldiv!!(A, B) = ldiv!(A, B)
-
-function _ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B)
-    L = LowerTriangular(sparse(A.L))
-    U = L'
-    p = A.p
-    for c in eachcol(B)
-        invpermute!(ldiv!(U, ldiv!(L, permute!(c, p))), p)
-        # c[p] .= ldiv!(U, ldiv!(L, c[p]))  # Out-of-place permutation may perform better
-    end
-    return B
-end
 
 """
 
     _ldiv!!(A, B::SArray)
+    _ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B)
 
 Return `A \\ B`
 
-This provides a generic left division interface that also covers immutable numerators.
+This provides a generic left division interface that also covers cases where the most
+efficient or only option is out-of-place division.
 """
 _ldiv!!(A, B::SArray) = A \ B
+_ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = A \ B
 
 """
 
@@ -162,7 +154,6 @@ end
 """
 
     _inv!!(Ai::Hermitian{E}, F::Cholesky{E}) where {E}
-    _inv!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
     _inv!!(Ai::Diagonal{E}, F::Diagonal{E})
 
 Compute the inverse of a matrix from a factorization, filling an existing array
@@ -187,12 +178,6 @@ function _inv!!(Ai::Hermitian{E}, F::Cholesky{E}) where {E}
     return Ai
 end
 
-function _inv!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
-    copyto!(Ai.data, I)
-    _ldiv!!(F, Ai.data)
-    return Ai
-end
-
 function _inv!!(Ai::Diagonal{E}, F::Diagonal{E}) where {E}
     Ai.diag .= inv.(F.diag)
     return Ai
@@ -200,20 +185,35 @@ end
 
 """
 
-    _inv!!(Ai::UniformScaling{E}, F::UniformScaling{E}) where {E}
-    _inv!!(Ai::Hermitian{E,<:SMatrix}, F::Cholesky{E,<:SMatrix}) where {E}
-    _inv!!(Ai::Diagonal{E,<:SVector}, F::Cholesky{E,<:SVector}) where {E}
+    _inv!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
+
+Compute the inverse of a matrix from a factorization, using an existing array as workspace
+
+!!! note
+    `Ai` will not contain the inverse at the end; it is used as a working array only. The
+    inverse is the function's return value.
+"""
+function _inv!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
+    copyto!(Ai.data, I)
+    return Hermitian(_ldiv!!(F, Ai.data), Symbol(Ai.uplo))
+end
+
+"""
+
+    _inv!!(::UniformScaling{E}, F::UniformScaling{E}) where {E}
+    _inv!!(::Hermitian{E,<:SMatrix}, F::Cholesky{E,<:SMatrix}) where {E}
+    _inv!!(::Diagonal{E,<:SVector}, F::Cholesky{E,<:SVector}) where {E}
 
 Compute the inverse of `F`
 
-Ignores `Ai` and forwards the call to `_inv(F)`. This provides a inverse updating interface
-that also covers immutable inverse types.
+The call is forwarded to `_inv(F)`. This provides a inverse updating interface that also
+covers immutable inverse types.
 """
-_inv!!(Ai::UniformScaling{E}, F::UniformScaling{E}) where {E} = _inv(F)
-_inv!!(Ai::Hermitian{E,<:SMatrix}, F::Cholesky{E,<:SMatrix}) where {E} = _inv(F)
-_inv!!(Ai::Diagonal{E,<:SVector}, F::Diagonal{E,<:SVector}) where {E} = _inv(F)
+_inv!!(::UniformScaling{E}, F::UniformScaling{E}) where {E} = _inv(F)
+_inv!!(::Hermitian{E,<:SMatrix}, F::Cholesky{E,<:SMatrix}) where {E} = _inv(F)
+_inv!!(::Diagonal{E,<:SVector}, F::Diagonal{E,<:SVector}) where {E} = _inv(F)
 
-_check_shift(shift) = (!iszero(imag(shift)) && throw(DomainError("shift must be real")))
+_check_shift(shift) = iszero(imag(shift)) || throw(DomainError("shift must be real"))
 
 function _shift_diag!(A, shift)
     @inbounds for i in diagind(A)

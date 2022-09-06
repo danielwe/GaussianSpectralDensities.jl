@@ -233,7 +233,7 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             return (
                 isequal(issuccess(C1), issuccess(C2))
                 && isequal(C1.p, C2.p)
-                && isequal(sparse(C1.L), sparse(C2.L))
+                && isequal(sparse(C1.LD), sparse(C2.LD))
             )
         end
 
