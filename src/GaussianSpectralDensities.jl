@@ -1,7 +1,10 @@
 module GaussianSpectralDensities
 
 # using CommonSolve
+using Adapt
+using ArnoldiMethod
 using LinearAlgebra
+using LinearMaps
 using StaticArrays
 using SparseArrays
 using SuiteSparse
@@ -30,6 +33,22 @@ export DirectSolve, RegularizerSchedule, SymmetrySchedule
 const AbstractMatrixOrUniform{E} = Union{<:AbstractMatrix{E},UniformScaling{E}}
 const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
 const RealOrComplex{F<:Real} = Union{F,Complex{F}}
+
+"""
+    _Immutable
+
+Union of immutable array-like types of interest in this package
+
+Would love to rely on ArrayInterface.jl instead, but it lacks proper forwarding for
+structured matrices.
+"""
+const _Immutable = Union{
+    <:UniformScaling,
+    <:SArray,
+    <:WrappedArray{<:Any,<:Any,<:SArray},
+    <:WrappedArray{<:Any,<:Any,<:Any,<:SArray},
+    <:Hermitian{<:Any,<:SArray},  # Adapt.jl#51
+}
 
 # include("matrix_utils.jl")
 include("ensemble.jl")

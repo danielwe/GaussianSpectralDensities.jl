@@ -238,7 +238,9 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             )
         end
 
-        function linalg_tests(shift, B, A, Ai_true, Asi_true, A_B_true, As_B_true, X)
+        function linalg_tests(
+            A, Ai_true, Aeigmin_true, shift, Asi_true, B, A_B_true, As_B_true, X
+        )
             F = _factorize(A)
             Ai = _inv(F)
             @test Ai ≈ Ai_true
@@ -251,6 +253,8 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             A_B = _ldiv!!(F, copy(B))
             @test A_B ≈ As_B_true
 
+            @test _eigmin!!(F, A) ≈ Aeigmin_true
+
             H = _psdmul!!(deepcopy(A), X)
             @test H ≈ X * X'
             α, β = convert.(real(eltype(X)), (0.25, 1.33))
@@ -259,7 +263,7 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
         end
 
         @testset "$E" for E in (Float32, Float64, ComplexF32, ComplexF64)
-            shift = 0.5
+            _shift = 0.5
             D = Diagonal(real(E)[1.5, 2.0])
             Di = Diagonal(real(E)[2, 1.5] / 3)
             Dsi = Diagonal(real(E)[0.5, 0.4])
@@ -267,10 +271,12 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             Ui = real(E)(0.5) * I
             Usi = real(E)(0.4) * I
             if E <: Real
-                B = E[1 -1; 1 1]
                 Adata = E[1.5 -1; 1 2]  # deliberate asymmetry, masked in two different ways
                 Aidata = E[1 0.5; -0.5 0.75]
+                Aeigmin = E(0.719223593595585)
+                shift = E(_shift)
                 Asidata = E[5 2; -2 4] / 8
+                B = E[1 -1; 1 1]
                 A_B = Dict(:U => E[1.5 -0.5; 1.25 0.25], :L => E[0.5 -1.5; 0.25 1.25])
                 As_B = Dict(:U => E[7 -3; 6 2] / 8, :L => E[3 -7; 2 6] / 8)
                 D_B = E[2 -2; 1.5 1.5] / 3
@@ -278,10 +284,12 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
                 U_B = E[0.5 -0.5; 0.5 0.5]
                 Us_B = E[0.4 -0.4; 0.4 0.4]
             else
-                B = E[(1 + im) -1; 1 (1 - im)]
                 Adata = E[1.5 (-1 + im); (1 + im) 2]  # deliberate ahermiticity
                 Aidata = E[2 (1 - im); (-1 - im) 1.5]
+                Aeigmin = real(E)(0.3138593383654923)
+                shift = real(E)(_shift)
                 Asidata = E[5 (2 - 2im); (-2 - 2im) 4] / 6
+                B = E[(1 + im) -1; 1 (1 - im)]
                 A_B = Dict(
                     :U => E[(3 + im) (-2 - 2im); (1.5 + 2im) (0.5 - 2.5im)],
                     :L => E[(1 + 3im) (-2 + 2im); (1.5 - 2im) (2.5 - 0.5im)],
@@ -304,12 +312,14 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
                 @testset "Matrix" begin
                     A = Hermitian(Adata, uplo)
                     @test_throws DomainError _factorize(A; shift=im)
-                    linalg_tests(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo], X)
+                    linalg_tests(A, Ai, Aeigmin, shift, Asi, B, A_B[uplo], As_B[uplo], X)
                 end
                 @testset "SparseMatrixCSC" begin
                     A = Hermitian(sparse(Adata), uplo)
                     @test_throws TypeError _factorize(A; shift=im)
-                    linalg_tests(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo], sparse(X))
+                    linalg_tests(
+                        A, Ai, Aeigmin, shift, Asi, B, A_B[uplo], As_B[uplo], sparse(X)
+                    )
                 end
                 @testset "SMatrix" begin
                     A = Hermitian(sarray(Adata), uplo)
@@ -317,20 +327,31 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
                     Asi = Hermitian(sarray(Asidata), uplo)
                     @test_throws DomainError _factorize(A; shift=im)
                     linalg_tests(
-                        shift, sarray(B), A, Ai, Asi, sarray.((A_B[uplo], As_B[uplo], X))...
+                        A,
+                        Ai,
+                        Aeigmin,
+                        shift,
+                        Asi,
+                        sarray(B),
+                        sarray.((A_B[uplo], As_B[uplo], X))...,
                     )
                 end
             end
             @testset "diagonal" begin
                 @testset "Vector" begin
-                    linalg_tests(shift, B, D, Di, Dsi, D_B, Ds_B, D_X)
+                    linalg_tests(D, Di, minimum(D.diag), shift, Dsi, B, D_B, Ds_B, D_X)
                 end
                 @testset "SVector" begin
-                    linalg_tests(shift, sarray.((B, D, Di, Dsi, D_B, Ds_B, D_X))...)
+                    linalg_tests(
+                        sarray.((D, Di))...,
+                        minimum(D.diag),
+                        shift,
+                        sarray.((Dsi, B, D_B, Ds_B, D_X))...,
+                    )
                 end
             end
             @testset "uniform" begin
-                linalg_tests(shift, B, U, Ui, Usi, U_B, Us_B, U_X)
+                linalg_tests(U, Ui, U.λ, shift, Usi, B, U_B, Us_B, U_X)
             end
         end
     end

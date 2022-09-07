@@ -159,7 +159,7 @@ Left-divide `A` into `B` in-place such that `B` is overwritten by `A \\ B`, and 
 _ldiv!!(A, B) = ldiv!(A, B)
 
 """
-    _ldiv!!(A, B::SArray)
+    _ldiv!!(A, B::_Immutable)
     _ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B)
 
 Return `A \\ B`
@@ -167,7 +167,7 @@ Return `A \\ B`
 This provides a generic left division interface that also covers cases where the most
 efficient or only option is out-of-place division.
 """
-_ldiv!!(A, B::SArray) = A \ B
+_ldiv!!(A, B::_Immutable) = A \ B
 _ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = A \ B
 
 """
@@ -257,15 +257,43 @@ function _shift_diag!(A, shift)
     return nothing
 end
 
-## Eigenvalues
-## ===========
+## Smallest eigenvalue
+## ==================
 """
-    _eigmin(A)
-    _eigmin(A::UniformScaling{<:Real})
+    _eigmin!!(F, A)
 
-Find the smallest eigenvalue of `A`
+Find the smallest eigenvalue of `A`, possibly via a factorization into `F`
 
-Works for `A::UniformScaling{<:Real}`, and falls back to `LinearAlgebra.eigmin` otherwise.
+The factorization object `F` may be updated in-place or remain unused, depending on the type
+of `A`. The appropriate type of `F` is the return type of `_factorize(A)`.
 """
-_eigmin(A) = eigmin(A)
-_eigmin(A::UniformScaling{<:Real}) = A.λ
+function _eigmin!!(F, A::Hermitian)
+    schur, history = partialschur(_invmap!(F, A); nev=1, which=LM(), tol=_eigmin_reltol(A))
+    (history.nconverged >= 1) || error("smallest eigenvalue not found: did not converge")
+    return inv(real(first(schur.eigenvalues)))
+end
+
+_eigmin!!(F, A::Diagonal{<:Real}) = minimum(A.diag)
+_eigmin!!(F, A::UniformScaling{<:Real}) = A.λ
+_eigmin!!(F, A::_Immutable) = eigmin(A)
+
+_eigmin_reltol(::Type{T}) where {T} = eps(real(T))^(2//3)
+_eigmin_reltol(x) = _eigmin_reltol(eltype(x))
+
+function _invmap!(F::Cholesky{E}, A::Hermitian{E,<:StridedMatrix}) where {E}
+    _factorize!!(F, A)
+    return LinearMap{E}(
+        (y, x) -> ldiv!(y, F, x),
+        size(A, 2);
+        ismutating=true,
+        ishermitian=true,
+        isposdef=true,
+    )
+end
+
+function _invmap!(F::SuiteSparse.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC})
+    _factorize!!(F, A)
+    return LinearMap{eltype(F)}(
+        x -> F \ x, size(A, 2); ismutating=false, ishermitian=true, isposdef=true
+    )
+end

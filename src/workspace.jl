@@ -45,8 +45,9 @@ mutable struct Workspace{
         Q = muladd(-q, ensemble.T, G0i)
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
         Pifact = _factorize(QQh)
+        s²min = _eigmin!!(Pifact, QQh)
+        Pifact = _factorize!!(Pifact, QQh; shift=regularizer.value)
         P = _inv(Pifact)
-        s²min = _eigmin(QQh)
         return new{F,E,typeof(G0i),typeof(Q),typeof(QQh),typeof(Pifact),typeof(P)}(
             ensemble,
             z,
