@@ -1,3 +1,48 @@
+## Positive semidefinite matrix multiplication
+## ===========================================
+"""
+    _psdmul!!(H, A)
+
+Compute `A * A'`, overwriting and returning `H` if possible as per `_psdmul!!(H, A, α, β)`
+"""
+_psdmul!!(H, A) = _psdmul!!(H, A, true, false)
+
+"""
+    _psdmul!!(H::Hermitian, A, α, β)
+    _psdmul!!(H::Diagonal{<:Real}, A::Diagonal, α, β)
+
+Overwrite `H` with `α * A * A' + β * H`, return `H`
+"""
+
+function _psdmul!!(H::Hermitian, A, α, β)
+    mul!(H.data, A, A', α, β)
+    return H
+end
+
+function _psdmul!!(H::Diagonal{<:Real}, A::Diagonal, α, β)
+    H.diag .= α .* abs2.(A.diag) .+ β .* H.diag
+    return H
+end
+
+"""
+    _psdmul!!(H::Hermitian{<:Any,<:SMatrix}, A, α, β)
+    _psdmul!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β)
+    _psdmul!!(H::UniformScaling{<:Real}, A::UniformScaling, α, β)
+
+Return `α * A * A' + β * H`
+"""
+function _psdmul!!(H::Hermitian{<:Any,<:SMatrix}, A, α, β)
+    return Hermitian(α * A * A' + β * H.data, H.uplo)
+end
+
+function _psdmul!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β)
+    return Diagonal(α * abs2.(A.diag) + β * H.diag)
+end
+
+function _psdmul!!(H::UniformScaling{<:Real}, A::UniformScaling, α, β)
+    return UniformScaling(α * abs2(A.λ) + β * H.λ)
+end
+
 ## Factorization and inversion
 ## ===========================
 """

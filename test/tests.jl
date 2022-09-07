@@ -1,6 +1,7 @@
 using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt
-using GaussianSpectralDensities: _factorize, _factorize!!, _ldiv!!, _inv, _inv!!
+using GaussianSpectralDensities: _psdmul!!, _factorize, _factorize!!, _ldiv!!, _inv, _inv!!
+using GaussianSpectralDensities: _eigmin!!
 using GaussianSpectralDensities: Workspace
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
@@ -237,7 +238,7 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             )
         end
 
-        function test_factorize(shift, B, A, Ai_true, Asi_true, A_B_true, As_B_true)
+        function linalg_tests(shift, B, A, Ai_true, Asi_true, A_B_true, As_B_true, X)
             F = _factorize(A)
             Ai = _inv(F)
             @test Ai ≈ Ai_true
@@ -249,16 +250,22 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
             @test Ai ≈ Asi_true
             A_B = _ldiv!!(F, copy(B))
             @test A_B ≈ As_B_true
+
+            H = _psdmul!!(deepcopy(A), X)
+            @test H ≈ X * X'
+            α, β = convert.(real(eltype(X)), (0.25, 1.33))
+            H = _psdmul!!(H, X', α, β)
+            @test H ≈ α * X' * X + β * X * X'
         end
 
         @testset "$E" for E in (Float32, Float64, ComplexF32, ComplexF64)
             shift = 0.5
-            D = Diagonal(E[1.5, 2.0])
-            Di = Diagonal(E[2, 1.5] / 3)
-            Dsi = Diagonal(E[0.5, 0.4])
-            U = E(2) * I
-            Ui = E(0.5) * I
-            Usi = E(0.4) * I
+            D = Diagonal(real(E)[1.5, 2.0])
+            Di = Diagonal(real(E)[2, 1.5] / 3)
+            Dsi = Diagonal(real(E)[0.5, 0.4])
+            U = real(E)(2) * I
+            Ui = real(E)(0.5) * I
+            Usi = real(E)(0.4) * I
             if E <: Real
                 B = E[1 -1; 1 1]
                 Adata = E[1.5 -1; 1 2]  # deliberate asymmetry, masked in two different ways
@@ -288,39 +295,42 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
                 U_B = E[(0.5 + 0.5im) -0.5; 0.5 (0.5 - 0.5im)]
                 Us_B = E[(0.4 + 0.4im) -0.4; 0.4 (0.4 - 0.4im)]
             end
+            X = B
+            D_X = Diagonal(B)
+            U_X = UniformScaling(first(B))
             @testset "uplo=:$uplo" for uplo in (:U, :L)
                 Ai = Hermitian(Aidata, uplo)
                 Asi = Hermitian(Asidata, uplo)
                 @testset "Matrix" begin
                     A = Hermitian(Adata, uplo)
                     @test_throws DomainError _factorize(A; shift=im)
-                    test_factorize(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo])
+                    linalg_tests(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo], X)
                 end
                 @testset "SparseMatrixCSC" begin
                     A = Hermitian(sparse(Adata), uplo)
                     @test_throws TypeError _factorize(A; shift=im)
-                    test_factorize(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo])
+                    linalg_tests(shift, B, A, Ai, Asi, A_B[uplo], As_B[uplo], sparse(X))
                 end
                 @testset "SMatrix" begin
                     A = Hermitian(sarray(Adata), uplo)
                     Ai = Hermitian(sarray(Aidata), uplo)
                     Asi = Hermitian(sarray(Asidata), uplo)
                     @test_throws DomainError _factorize(A; shift=im)
-                    test_factorize(
-                        shift, sarray(B), A, Ai, Asi, sarray.((A_B[uplo], As_B[uplo]))...
+                    linalg_tests(
+                        shift, sarray(B), A, Ai, Asi, sarray.((A_B[uplo], As_B[uplo], X))...
                     )
                 end
             end
             @testset "diagonal" begin
                 @testset "Vector" begin
-                    test_factorize(shift, B, D, Di, Dsi, D_B, Ds_B)
+                    linalg_tests(shift, B, D, Di, Dsi, D_B, Ds_B, D_X)
                 end
                 @testset "SVector" begin
-                    test_factorize(shift, sarray.((B, D, Di, Dsi, D_B, Ds_B))...)
+                    linalg_tests(shift, sarray.((B, D, Di, Dsi, D_B, Ds_B, D_X))...)
                 end
             end
             @testset "uniform" begin
-                test_factorize(shift, B, U, Ui, Usi, U_B, Us_B)
+                linalg_tests(shift, B, U, Ui, Usi, U_B, Us_B, U_X)
             end
         end
     end
