@@ -17,7 +17,6 @@ end
 
 
 """
-
     Regularizer(kind, value)
 
 Represent the regularizer in the averaged resolvent equations
@@ -26,7 +25,9 @@ The available kinds of regularizers are:
 
 - `:γ`: the simple additive regularizer in the denominator ``[QQ^† + γ²I]⁻¹``
 - `:δ`: refers to the smallest eigenvalue of the entire denominator, that is,
-    ` δ^2 == γ^2 + eigmin(Q * Q')`
+    `δ^2 == γ^2 + eigmin(Q * Q')`
+
+The value of the regularizer is the value of `γ²` or `δ²`, respectively
 """
 struct Regularizer{T<:Real}
     kind::Regularizers.T

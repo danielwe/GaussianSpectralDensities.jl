@@ -1,7 +1,6 @@
 abstract type AbstractWorkspace{F<:AbstractFloat} end
 
 """
-
     Workspace(ensemble::MatrixEnsemble)
 
 Workspace holding intermediate arrays used to compute the average resolvent from an ensemble

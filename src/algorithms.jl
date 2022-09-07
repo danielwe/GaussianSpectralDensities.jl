@@ -2,7 +2,6 @@ abstract type AbstractAlgorithm{F<:Real} end
 abstract type AbstractSchedule{F} <: AbstractAlgorithm{F} end
 
 """
-
     DirectSolve(q0, δ0)
     DirectSolve(; q0=DEFAULTS.q0, δ0=DEFAULTS.δ0)
     DirectSolve{F}(q0, δ0)
@@ -28,7 +27,6 @@ function Base.:(==)(dsa::DirectSolve, dsb::DirectSolve)
 end
 
 """
-
     RegularizerSchedule(schedule::AbstractVector{<:Regularizer}, γ²min)
     RegularizerSchedule(kind, schedule, γ²min)
     RegularizerSchedule(; kind=nothing, schedule=DEFAULTS.rschedule, γ²min=DEFAULTS.γ²min)
@@ -106,7 +104,6 @@ function Base.:(==)(rsa::RegularizerSchedule, rsb::RegularizerSchedule)
 end
 
 """
-
     SymmetrySchedule(schedule::Integer, γ²min, initialalg)
     SymmetrySchedule(schedule, γ²min, initialalg)
     SymmetrySchedule(
@@ -206,7 +203,6 @@ end
 ## ======
 
 """
-
     length(alg::AbstractAlgorithm)
 
 Number of steps in the algorithm's schedule

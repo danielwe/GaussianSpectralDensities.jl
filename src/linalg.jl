@@ -46,7 +46,6 @@ end
 ## Factorization and inversion
 ## ===========================
 """
-
     _factorize(A::Hermitian{E}; shift=zero(E)) where {E}
 
 Get the Cholesky factorization of `A + shift * I` with Hermitian `A` and real `shift`
@@ -61,7 +60,6 @@ function _factorize(A::Hermitian{E}; shift=zero(E)) where {E}
 end
 
 """
-
     _factorize(A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0)
 
 Get the LDLt factorization of `A + shift * I` with Hermitian `A` and real `shift`
@@ -79,7 +77,6 @@ function _factorize(A::DiagonalOrUniform{E}; shift=zero(E)) where {E}
 end
 
 """
-
     _factorize!!(F::Cholesky{E}, A::Hermitian{E}; shift=zero(E)) where {E}
     _factorize!!(
         F::SuiteSparse.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0
@@ -91,17 +88,17 @@ Factorize `A + shift * I` into an existing factorization instance `F`; return `F
 The factorization object `F` is updated in-place and returned. The appropriate type of `F`
 is the return type of `_factorize(A)`; that is, appropriate usage may look as follows:
 
-Note: Whenever an error is thrown, for example if `F::Cholesky` but `A + shift * I` is not
-positive definite, the factorization object `F` may be left in an inconsistent and
-unrecoverable state. This is the price of in-place, allocation-free execution. For a safe
-alternative, use `_factorize` instead.
-
 ```julia
 F = _factorize(A)
 # Do stuff with F, which holds a factorization of A
 F = _factorize!(F, A; shift=1)`
 # Do more stuff with F, which now holds a factorization of A + I
 ```
+
+Note: Whenever an error is thrown, for example if `F::Cholesky` but `A + shift * I` is not
+positive definite, the factorization object `F` may be left in an inconsistent and
+unrecoverable state. This is the price of in-place, allocation-free execution. For a safe
+alternative, use `_factorize` instead.
 """
 function _factorize!!(F::Cholesky{E}, A::Hermitian{E}; shift=zero(E)) where {E}
     copyto!(F.factors, A)
@@ -129,7 +126,6 @@ function _factorize!!(F::Diagonal{E}, A::Diagonal{E}; shift=zero(E)) where {E}
 end
 
 """
-
     _factorize!!(F::UniformScaling{E}, A::UniformScaling{E}; kwargs...) where {E}
     _factorize!!(F::Cholesky{E,<:SMatrix}, A::Hermitian{E,<:SMatrix}; kwargs...) where {E}
     _factorize!!(F::Diagonal{E,<:SMatrix}, A::Diagonal{E,<:SMatrix}; kwargs...) where {E}
@@ -156,7 +152,6 @@ function _factorize!!(
 end
 
 """
-
     _ldiv!!(A, B)
 
 Left-divide `A` into `B` in-place such that `B` is overwritten by `A \\ B`, and return B
@@ -164,7 +159,6 @@ Left-divide `A` into `B` in-place such that `B` is overwritten by `A \\ B`, and 
 _ldiv!!(A, B) = ldiv!(A, B)
 
 """
-
     _ldiv!!(A, B::SArray)
     _ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B)
 
@@ -177,7 +171,6 @@ _ldiv!!(A, B::SArray) = A \ B
 _ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = A \ B
 
 """
-
     _inv(F)
     _inv(F::Cholesky)
     _inv(F::SuiteSparse.CHOLMOD.Factor)
@@ -197,7 +190,6 @@ function _inv(F::SuiteSparse.CHOLMOD.Factor)
 end
 
 """
-
     _inv!!(Ai::Hermitian{E}, F::Cholesky{E}) where {E}
     _inv!!(Ai::Diagonal{E}, F::Diagonal{E})
 
@@ -229,7 +221,6 @@ function _inv!!(Ai::Diagonal{E}, F::Diagonal{E}) where {E}
 end
 
 """
-
     _inv!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
 
 Compute the inverse of a matrix from a factorization, using an existing array as workspace
@@ -244,7 +235,6 @@ function _inv!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
 end
 
 """
-
     _inv!!(::UniformScaling{E}, F::UniformScaling{E}) where {E}
     _inv!!(::Hermitian{E,<:SMatrix}, F::Cholesky{E,<:SMatrix}) where {E}
     _inv!!(::Diagonal{E,<:SVector}, F::Cholesky{E,<:SVector}) where {E}

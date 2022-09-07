@@ -1,5 +1,4 @@
 """
-
     ResolventProblem(
         ensemble::AbstractMatrixEnsemble{F},
         z::Union{Number,AbstractMatrix},

@@ -1,7 +1,6 @@
 abstract type AbstractObjective{T<:Real} end
 
 """
-
     TraceObjective(value)
     TraceObjective(; value=DEFAULTS.kobjective)
 
@@ -12,7 +11,6 @@ Base.@kwdef struct TraceObjective{T} <: AbstractObjective{T}
 end
 
 """
-
     RegularizerObjective(value::Regularizer)
     RegularizerObjective(kind, value)
     RegularizerObjective(; kind=nothing, value=DEFAULTS.robjective)

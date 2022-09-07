@@ -7,7 +7,6 @@ abstract type AbstractMatrixEnsemble{
 } end
 
 """
-
     MatrixEnsemble(M, L, R, T)
     MatrixEnsemble{F}(M, L, R, T) where {F<:AbstractFloat}
 

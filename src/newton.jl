@@ -3,7 +3,6 @@ struct NewtonException <: Exception
 end
 
 """
-
     newton(f, x; atol=<see text>, maxiters=999)
     newton(f, jac, x; atol=<see text>, maxiters=999)
 
@@ -45,7 +44,6 @@ _approxzero(y, atol) = (sum(abs2, y) < length(y) * atol^2)
 _atol(T) = sqrt(eps(T) * oneunit(T)) / 2  # oneunit for dimensional consistency
 
 """
-
     finite_difference_jacobian(f, x::Real, fx=f(x))
     finite_difference_jacobian(f, x::SVector, fx=f(x))
 
