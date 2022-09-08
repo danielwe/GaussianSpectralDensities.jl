@@ -13,6 +13,9 @@ using SuiteSparse
 sarray(A::AbstractMatrix) = SMatrix{size(A)...}(A)
 sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
 
+_sparse(A) = sparse(A)
+_sparse(D::Diagonal) = Diagonal(sparse(D.diag))
+
 @testset "GaussianSpectralDensities.jl" begin
     @testset "ensembles" begin
         @testset "MatrixEnsemble" begin
@@ -25,7 +28,9 @@ sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
                 ("MatrixEnsemble{Float64}", MatrixEnsemble{Float64}, A64, D64, A32, D32),
             )
                 @testset "$label" for (label, A, D, cA, cD) in (
-                    ("Array", arrays...), ("SArray", sarray.(arrays)...)
+                    ("Array", arrays...),
+                    ("SArray", sarray.(arrays)...),
+                    ("SparseMatrixCSC", _sparse.(arrays)...),
                 )
                     # Floattype enforcing constructor
                     @test M(I, I, I, I) isa M

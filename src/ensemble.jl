@@ -101,7 +101,9 @@ function _floatconvert(::Type{F}, A) where {F<:Real}
 end
 
 _ldiv(L, A) = L \ A
-_ldiv(L, A::UniformScaling) = inv(L) * A  # Work around StaticMatrix \ UniformScaling issue
+_ldiv(L::SMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue
+_ldiv(L::SparseMatrixCSC, A::UniformScaling) = L \ Diagonal(fill(A.λ, size(L, 1)))
 
 _rdiv(A, R) = A / R
-_rdiv(A::UniformScaling, R) = A * inv(R)  # Should file an issue
+_rdiv(A::UniformScaling, R::SMatrix) = SMatrix{size(R, 2),size(R, 2)}(A) / R
+_rdiv(A::UniformScaling, R::SparseMatrixCSC) = Diagonal(fill(A.λ, size(R, 2))) / R
