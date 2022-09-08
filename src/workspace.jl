@@ -11,47 +11,50 @@ mutable struct Workspace{
     TG0i<:AbstractMatrixOrUniform{Complex{F}},
     TQ<:AbstractMatrixOrUniform{Complex{F}},
     TQQh<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
-    TPifact<:Union{<:DiagonalOrUniform{F},<:Factorization{Complex{F}}},
-    TP<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
+    TPifact<:Union{<:DiagonalOrUniform{F},<:Factorization{<:Complex}},  # factorizations can promote
+    TP<:Union{<:DiagonalOrUniform{F},<:Hermitian{<:Complex}},
 } <: AbstractWorkspace{F}
     ensemble::TE
     z::Complex{F}
-    q::Complex{F}  # Depends on G0i
-    regularizer::Regularizer{F}  # Depends on Q
-    G0i::TG0i  # Depends on z, used when updating Q with new q
+    q::Complex{F}
+    normalizeQ::Bool
+    regularizer::Regularizer{F}
+    G0i::TG0i
     Q::TQ
     QQh::TQQh
     Pifact::TPifact
     P::TP
-    s²min::F  # Depends on Q (smallest eigenvalue of QQh)
-    G0i_current::Bool
-    Q_current::Bool  # Depends on G0i
-    P_current::Bool  # Depends on Q
+    s²min::F
+    G0icurrent::Bool  # implies off-diagonal elements of Q
+    Qcurrent::Bool
+    QQhcurrent::Bool  # implies s²min
+    Pcurrent::Bool
     # PQ::TQ
     # QP::TQ
     # PLiRi_or_QPQ::Matrix{Complex{F}}
     # QhPQ::Hermitian{Complex{F},Matrix{Complex{F}}}
-    # PQ_current::Bool  # Depends on P
-    # QP_current::Bool  # Depends on P
-    # PLiRi_current::Bool  # Depends on P, voids QPQ
-    # QPQ_current::Bool  # Depends on PQ, voids PLiRi
-    # QhPQ_current::Bool  # Depends on PQ
+    # PQcurrent::Bool  # Depends on P
+    # QPcurrent::Bool  # Depends on P
+    # PLiRicurrent::Bool  # Depends on P, voids QPQ
+    # QPQcurrent::Bool  # Depends on PQ, voids PLiRi
+    # QhPQcurrent::Bool  # Depends on PQ
 
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
         q = convert(Complex{F}, DEFAULTS.q0)
-        regularizer = first(DEFAULTS.rschedule)
+        regularizer = convert(Regularizer{F}, first(DEFAULTS.rschedule))
         G0i = muladd(z, ensemble.LiRi, -ensemble.LiMRi)
         Q = muladd(-q, ensemble.T, G0i)
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
         Pifact = _factorize(QQh)
         s²min = _eigmin!!(Pifact, QQh)
-        Pifact = _factorize!!(Pifact, QQh; shift=regularizer.value)
+        Pifact = _factorize!!(Pifact, QQh; shift=γ²(regularizer, s²min))
         P = _inv(Pifact)
         return new{F,E,typeof(G0i),typeof(Q),typeof(QQh),typeof(Pifact),typeof(P)}(
             ensemble,
             z,
             q,
+            false,
             regularizer,
             G0i,
             Q,
@@ -62,11 +65,11 @@ mutable struct Workspace{
             true,
             true,
             true,
+            true,
             # PQ,
             # QhPQ,
             # QPQ_PLiRi,
             # QP,
-            # true,
             # true,
             # true,
             # true,
@@ -75,55 +78,261 @@ mutable struct Workspace{
     end
 end
 
+## Matrix getters
+## ==============
+"""
+    G0i!(ws, ensemble, z)
+
+Calculate the bare inverse resolvent `G0i(z) = L \\ (z * I - M) / R`
+"""
+function G0i!(ws, ensemble, z)
+    _set_ensemble!(ws, ensemble)
+    _set_z!(ws, z)
+    _refresh_G0i!(ws)
+    return ws.G0i
+end
+
+"""
+    Q!(ws, ensemble, z, q)
+
+Calculate `Q(z, q) = G0i(z) - q * T`
+"""
+function Q!(ws, ensemble, z, q)
+    G0i!(ws, ensemble, z)
+    _set_q!(ws, q)
+    _refresh_Q!(ws)
+    return ws.Q
+end
+
+"""
+    Q!(ws, ensemble, z, q, normalizeQ=false)
+
+Calculate `Q(z, q) * Q'(z, q)`
+
+If `normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. This is an
+attempt to get around an issue relating to order of limits that can arise for highly
+non-normal `Q` (see Ahmadian, Fumarola, and Miller (2015)). Performing this normalization is
+not mathematically sound, but in certain experiments it seems to do the trick in terms of
+removing regions of spurious spectral support. The option is provided here to support
+further experimenting.
+"""
+function QQh!(ws, ensemble, z, q, normalizeQ=false)
+    G0i!(ws, ensemble, z)
+    Q!(ws, ensemble, z, q)
+    _set_normalizeQ!(ws, normalizeQ)
+    _refresh_QQh!(ws)
+    return ws.QQh
+end
+
+"""
+    Q!(ws, ensemble, z, q, regularizer, normalizeQ=false)
+
+Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
+
+The value of `γ²` is provided through `regularizer::Regularizer`, which can hold either the
+value of `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
+"""
+function P!(ws, ensemble, z, q, regularizer, normalizeQ=false)
+    G0i!(ws, ensemble, z)
+    Q!(ws, ensemble, z, q)
+    QQh!(ws, ensemble, z, q, normalizeQ)
+    _set_regularizer!(ws, regularizer)
+    _refresh_P!(ws)
+    return ws.P
+end
+
+## Parameter setters
+## =================
+function _set_ensemble!(ws::Workspace{<:Any,E}, ensemble::E) where {E}
+    (ws.ensemble == ensemble) && return nothing
+    if size(ws.ensemble) != size(ensemble)
+        throw(ArgumentError("new ensemble size does not match workspace"))
+    end
+    ws.G0icurrent = false
+    ws.Qcurrent = false
+    ws.QQhcurrent = false
+    ws.Pcurrent = false
+    ws.ensemble = ensemble
+    return nothing
+end
+
+function _set_z!(ws::Workspace, z)
+    (ws.z == z) && return nothing
+    ws.G0icurrent = false
+    ws.Qcurrent = false
+    ws.QQhcurrent = false
+    ws.Pcurrent = false
+    ws.z = z
+    return nothing
+end
+
+function _set_q!(ws::Workspace, q)
+    (ws.q == q) && return nothing
+    ws.Qcurrent = false
+    ws.QQhcurrent = false
+    ws.Pcurrent = false
+    ws.q = q
+    return nothing
+end
+
+function _set_normalizeQ!(ws::Workspace, normalizeQ)
+    (ws.normalizeQ == normalizeQ) && return nothing
+    ws.QQhcurrent = false
+    ws.Pcurrent = false
+    ws.normalizeQ = normalizeQ
+    return nothing
+end
+
+function _set_regularizer!(ws::Workspace, regularizer)
+    (ws.regularizer == regularizer) && return nothing
+    ws.Pcurrent = false
+    ws.regularizer = regularizer
+    return nothing
+end
+
+## Matrix refreshers
+## =================
+function _refresh_G0i!(ws)
+    ws.G0icurrent && return nothing
+    ws.G0i = _muladd!!(ws.G0i, ws.z, ws.ensemble.LiRi, _mapped(-, ws.ensemble.LiMRi))
+    if !(ws.Q isa DiagonalOrUniform)
+        ws.Q = _copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
+    end
+    ws.G0icurrent = true
+    return nothing
+end
+
+function _refresh_Q!(ws)
+    ws.Qcurrent && return nothing
+    ws.Q = _muladd_diag!!(ws.Q, -ws.q, ws.ensemble.T, ws.G0i)
+    ws.Qcurrent = true
+    return nothing
+end
+
+function _refresh_QQh!(ws)
+    ws.QQhcurrent && return nothing
+    ws.QQh = _psdmul!!(ws.QQh, ws.Q)
+    if !(ws.Q isa DiagonalOrUniform) && ws.normalizeQ
+        half = one(real(eltype(ws.QQh))) / 2
+        ws.QQh = _psdmul!!(ws.QQh, ws.Q', half, half)
+    end
+    ws.s²min = _eigmin!!(ws.Pifact, ws.QQh)
+    ws.QQhcurrent = true
+    return nothing
+end
+
+function _refresh_P!(ws)
+    ws.Pcurrent && return nothing
+    ws.Pifact = _factorize!!(ws.Pifact, ws.QQh; shift=γ²(ws.regularizer, ws.s²min))
+    ws.P = _inv!!(ws.P, ws.Pifact)
+    ws.Pcurrent = true
+    return nothing
+end
+
+## Array arithmetic helpers
+## ========================
+"""
+    _copy!!(dest, src)
+
+Overwrite `dest` with the contents of `src` and return `dest`
+"""
+_copy!!(dest, src) = copyto!(dest, src)
+
+"""
+    _copy!!(::_Immutable, src)
+
+Return a copy of `src` 
+"""
+_copy!!(::_Immutable, src) = deepcopy(src)
+
+"""
+    _mapped(f, A)
+    _mapped(f, A::UniformScaling)
+
+Wrapper for `mappedarray(f, A)` that also works when `A isa UniformScaling`
+"""
+_mapped(f, A) = mappedarray(f, A)
+_mapped(f, A::UniformScaling) = UniformScaling(f(A.λ))
+
+"""
+    _diagview(A)
+
+Return a view of the diagonal of the matrix ``A``
+"""
+_diagview(A) = view(A, diagind(A))
+_diagview(A::Diagonal) = A.diag
+_diagview(A::Union{<:Bidiagonal,<:SymTridiagonal}) = A.dv
+_diagview(A::Tridiagonal) = A.d
+
+"""
+    _diagview(A::UniformScaling)
+
+Return the scalar value of the uniform scaling matrix ``A``
+"""
+_diagview(A::UniformScaling) = A.λ
+
+"""
+    _muladd!!(C, λ::Number, A, B)
+
+Overwrite ``C`` with ``λA + B` and return ``C``
+"""
+function _muladd!!(C, λ::Number, A, B)
+    C .= muladd.(λ, A, B)
+    return C
+end
+
+function _muladd!!(C, λ::Number, A::UniformScaling, B)
+    copyto!(C, B)
+    _muladd_diag!!(C, λ, A, B)  # muladd for accuracy rather than _diagview(C) .+= λ * A.λ
+    return C
+end
+
+function _muladd!!(C, λ::Number, A, B::UniformScaling)
+    C .= λ .* A
+    _muladd_diag!!(C, λ, A, B)  # muladd for accuracy rather than _diagview(C) .+= B.λ
+    return C
+end
+
+function _muladd!!(C, λ::Number, A::UniformScaling, B::UniformScaling)
+    fill!(C, zero(eltype(C)))
+    fill!(_diagview(C), muladd(λ, A.λ, B.λ))
+    return C
+end
+
+"""
+    _muladd!!(::_Immutable, λ, A, B)
+
+Return ``λA + B``
+"""
+_muladd!!(::_Immutable, λ::Number, A, B) = muladd(λ, A, B)
+_muladd!!(::_Immutable, λ::Number, A::UniformScaling, B) = muladd(λ, A, B)
+_muladd!!(::_Immutable, λ::Number, A, B::UniformScaling) = muladd(λ, A, B)
+_muladd!!(::_Immutable, λ::Number, A::UniformScaling, B::UniformScaling) = muladd(λ, A, B)
+
+"""
+    _muladd_diag!!(C, λ::Number, A, B)
+
+Overwrite the diagonal of ``C`` with `λ * diag(A) + diag(B)`, and return ``C``
+"""
+function _muladd_diag!!(C, λ::Number, A, B)
+    _diagview(C) .= muladd.(λ, _diagview(A), _diagview(B))
+    return C
+end
+
+"""
+    _muladd_diag!!(C::_Immutable, λ::Number, A::DiagonalOrUniform, B)
+
+Return ``λA + B``
+
+This is intended as an out-of-place equivalent of the in-place ``_muladd_diag!!``
+implementation. This only makes sense when ``C`` and ``B`` only differ on the diagonal,
+which is the case of interest in this package.
+"""
+_muladd_diag!!(::_Immutable, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
+
+## Attic---may be scavenged for further functionality
+## ==================================================
 #=
-mutable struct WorkspaceStatus{R,E<:AbstractMatrixEnsemble{R}}
-    N::Int
-    ensemble::E
-    z::Union{Missing,Complex{R}}  # Also G₀⁻¹_diag::Bool
-    nμq::Union{Missing,Complex{R}}  # Also Q::Bool depends G₀⁻¹_diag
-    r²::Union{Missing,Fixr²{R}}  # Also P::Bool depends Q
-    PQ::Bool  # depends P
-    QᴴPQ::Bool  # depends PQ
-    QPQ::Bool  # depends PQ, voids PL⁻¹R⁻¹
-    QP::Bool  # depends P
-    PL⁻¹R⁻¹::Bool  # depends P, voids QPQ
-
-    function WorkspaceStatus(ensemble::AbstractMatrixEnsemble{R}) where {R}
-        return new{R, typeof(ensemble)}(
-            ensemble.N, ensemble, missing, missing, missing, false, false, false, false, false
-        )
-    end
-end
-
-function set_ensemble!(status::WorkspaceStatus{R, E}, ensemble::E) where {R, E}
-    if !(ensemble.N == status.N)
-        throw(ArgumentError("ensemble and workspace dimension do not match"))
-    end
-    set_z!(status, missing)
-    status.ensemble = ensemble
-    return nothing
-end
-
-function set_z!(status::WorkspaceStatus, z)
-    set_nμq!(status, missing)
-    status.z = z
-    return nothing
-end
-
-function set_nμq!(status::WorkspaceStatus, nμq)
-    set_r²!(status, missing)
-    status.nμq = nμq
-    return nothing
-end
-
-function set_r²!(status::WorkspaceStatus, r²)
-    set_PL⁻¹R⁻¹!(status, false)
-    set_QP!(status, false)
-    set_PQ!(status, false)
-    status.r² = r²
-    return nothing
-end
-
 function set_PQ!(status::WorkspaceStatus, PQ)
     set_QPQ!(status, false)
     set_QᴴPQ!(status, false)
@@ -152,40 +361,6 @@ end
 function set_PL⁻¹R⁻¹!(status::WorkspaceStatus, PL⁻¹R⁻¹)
     PL⁻¹R⁻¹ && set_QPQ!(status, false)
     status.PL⁻¹R⁻¹ = PL⁻¹R⁻¹
-    return nothing
-end
-=#
-
-#=
-workspace(ensemble::MatrixEnsemble) = Workspace(ensemble)
-
-function _G₀⁻¹_diag!(problem, ws)
-    ens = problem.ensemble
-    @inbounds zA⁻B!(ws.Q, problem.z, ens.L⁻¹R⁻¹, ens.L⁻¹MR⁻¹)
-    @inbounds copy_diag!(ws.G₀⁻¹_diag, ws.Q)
-    return nothing
-end
-
-function _Q!(problem::LocalSpectralProblem{NormalizeQ}, nμq, ws) where {NormalizeQ}
-    @inbounds muladd_diag!(ws.Q, nμq, problem.ensemble.T, ws.G₀⁻¹_diag)
-    mul!(ws.QQᴴ.data, ws.Q, ws.Q')
-    if NormalizeQ
-        # This is an attempt to get around the order of limits issue by
-        # replacing QQ' with (QQ' + Q'Q) / 2, cancelling any non-normality in
-        # Q. This is not mathematically sound in general, but it does the trick
-        # in certain experiments.
-        half = one(eltype(ws.Q)) / 2
-        mul!(ws.QQᴴ.data, ws.Q', ws.Q, half, half)
-    end
-    @inbounds copyto!(ws.P.data, ws.QQᴴ.data)
-    ws.s²min[] = eigmin!(ws.P)
-    return nothing
-end
-
-function _P!(problem, ws)
-    copyto!(ws.Pichol, ws.QQᴴ)
-    add_to_diag!(ws.Pichol, _γ²!(problem.objective, ws))
-    _cholinv!(ws.P, ws.Pichol)
     return nothing
 end
 =#
@@ -230,27 +405,6 @@ function _PL⁻¹R⁻¹!(problem, ws)
         LAPACK.potrs!(ws.P.uplo, ws.P⁻¹f, ws.QPQ_PL⁻¹R⁻¹)
     end
     return nothing
-end
-
-function G₀⁻¹_diag!(problem, ws)
-    if ws.status.ensemble !== problem.ensemble
-        set_ensemble!(ws.status, problem.ensemble)
-    end
-    if ws.status.z !== problem.z
-        _G₀⁻¹_diag!(problem.z, ws)
-        set_z!(ws.status, problem.z)
-    end
-    return ws.G₀⁻¹_diag
-end
-
-function Q!(problem, q, ws)
-    G₀⁻¹_diag!(problem, ws)
-    nμq = -problem.μ * q
-    if ws.status.nμq !== nμq
-        _Q!(problem, nμq, ws)
-        set_nμq!(ws.status, nμq)
-    end
-    return ws.Q
 end
 
 function P!(problem, q, ws)

@@ -72,6 +72,14 @@ end
 
 MatrixEnsemble(M, L, R, T) = MatrixEnsemble{_floattype(M, L, R, T)}(M, L, R, T)
 
+function Base.size(ensemble::MatrixEnsemble)
+    for A in (ensemble.M, ensemble.L, ensemble.R, ensemble.T)
+        applicable(size, A) && return size(A)
+    end
+    return (0, 0)
+end
+
+
 _inunitinterval(a::Number) = ((imag(a) == 0) && (0 <= real(a) <= 1))
 _inunitinterval(v::AbstractVector) = all(_inunitinterval(a) for a in v)
 _inunitinterval(A::Diagonal) = _inunitinterval(A.diag)

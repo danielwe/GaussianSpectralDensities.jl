@@ -5,6 +5,7 @@ using Adapt
 using ArnoldiMethod
 using LinearAlgebra
 using LinearMaps
+using MappedArrays
 using StaticArrays
 using SparseArrays
 using SuiteSparse

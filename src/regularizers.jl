@@ -36,6 +36,15 @@ end
 
 Regularizer(kind, value::T) where {T} = Regularizer{T}(kind, value)
 
+function γ²(regularizer::Regularizer, s²min)
+    (regularizer.kind === Regularizers.γ) && return regularizer.value
+    (regularizer.kind === Regularizers.δ) && return regularizer.value - s²min
+end
+
+function δ²(regularizer::Regularizer, s²min)
+    (regularizer.kind === Regularizers.γ) && return regularizer.value + s²min
+    (regularizer.kind === Regularizers.δ) && return regularizer.value
+end
 
 ## number type conversion
 ## ======================

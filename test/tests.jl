@@ -2,7 +2,7 @@ using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt
 using GaussianSpectralDensities: _psdmul!!, _factorize, _factorize!!, _ldiv!!, _inv, _inv!!
 using GaussianSpectralDensities: _eigmin!!
-using GaussianSpectralDensities: Workspace
+using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, _ldiv, _rdiv
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
 using LinearAlgebra
@@ -362,17 +362,55 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
     end
     @testset "workspace" begin
         @testset "Workspace" begin
+            function workspace_tests(F, ens)
+                _inv(A) = inv(A)
+                _inv(A::SparseMatrixCSC) = inv(Matrix(A))
+                _hermitian(A) = Hermitian(A)
+                _hermitian(A::SparseMatrixCSC) = Hermitian(Matrix(A))
+                _hermitian(A::Union{<:Diagonal,<:UniformScaling}) = real(A)
+                _eigmin(A) = eigmin(A)
+                _eigmin(A::UniformScaling) = A.λ
+
+                ws = Workspace(ens)
+                @test ws isa Workspace{F}
+
+                z = convert(Complex{F}, -(im + 2) / 4)
+                q = convert(Complex{F}, (1 - im) / 2)
+                G0i = _inv(ens.L) * (z * I - ens.M) * _inv(ens.R)
+                Q = G0i - q * ens.T
+                @test G0i!(ws, ens, z) ≈ G0i
+                @test Q!(ws, ens, z, q) ≈ Q
+
+                # Deliberately not testing QQh!, it's an implementation detail
+
+                QQh = Q * Q'
+                QQhn = (QQh + Q' * Q) / 2
+                s²min, s²minn = _eigmin(_hermitian(QQh)), _eigmin(_hermitian(QQhn))
+                γ², δ²= Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
+                Pγ, Pγn = _inv(QQh + γ².value * I), _inv(QQhn + γ².value * I)
+                Pδ = _inv(QQh + (δ².value - s²min) * I)
+                Pδn = _inv(QQhn + (δ².value - s²min) * I)
+                @test P!(ws, ens, z, q, γ²) ≈ Pγ
+                @test P!(ws, ens, z, q, δ²) ≈ Pδ
+                @test P!(ws, ens, z, q, γ², false) ≈ Pγ
+                @test P!(ws, ens, z, q, δ², false) ≈ Pδ
+                @test P!(ws, ens, z, q, γ², true) ≈ Pγn
+                @test P!(ws, ens, z, q, δ², true) ≈ Pδn
+            end
+
             A_ = ComplexF64[1 -1; 1 1]
             D_ = Diagonal(Float64[0.75, 0.25])
-            @testset "$label" for (label, A, D) in (
-                ("Array", A_, D_), ("SArray", sarray.((A_, D_))...)
+            @testset "$label" for (label, (A, D)) in (
+                ("Array", (A_, D_)),
+                ("SArray", sarray.((A_, D_))),
+                ("SparseMatrixCSC", _sparse.((A_, D_))),
             )
                 @testset "$label" for (label, F) in (("Float32", Float32), ("Float64", Float64))
-                    @test Workspace(MatrixEnsemble{F}(I, I, I, I)) isa Workspace{F}
-                    @test Workspace(MatrixEnsemble{F}(A, I, I, I)) isa Workspace{F}
-                    @test Workspace(MatrixEnsemble{F}(I, A, I, I)) isa Workspace{F}
-                    @test Workspace(MatrixEnsemble{F}(I, I, A, I)) isa Workspace{F}
-                    @test Workspace(MatrixEnsemble{F}(I, I, I, D)) isa Workspace{F}
+                    workspace_tests(F, MatrixEnsemble{F}(I, I, I, I))
+                    workspace_tests(F, MatrixEnsemble{F}(A, I, I, I))
+                    workspace_tests(F, MatrixEnsemble{F}(I, A, I, I))
+                    workspace_tests(F, MatrixEnsemble{F}(I, I, A, I))
+                    workspace_tests(F, MatrixEnsemble{F}(I, I, I, D))
                 end
             end
         end
