@@ -25,9 +25,10 @@ mutable struct Workspace{
     Pifact::TPifact
     P::TP
     s²min::F
-    G0icurrent::Bool  # implies off-diagonal elements of Q
+    G0icurrent::Bool  # also covers off-diagonal elements of Q
     Qcurrent::Bool
-    QQhcurrent::Bool  # implies s²min
+    QQhcurrent::Bool  # also covers s²min
+    Pifactcurrent::Bool
     Pcurrent::Bool
     # PQ::TQ
     # QP::TQ
@@ -46,11 +47,11 @@ mutable struct Workspace{
         G0i = muladd(z, ensemble.LiRi, -ensemble.LiMRi)
         Q = muladd(-q, ensemble.T, G0i)
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
-        Pifact = _factorize(QQh)
-        s²min = _eigmin!!(Pifact, QQh)
-        Pifact = _factorize!!(Pifact, QQh; shift=γ²(regularizer, s²min))
-        P = _inv(Pifact)
-        return new{F,E,typeof(G0i),typeof(Q),typeof(QQh),typeof(Pifact),typeof(P)}(
+        Pifact = decompose(QQh)
+        s²min = eigmin!!(Pifact, QQh)
+        Pifact = decompose!!(Pifact, QQh; shift=γ²(regularizer, s²min))
+        P = invert(Pifact)
+        return new{F,E,typeof.((G0i,Q,QQh,Pifact,P))...}(
             ensemble,
             z,
             q,
@@ -62,6 +63,7 @@ mutable struct Workspace{
             Pifact,
             P,
             s²min,
+            true,
             true,
             true,
             true,
@@ -105,19 +107,14 @@ function Q!(ws, ensemble, z, q)
 end
 
 """
-    Q!(ws, ensemble, z, q, normalizeQ=false)
+    QQh!(ws, ensemble, z, q, normalizeQ=false)
 
 Calculate `Q(z, q) * Q'(z, q)`
 
-If `normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. This is an
-attempt to get around an issue relating to order of limits that can arise for highly
-non-normal `Q` (see Ahmadian, Fumarola, and Miller (2015)). Performing this normalization is
-not mathematically sound, but in certain experiments it seems to do the trick in terms of
-removing regions of spurious spectral support. The option is provided here to support
-further experimenting.
+If `normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
+`ResolventProblem` documentation for further explanation.
 """
 function QQh!(ws, ensemble, z, q, normalizeQ=false)
-    G0i!(ws, ensemble, z)
     Q!(ws, ensemble, z, q)
     _set_normalizeQ!(ws, normalizeQ)
     _refresh_QQh!(ws)
@@ -125,7 +122,19 @@ function QQh!(ws, ensemble, z, q, normalizeQ=false)
 end
 
 """
-    Q!(ws, ensemble, z, q, regularizer, normalizeQ=false)
+    _Pifact!(ws, ensemble, z, q, regularizer, normalizeQ=false)
+
+Factorize `P⁻¹ = Q * Q' + γ² * I`
+"""
+function _Pifact!(ws, ensemble, z, q, regularizer, normalizeQ=false)
+    QQh!(ws, ensemble, z, q, normalizeQ)
+    _set_regularizer!(ws, regularizer)
+    _refresh_Pifact!(ws)
+    return ws.Pifact
+end
+
+"""
+    P!(ws, ensemble, z, q, regularizer, normalizeQ=false)
 
 Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
 
@@ -133,10 +142,7 @@ The value of `γ²` is provided through `regularizer::Regularizer`, which can ho
 value of `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
 function P!(ws, ensemble, z, q, regularizer, normalizeQ=false)
-    G0i!(ws, ensemble, z)
-    Q!(ws, ensemble, z, q)
-    QQh!(ws, ensemble, z, q, normalizeQ)
-    _set_regularizer!(ws, regularizer)
+    _Pifact!(ws, ensemble, z, q, regularizer, normalizeQ)
     _refresh_P!(ws)
     return ws.P
 end
@@ -151,6 +157,7 @@ function _set_ensemble!(ws::Workspace{<:Any,E}, ensemble::E) where {E}
     ws.G0icurrent = false
     ws.Qcurrent = false
     ws.QQhcurrent = false
+    ws.Pifactcurrent = false
     ws.Pcurrent = false
     ws.ensemble = ensemble
     return nothing
@@ -161,6 +168,7 @@ function _set_z!(ws::Workspace, z)
     ws.G0icurrent = false
     ws.Qcurrent = false
     ws.QQhcurrent = false
+    ws.Pifactcurrent = false
     ws.Pcurrent = false
     ws.z = z
     return nothing
@@ -170,6 +178,7 @@ function _set_q!(ws::Workspace, q)
     (ws.q == q) && return nothing
     ws.Qcurrent = false
     ws.QQhcurrent = false
+    ws.Pifactcurrent = false
     ws.Pcurrent = false
     ws.q = q
     return nothing
@@ -178,6 +187,7 @@ end
 function _set_normalizeQ!(ws::Workspace, normalizeQ)
     (ws.normalizeQ == normalizeQ) && return nothing
     ws.QQhcurrent = false
+    ws.Pifactcurrent = false
     ws.Pcurrent = false
     ws.normalizeQ = normalizeQ
     return nothing
@@ -185,6 +195,7 @@ end
 
 function _set_regularizer!(ws::Workspace, regularizer)
     (ws.regularizer == regularizer) && return nothing
+    ws.Pifactcurrent = false
     ws.Pcurrent = false
     ws.regularizer = regularizer
     return nothing
@@ -211,20 +222,26 @@ end
 
 function _refresh_QQh!(ws)
     ws.QQhcurrent && return nothing
-    ws.QQh = _psdmul!!(ws.QQh, ws.Q)
+    ws.QQh = psdmul!!(ws.QQh, ws.Q)
     if !(ws.Q isa DiagonalOrUniform) && ws.normalizeQ
         half = one(real(eltype(ws.QQh))) / 2
-        ws.QQh = _psdmul!!(ws.QQh, ws.Q', half, half)
+        ws.QQh = psdmul!!(ws.QQh, ws.Q', half, half)
     end
-    ws.s²min = _eigmin!!(ws.Pifact, ws.QQh)
+    ws.s²min = eigmin!!(ws.Pifact, ws.QQh)
     ws.QQhcurrent = true
+    return nothing
+end
+
+function _refresh_Pifact!(ws)
+    ws.Pifactcurrent && return nothing
+    ws.Pifact = decompose!!(ws.Pifact, ws.QQh; shift=γ²(ws.regularizer, ws.s²min))
+    ws.Pifactcurrent = true
     return nothing
 end
 
 function _refresh_P!(ws)
     ws.Pcurrent && return nothing
-    ws.Pifact = _factorize!!(ws.Pifact, ws.QQh; shift=γ²(ws.regularizer, ws.s²min))
-    ws.P = _inv!!(ws.P, ws.Pifact)
+    ws.P = invert!!(ws.P, ws.Pifact)
     ws.Pcurrent = true
     return nothing
 end
@@ -239,11 +256,11 @@ Overwrite `dest` with the contents of `src` and return `dest`
 _copy!!(dest, src) = copyto!(dest, src)
 
 """
-    _copy!!(::_Immutable, src)
+    _copy!!(::Immutable, src)
 
 Return a copy of `src` 
 """
-_copy!!(::_Immutable, src) = deepcopy(src)
+_copy!!(::Immutable, src) = deepcopy(src)
 
 """
     _mapped(f, A)
@@ -300,14 +317,14 @@ function _muladd!!(C, λ::Number, A::UniformScaling, B::UniformScaling)
 end
 
 """
-    _muladd!!(::_Immutable, λ, A, B)
+    _muladd!!(::Immutable, λ, A, B)
 
 Return ``λA + B``
 """
-_muladd!!(::_Immutable, λ::Number, A, B) = muladd(λ, A, B)
-_muladd!!(::_Immutable, λ::Number, A::UniformScaling, B) = muladd(λ, A, B)
-_muladd!!(::_Immutable, λ::Number, A, B::UniformScaling) = muladd(λ, A, B)
-_muladd!!(::_Immutable, λ::Number, A::UniformScaling, B::UniformScaling) = muladd(λ, A, B)
+_muladd!!(::Immutable, λ::Number, A, B) = muladd(λ, A, B)
+_muladd!!(::Immutable, λ::Number, A::UniformScaling, B) = muladd(λ, A, B)
+_muladd!!(::Immutable, λ::Number, A, B::UniformScaling) = muladd(λ, A, B)
+_muladd!!(::Immutable, λ::Number, A::UniformScaling, B::UniformScaling) = muladd(λ, A, B)
 
 """
     _muladd_diag!!(C, λ::Number, A, B)
@@ -320,7 +337,7 @@ function _muladd_diag!!(C, λ::Number, A, B)
 end
 
 """
-    _muladd_diag!!(C::_Immutable, λ::Number, A::DiagonalOrUniform, B)
+    _muladd_diag!!(C::Immutable, λ::Number, A::DiagonalOrUniform, B)
 
 Return ``λA + B``
 
@@ -328,7 +345,7 @@ This is intended as an out-of-place equivalent of the in-place ``_muladd_diag!!`
 implementation. This only makes sense when ``C`` and ``B`` only differ on the diagonal,
 which is the case of interest in this package.
 """
-_muladd_diag!!(::_Immutable, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
+_muladd_diag!!(::Immutable, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
 
 ## Attic---may be scavenged for further functionality
 ## ==================================================

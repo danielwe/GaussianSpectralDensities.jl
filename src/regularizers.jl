@@ -18,6 +18,7 @@ end
 
 """
     Regularizer(kind, value)
+    Regularizer{F}(kind, value) where {F<:Real}
 
 Represent the regularizer in the averaged resolvent equations
 
@@ -29,12 +30,12 @@ The available kinds of regularizers are:
 
 The value of the regularizer is the value of `γ²` or `δ²`, respectively
 """
-struct Regularizer{T<:Real}
+struct Regularizer{F<:Real}
     kind::Regularizers.T
-    value::T
+    value::F
 end
 
-Regularizer(kind, value::T) where {T} = Regularizer{T}(kind, value)
+Regularizer(kind, value::F) where {F} = Regularizer{F}(kind, value)
 
 function γ²(regularizer::Regularizer, s²min)
     (regularizer.kind === Regularizers.γ) && return regularizer.value
@@ -46,9 +47,8 @@ function δ²(regularizer::Regularizer, s²min)
     (regularizer.kind === Regularizers.δ) && return regularizer.value
 end
 
-## number type conversion
-## ======================
-
+## Conversions
+## ===================
 Base.convert(::Type{P}, r::Q) where {P<:Regularizer,Q<:Regularizer} = P(r.kind, r.value)
 
 #=

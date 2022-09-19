@@ -1,11 +1,15 @@
 abstract type AbstractAlgorithm{F<:Real} end
 abstract type AbstractSchedule{F} <: AbstractAlgorithm{F} end
 
+## Traits
+## ======
+Base.length(alg::AbstractAlgorithm) = 0
+Base.length(alg::AbstractSchedule) = length(alg.schedule)
+
 """
+    DirectSolve()
     DirectSolve(q0, δ0)
-    DirectSolve(; q0=DEFAULTS.q0, δ0=DEFAULTS.δ0)
-    DirectSolve{F}(q0, δ0)
-    DirectSolve{F}(; q0=DEFAULTS.q0, δ0=DEFAULTS.δ0)
+    DirectSolve{F}(q0, δ0) where {F<:Real}
 
 Solve the average resolvent equation directly for the given objective
 
@@ -15,24 +19,24 @@ algorithm is recommended to mitigate this.
 `q0` sets the initial value for ``q = \\tr TQ^†(QQ^† + γ²I)⁻¹`` in the nonlinear solver.
 `δ0` sets the initial value for the regularizer ``δ`` explained in [`Regularizer`](@ref).
 
-All constructors support an optional type parameter `F` to enforce the floating point type.
+Default values: `DEFAULTS.q0, DEFAULTS.δ0`.
 """
-Base.@kwdef struct DirectSolve{F} <: AbstractAlgorithm{F}
-    q0::Complex{F} = DEFAULTS.q0
-    δ0::F = DEFAULTS.δ0
+struct DirectSolve{F} <: AbstractAlgorithm{F}
+    q0::Complex{F}
+    δ0::F
 end
 
-function Base.:(==)(dsa::DirectSolve, dsb::DirectSolve)
-    return (dsa.q0 == dsb.q0) && (dsa.δ0 == dsb.δ0)
-end
+DirectSolve() = DirectSolve(DEFAULTS.q0, DEFAULTS.δ0)
+
+## Conversions
+## ===========
+Base.convert(::Type{P}, alg::Q) where {P<:DirectSolve,Q<:DirectSolve} = P(alg.q0, alg.δ0)
 
 """
-    RegularizerSchedule(schedule::AbstractVector{<:Regularizer}, γ²min)
+    RegularizerSchedule()
     RegularizerSchedule(kind, schedule, γ²min)
-    RegularizerSchedule(; kind=nothing, schedule=DEFAULTS.rschedule, γ²min=DEFAULTS.γ²min)
-    RegularizerSchedule{F}(schedule::AbstractVector{<:Regularizer}, γ²min)
-    RegularizerSchedule{F}(kind, schedule, γ²min)
-    RegularizerSchedule{F}(; kind=nothing, schedule=DEFAULTS.rschedule, γ²min=DEFAULTS.γ²min)
+    RegularizerSchedule(schedule::AbstractVector{<:Regularizer}, γ²min)
+    RegularizerSchedule{F}(schedule::AbstractVector{<:Regularizer}, γ²min) where {F<:Real}
 
 Solve the average resolvent equation along a schedule for a regularizer
 
@@ -55,35 +59,26 @@ unsolvable. This is of course redundant when `kind=:γ`, but can be very useful 
 `γ²min = 0`, but in practice it is useful to allow analytic continuation to small negative
 values to support interpolation between grid points in regions where ``γ²`` vanishes
 rapidly. At the same time, it's often best to abort before reaching too large negative
-values, where the solver usually gets slow and unstable due to annihilation of the solution
-branch.
+values, where the solver usually gets slow and unstable as the solution branch is
+annihilated in a bifurcation.
 
-The default schedule is an exponentially decaying sequence of ``δ``-values, given by
-`DEFAULTS.rschedule`.
-
-All constructors support an optional type parameter `F` to enforce the floating point type.
+Default values:
+- `DEFAULTS.rschedule`, an exponentially decaying sequence of ``δ``-regularizers
+- `DEFAULTS.γ²min`
 """
 struct RegularizerSchedule{F,U<:AbstractVector{Regularizer{F}}} <: AbstractSchedule{F}
     schedule::U
     γ²min::F
-end
 
-function RegularizerSchedule{F}(schedule, γ²min) where {F}
-    if eltype(schedule) !== Regularizer{F}
-        schedule = convert.(Regularizer{F}, schedule)
+    function RegularizerSchedule{F}(schedule, γ²min) where {F}
+        if eltype(schedule) !== Regularizer{F}
+            schedule = adapt.(F, schedule)
+        end
+        return new{F,typeof(schedule)}(schedule, γ²min)
     end
-    return RegularizerSchedule{F,typeof(schedule)}(schedule, γ²min)
 end
 
-function RegularizerSchedule{F}(kind, schedule, γ²min) where {F}
-    schedule = Regularizer{F}.(kind, schedule)
-    return RegularizerSchedule{F,typeof(schedule)}(schedule, γ²min)
-end
-
-function RegularizerSchedule{F}(
-    ; kind=nothing, schedule=DEFAULTS.rschedule, γ²min=DEFAULTS.γ²min
-) where {F}
-    (kind !== nothing) && return RegularizerSchedule{F}(kind, schedule, γ²min)
+function RegularizerSchedule(schedule::AbstractVector{Regularizer{F}}, γ²min) where {F}
     return RegularizerSchedule{F}(schedule, γ²min)
 end
 
@@ -91,29 +86,25 @@ function RegularizerSchedule(kind, schedule, γ²min)
     return RegularizerSchedule(Regularizer.(kind, schedule), γ²min)
 end
 
-function RegularizerSchedule(
-    ; kind=nothing, schedule=DEFAULTS.rschedule, γ²min=DEFAULTS.γ²min
-)
-    (kind !== nothing) && return RegularizerSchedule(kind, schedule, γ²min)
-    return RegularizerSchedule(schedule, γ²min)
+RegularizerSchedule() = RegularizerSchedule(DEFAULTS.rschedule, DEFAULTS.γ²min)
+
+## Comparisons, conversions
+## ========================
+function Base.:(==)(a::A, b::A) where {A<:RegularizerSchedule}
+    return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
 end
 
-# constructor with explicit number type
-function Base.:(==)(rsa::RegularizerSchedule, rsb::RegularizerSchedule)
-    return (rsa.schedule == rsb.schedule) && (rsa.γ²min == rsb.γ²min)
+function Base.convert(
+    ::Type{P}, alg::Q
+) where {F,P<:RegularizerSchedule{F},Q<:RegularizerSchedule}
+    return RegularizerSchedule{F}(alg.schedule, alg.γ²min)
 end
 
 """
-    SymmetrySchedule(schedule::Integer, γ²min, initialalg)
-    SymmetrySchedule(schedule, γ²min, initialalg)
-    SymmetrySchedule(
-        ; schedule=DEFAULTS.μschedule, γ²min=DEFAULTS.γ²min, initialalg=DirectSolve(),
-    )
-    SymmetrySchedule{F}(schedule::Integer, γ²min, initialalg)
-    SymmetrySchedule{F}(schedule, γ²min, initialalg)
-    SymmetrySchedule{F}(
-        ; schedule=DEFAULTS.μschedule, γ²min=DEFAULTS.γ²min, initialalg=DirectSolve(),
-    )
+    SymmetrySchedule(initialalg)
+    SymmetrySchedule(initialalg, steps::Integer, γ²min)
+    SymmetrySchedule(initialalg, schedule::AbstractVector{<:Real}, γ²min)
+    SymmetrySchedule{F}(initialalg, schedule::AbstractVector{<:Real}, γ²min) where {F<:Real}
 
 Solve the average resolvent equation along a schedule for the degree of symmetry
 
@@ -134,96 +125,65 @@ a custom schedule can be supplied, for example if you want to reduce the step si
 unstable region. An error is thrown if the schedule does not increase monotonically from
 0 to 1.
 
-The meaning of `γ²min` is the same as in [`RegularizerSchedule`](@ref).
-
 `initialalg` holds the algorithm that will be used to find the solution at ``μ = 0``.
 A `DirectSolve` usually suffices here, but you can also use a `RegularizerSchedule`.
 
-The default schedule is a linear range from from 0 to 1 specified by `DEFAULTS.μschedule`.
+The meaning of `γ²min` is the same as in [`RegularizerSchedule`](@ref).
 
-All constructors support an optional type parameter `F` to enforce the floating point type.
+Default values:
+- `DEFAULTS.μschedule`, a linear range from 0 to 1
+- `DEFAULTS.γ²min`
 """
-Base.@kwdef struct SymmetrySchedule{
-    F,U<:AbstractVector{F},A<:Union{DirectSolve{F},RegularizerSchedule{F}}
+struct SymmetrySchedule{
+    F,A<:Union{DirectSolve{F},RegularizerSchedule{F}},U<:AbstractVector{F}
 } <: AbstractSchedule{F}
-    schedule::U = DEFAULTS.μschedule
-    γ²min::F = DEFAULTS.γ²min
-    initialalg::A = DirectSolve()
+    initialalg::A
+    schedule::U
+    γ²min::F
 
-    function SymmetrySchedule{F}(schedule, γ²min, initialalg) where {F}
+    function SymmetrySchedule{F}(initialalg, schedule, γ²min) where {F}
         if (first(schedule) != 0) || (last(schedule) != 1) || !_monotonic(schedule)
             msg = "symmetry schedule must increase monotonically from 0 to 1"
             throw(ArgumentError(msg))
         end
-        if eltype(schedule) !== F
-            schedule = convert.(F, schedule)
-        end
         initialalg = adapt(F, initialalg)
-        return new{F,typeof(schedule),typeof(initialalg)}(schedule, γ²min, initialalg)
+        schedule = adapt(F, schedule)
+        return new{F,typeof(initialalg),typeof(schedule)}(initialalg, schedule, γ²min)
     end
 end
 
-function SymmetrySchedule{F}(schedule::Integer, args...) where {F}
-    return SymmetrySchedule{F}(range(convert(F, 0), convert(F, 1), schedule), args...)
+function SymmetrySchedule(initialalg::AbstractAlgorithm{F}, schedule, γ²min) where {F}
+    return SymmetrySchedule{F}(initialalg, schedule, γ²min)
 end
 
-function SymmetrySchedule{F}(
-    ; schedule=DEFAULTS.μschedule, γ²min=DEFAULTS.γ²min, initialalg=DirectSolve()
-) where {F}
-    return SymmetrySchedule{F}(schedule, γ²min, initialalg)
+function SymmetrySchedule(initialalg::AbstractAlgorithm{F}, steps::Integer, γ²min) where {F}
+    return SymmetrySchedule{F}(initialalg, range(zero(F), one(F), steps), γ²min)
 end
 
-function SymmetrySchedule(
-    schedule::AbstractVector{F},
-    γ²min::F,
-    initialalg::Union{DirectSolve{F},RegularizerSchedule{F}}
-) where {F}
-    return SymmetrySchedule{F}(schedule, γ²min, initialalg)
+function SymmetrySchedule(initialalg)
+    return SymmetrySchedule(initialalg, DEFAULTS.μschedule, DEFAULTS.γ²min)
 end
 
-function SymmetrySchedule(schedule::Integer, args...)
-    return SymmetrySchedule(range(0, 1, schedule), args...)
+## Traits, comparisons, conversions
+## ================================
+Base.length(alg::SymmetrySchedule) = length(alg.initialalg) + length(alg.schedule)
+
+function Base.:(==)(a::A, b::A) where {A<:SymmetrySchedule}
+    return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
 end
 
-function Base.:(==)(ssa::SymmetrySchedule, ssb::SymmetrySchedule)
-    return (
-        (ssa.schedule == ssb.schedule)
-        && (ssa.γ²min == ssb.γ²min)
-        && (ssa.initialalg == ssb.initialalg)
-    )
+function Base.convert(
+    ::Type{P}, alg::Q
+) where {F,P<:SymmetrySchedule{F},Q<:SymmetrySchedule}
+    return SymmetrySchedule{F}(alg.initialalg, alg.schedule, alg.γ²min)
 end
 
+## Helpers
+## =======
 function _monotonic(x)
     (length(x) == 1) && return true
     tail = @view(x[(begin + 1):end])
     return (first(x) < first(tail)) && _monotonic(tail)
-end
-
-## traits
-## ======
-
-"""
-    length(alg::AbstractAlgorithm)
-
-Number of steps in the algorithm's schedule
-"""
-Base.length(alg::AbstractAlgorithm) = 0
-Base.length(alg::AbstractSchedule) = length(alg.schedule)
-Base.length(alg::SymmetrySchedule) = length(alg.schedule) + length(alg.initialalg)
-
-## number type conversion
-## ======================
-
-Base.convert(::Type{P}, alg::Q) where {P<:DirectSolve,Q<:DirectSolve} = P(alg.q0, alg.δ0)
-
-function Base.convert(
-    ::Type{P}, alg::Q
-) where {P<:RegularizerSchedule,Q<:RegularizerSchedule}
-    return P(alg.schedule, alg.γ²min)
-end
-
-function Base.convert(::Type{P}, alg::Q) where {P<:SymmetrySchedule,Q<:SymmetrySchedule}
-    return P(alg.schedule, alg.γ²min, alg.initialalg)
 end
 
 #=

@@ -36,14 +36,14 @@ const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
 const RealOrComplex{F<:Real} = Union{F,Complex{F}}
 
 """
-    _Immutable
+    Immutable
 
 Union of immutable array-like types of interest in this package
 
 Would love to rely on ArrayInterface.jl instead, but it lacks proper forwarding for
 structured matrices.
 """
-const _Immutable = Union{
+const Immutable = Union{
     <:UniformScaling,
     <:SArray,
     <:WrappedArray{<:Any,<:Any,<:SArray},
@@ -84,6 +84,7 @@ end
 const DEFAULTS = Defaults()
 
 adapt(::Type{F}, x::U) where {F,U} = convert(@eval($(U.name.name){$F}), x)
+
 # score(value, reference) = inv(abs(value - reference))
 
 # using Requires

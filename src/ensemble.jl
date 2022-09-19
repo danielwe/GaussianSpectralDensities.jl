@@ -1,11 +1,4 @@
 # TODO: consider generalizations where M, L, R can be LinearMaps etc.
-abstract type AbstractMatrixEnsemble{
-    F<:AbstractFloat,
-    TM<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
-    TL<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
-    TR<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
-} end
-
 """
     MatrixEnsemble(M, L, R, T)
     MatrixEnsemble{F}(M, L, R, T) where {F<:AbstractFloat}
@@ -18,18 +11,16 @@ choosing `T = sqrt(τ) * I`.
 
 All of ``M, L, R`` must be square and of the same size, or `UniformScaling`. In addition,
 ``L`` and ``R`` must be nonsingular.
-
-All constructors support an optional type parameter `F` to enforce the floating point type.
 """
 struct MatrixEnsemble{
-    F,
-    TM,
-    TL,
-    TR,
+    F<:AbstractFloat,
+    TM<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
+    TL<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
+    TR<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
     TT<:DiagonalOrUniform{F},
     TLiRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
     TLiMRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
-} <: AbstractMatrixEnsemble{F,TM,TL,TR}
+}
     M::TM
     L::TL
     R::TR
@@ -63,23 +54,35 @@ struct MatrixEnsemble{
             throw(ArgumentError(msg))
         end
         M, L, R = _floatconvert.(F, (M, L, R))
-        T = _elconvert(F, T)  # Always real
-        LiRi =_floatconvert(F, _rdiv(_ldiv(L, I), R))
+        T = _floatconvert(F, T)  # Always real
+        LiRi = _floatconvert(F, _ldiv(R * L, I))
         LiMRi = _floatconvert(F, _rdiv(_ldiv(L, M), R))
-        return new{F,map(typeof, (M, L, R, T, LiRi, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
+        return new{F,typeof.((M, L, R, T, LiRi, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
     end
 end
 
 MatrixEnsemble(M, L, R, T) = MatrixEnsemble{_floattype(M, L, R, T)}(M, L, R, T)
 
-function Base.size(ensemble::MatrixEnsemble)
-    for A in (ensemble.M, ensemble.L, ensemble.R, ensemble.T)
+## Traits, comparisons, conversions
+## ================================
+function Base.size(e::MatrixEnsemble)
+    for A in (e.M, e.L, e.R, e.T)
         applicable(size, A) && return size(A)
     end
     return (0, 0)
 end
 
+function Base.:(==)(a::E, b::E) where {E<:MatrixEnsemble}
+    return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
+end
 
+function Base.convert(::Type{P}, e::Q) where {F,P<:MatrixEnsemble{F},Q<:MatrixEnsemble}
+    (e isa P) && return e
+    return MatrixEnsemble{F}(e.M, e.L, e.R, e.T)
+end
+
+## Helpers
+## =======
 _inunitinterval(a::Number) = ((imag(a) == 0) && (0 <= real(a) <= 1))
 _inunitinterval(v::AbstractVector) = all(_inunitinterval(a) for a in v)
 _inunitinterval(A::Diagonal) = _inunitinterval(A.diag)
@@ -88,6 +91,11 @@ _inunitinterval(A::UniformScaling) = _inunitinterval(A.λ)
 function _floattype(M, L, R, T)
     Mu, Lu, Ru, Tu = (oneunit ∘ eltype).((M, L, R, T))
     return real(typeof((Mu + (Lu * (Tu * Ru))) / (Lu * Ru)))
+end
+
+function _floatconvert(::Type{F}, A) where {F<:Real}
+    (eltype(A) <: Complex) && return _elconvert(Complex{F}, A)
+    return _elconvert(F, A)
 end
 
 function _elconvert(::Type{E}, A) where {E}
@@ -102,11 +110,6 @@ function _elconvert(::Type{E}, A::Diagonal) where {E}
 end
 
 _elconvert(::Type{E}, A::UniformScaling) where {E} = UniformScaling(convert(E, A.λ))
-
-function _floatconvert(::Type{F}, A) where {F<:Real}
-    (eltype(A) <: Complex) && return _elconvert(Complex{F}, A)
-    return _elconvert(F, A)
-end
 
 _ldiv(L, A) = L \ A
 _ldiv(L::SMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue

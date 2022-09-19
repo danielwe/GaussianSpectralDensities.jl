@@ -1,10 +1,11 @@
 """
     ResolventProblem(
-        ensemble::AbstractMatrixEnsemble{F},
+        ensemble::MatrixEnsemble,
         z::Union{Number,AbstractMatrix},
-        objective=TraceObjective(one(F));
+        objective=TraceObjective();
         normalizeQ=false,
-    ) where {F}
+    )
+    ResolventProblem{F}(ensemble, z, objective, normalizeQ) where {F}
 
 Specification for the resolvent averaging problem at a single point in the complex plane
 
@@ -18,15 +19,18 @@ Specification for the resolvent averaging problem at a single point in the compl
     objective obtains the true averaged resolvent, but other objectives, including
     regularizer-based ones, are relevant for certain purposes.
 - `normalizeQ`: whether to replace ``QQ^†`` with ``(QQ^† + Q^†Q) / 2`` in the
-    self-consistent equations for the averaged resolvent. This mimicks a scenario where
-    ``QQ^† = Q^†Q``, i.e., where ``Q`` is normal. This is a mathematically unjustified trick
-    but seems to be a quick way around order of limits issues in certain experiments.
-    However, in most cases it gives answers that are subtly but unambiguously wrong.
+    self-consistent equations for the averaged resolvent, mimicking the case where
+    ``QQ^† = Q^†Q``, i.e., where ``Q`` is normal. This is an attempt to get around an issue
+    relating to order of limits that can arise for highly non-normal `Q` (see Ahmadian,
+    Fumarola, and Miller (2015)). Performing this normalization is not mathematically sound
+    and in most cases, gives answers that are subtly but unambiguously wrong; however, in
+    certain experiments it seems to do the trick in terms of removing regions of spurious
+    spectral support. The option is provided here to support further experimenting.
 """
 struct ResolventProblem{
     # TODO: what's a better name than ResolventProblem?
     F,
-    E<:AbstractMatrixEnsemble{F},
+    E<:MatrixEnsemble{F},
     Z<:Union{Complex{F},Matrix{Union{Missing,Complex{F}}}},
     O<:AbstractObjective{F},
 }
@@ -39,19 +43,24 @@ struct ResolventProblem{
     # derivatives and hence the spectral density, but finite element packages might have
     # built-in solutions for that
 
-    function ResolventProblem(
-        ensemble::E, z, objective=TraceObjective(one(F)); normalizeQ=false
-    ) where {F,E<:AbstractMatrixEnsemble{F}}
+    function ResolventProblem{F}(ensemble, z, objective, normalizeQ) where {F}
+        ensemble = adapt(F, ensemble)
         if z isa Number
             z = convert(Complex{F}, z)
         elseif z isa AbstractMatrix
             z = convert(Matrix{Union{Missing,Complex{F}}}, z)
         end
         objective = adapt(F, objective)
-        return new{F,E,typeof(z),typeof(objective)}(
+        return new{F,typeof(ensemble),typeof(z),typeof(objective)}(
             ensemble, z, objective, normalizeQ
         )
     end
+end
+
+function ResolventProblem(
+    ensemble::MatrixEnsemble{F}, z, objective=TraceObjective(); normalizeQ=false
+) where {F}
+    return ResolventProblem{F}(ensemble, z, objective, normalizeQ)
 end
 
 #= WIP automesh is not ready for this yet, and this would depend on LazySets.jl
