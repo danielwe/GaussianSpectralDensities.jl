@@ -1,8 +1,8 @@
 using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt, γ², δ²
-using GaussianSpectralDensities: psdmul!!, decompose, decompose!!, ldiv!!, invert, invert!!
-using GaussianSpectralDensities: eigmin!!
-using GaussianSpectralDensities: Workspace, G0i!, Q!, QQh!, P!
+using GaussianSpectralDensities: psdmul!!, decompose, decompose!!, ldiv, ldiv!!
+using GaussianSpectralDensities: invert, invert!!, eigmin!!
+using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, k!, E!
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
 using LinearAlgebra
@@ -387,12 +387,16 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             F = decompose(A)
             Ai = invert(F)
             @test Ai ≈ Ai_true
+            A_B = ldiv(F, B)
+            @test A_B ≈ A_B_true
             A_B = ldiv!!(F, copy(B))
             @test A_B ≈ A_B_true
             F = decompose!!(F, A; shift=shift)
             @test _isequal(F, decompose(A; shift=shift))
             Ai = invert!!(Ai, F)
             @test Ai ≈ Asi_true
+            A_B = ldiv(F, B)
+            @test A_B ≈ As_B_true
             A_B = ldiv!!(F, copy(B))
             @test A_B ≈ As_B_true
 
@@ -514,7 +518,7 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                         Asi = Hermitian(_sarray(Asidata), uplo)
                         @test_throws DomainError decompose(A; shift=im)
                         linalg_tests(
-                            A, Ai, Aeigmin, shift, Asi, _sarray.((B, A_B, As_B, X))...,
+                            A, Ai, Aeigmin, shift, Asi, _sarray.((B, A_B, As_B, X))...
                         )
                     end
                     @testset "SparseMatrixCSC" begin
@@ -536,6 +540,8 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                 _hermitian(A::Union{<:Diagonal,<:UniformScaling}) = real(A)
                 _eigmin(A) = eigmin(A)
                 _eigmin(A::UniformScaling) = A.λ
+                _trn(A) = tr(A) / size(A, 1)
+                _trn(A::UniformScaling) = A.λ
 
                 ws = Workspace(ens)
                 @test ws isa Workspace{F}
@@ -548,10 +554,6 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
 
                 QQh = Q * Q'
                 QQhn = (QQh + Q' * Q) / 2
-                @test QQh!(ws, ens, z, q) ≈ QQh
-                @test QQh!(ws, ens, z, q, false) ≈ QQh
-                @test QQh!(ws, ens, z, q, true) ≈ QQh
-
                 s²min, s²minn = _eigmin(_hermitian(QQh)), _eigmin(_hermitian(QQhn))
                 γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
                 Pγ = _inv(QQh + γ².value * I)
@@ -564,6 +566,24 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                 @test P!(ws, ens, z, q, δ², false) ≈ Pδ
                 @test P!(ws, ens, z, q, γ², true) ≈ Pγn
                 @test P!(ws, ens, z, q, δ², true) ≈ Pδn
+
+                kγ, kδ = _trn(Pγ), _trn(Pδ)
+                kγn, kδn = _trn(Pγn), _trn(Pδn)
+                @test k!(ws, ens, z, q, γ²) ≈ kγ
+                @test k!(ws, ens, z, q, δ²) ≈ kδ
+                @test k!(ws, ens, z, q, γ², false) ≈ kγ
+                @test k!(ws, ens, z, q, δ², false) ≈ kδ
+                @test k!(ws, ens, z, q, γ², true) ≈ kγn
+                @test k!(ws, ens, z, q, δ², true) ≈ kδn
+
+                Eγ, Eδ = _trn(ens.LiRi * Q' * Pγ), _trn(ens.LiRi * Q' * Pδ)
+                Eγn, Eδn = _trn(ens.LiRi * Q' * Pγn), _trn(ens.LiRi * Q' * Pδn)
+                @test E!(ws, ens, z, q, γ²) ≈ Eγ
+                @test E!(ws, ens, z, q, δ²) ≈ Eδ
+                @test E!(ws, ens, z, q, γ², false) ≈ Eγ
+                @test E!(ws, ens, z, q, δ², false) ≈ Eδ
+                @test E!(ws, ens, z, q, γ², true) ≈ Eγn
+                @test E!(ws, ens, z, q, δ², true) ≈ Eδn
             end
 
             Adata, Ddata = ComplexF64[1 -1; 1 1], Diagonal([0.75, 0.25])

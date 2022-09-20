@@ -55,8 +55,8 @@ struct MatrixEnsemble{
         end
         M, L, R = _floatconvert.(F, (M, L, R))
         T = _floatconvert(F, T)  # Always real
-        LiRi = _floatconvert(F, _ldiv(R * L, I))
-        LiMRi = _floatconvert(F, _rdiv(_ldiv(L, M), R))
+        LiRi = _floatconvert(F, ldiv(R * L, I))
+        LiMRi = _floatconvert(F, _rdiv(ldiv(L, M), R))
         return new{F,typeof.((M, L, R, T, LiRi, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
     end
 end
@@ -111,10 +111,4 @@ end
 
 _elconvert(::Type{E}, A::UniformScaling) where {E} = UniformScaling(convert(E, A.λ))
 
-_ldiv(L, A) = L \ A
-_ldiv(L::SMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue
-_ldiv(L::SparseMatrixCSC, A::UniformScaling) = L \ Diagonal(fill(A.λ, size(L, 1)))
-
-_rdiv(A, R) = A / R
-_rdiv(A::UniformScaling, R::SMatrix) = SMatrix{size(R, 2),size(R, 2)}(A) / R
-_rdiv(A::UniformScaling, R::SparseMatrixCSC) = Diagonal(fill(A.λ, size(R, 2))) / R
+_rdiv(A, R) = transpose(ldiv(transpose(R), transpose(A)))

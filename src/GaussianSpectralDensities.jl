@@ -36,6 +36,20 @@ const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
 const RealOrComplex{F<:Real} = Union{F,Complex{F}}
 
 """
+    AnySArray
+    AnySMatrix
+
+Union of plain and wrapped `SArray`s
+"""
+const AnySArray{N} = Union{
+    <:SArray{<:Any,<:Any,N},
+    <:WrappedArray{<:Any,N,<:SArray},
+    <:WrappedArray{<:Any,N,<:Any,<:SArray},
+    <:Hermitian{<:Any,<:SArray},  # Adapt.jl#51
+}
+const AnySMatrix = AnySArray{2}
+
+"""
     Immutable
 
 Union of immutable array-like types of interest in this package
@@ -43,13 +57,7 @@ Union of immutable array-like types of interest in this package
 Would love to rely on ArrayInterface.jl instead, but it lacks proper forwarding for
 structured matrices.
 """
-const Immutable = Union{
-    <:UniformScaling,
-    <:SArray,
-    <:WrappedArray{<:Any,<:Any,<:SArray},
-    <:WrappedArray{<:Any,<:Any,<:Any,<:SArray},
-    <:Hermitian{<:Any,<:SArray},  # Adapt.jl#51
-}
+const Immutable = Union{<:UniformScaling,<:AnySArray}
 
 # include("matrix_utils.jl")
 include("ensemble.jl")

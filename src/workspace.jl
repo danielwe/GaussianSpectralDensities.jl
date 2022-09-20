@@ -13,6 +13,7 @@ mutable struct Workspace{
     TQQh<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
     TPifact<:Union{<:DiagonalOrUniform{F},<:Factorization{<:Complex}},  # factorizations can promote
     TP<:Union{<:DiagonalOrUniform{F},<:Hermitian{<:Complex}},
+    TPLiRi<:AbstractMatrixOrUniform{<:Number},
 } <: AbstractWorkspace{F}
     ensemble::TE
     z::Complex{F}
@@ -24,19 +25,20 @@ mutable struct Workspace{
     QQh::TQQh
     Pifact::TPifact
     P::TP
+    PLiRi::TPLiRi
     s²min::F
     G0icurrent::Bool  # also covers off-diagonal elements of Q
     Qcurrent::Bool
     QQhcurrent::Bool  # also covers s²min
     Pifactcurrent::Bool
     Pcurrent::Bool
+    PLiRicurrent::Bool
     # PQ::TQ
     # QP::TQ
     # PLiRi_or_QPQ::Matrix{Complex{F}}
     # QhPQ::Hermitian{Complex{F},Matrix{Complex{F}}}
     # PQcurrent::Bool  # Depends on P
     # QPcurrent::Bool  # Depends on P
-    # PLiRicurrent::Bool  # Depends on P, voids QPQ
     # QPQcurrent::Bool  # Depends on PQ, voids PLiRi
     # QhPQcurrent::Bool  # Depends on PQ
 
@@ -51,7 +53,8 @@ mutable struct Workspace{
         s²min = eigmin!!(Pifact, QQh)
         Pifact = decompose!!(Pifact, QQh; shift=γ²(regularizer, s²min))
         P = invert(Pifact)
-        return new{F,E,typeof.((G0i,Q,QQh,Pifact,P))...}(
+        PLiRi = ldiv(Pifact, ensemble.LiRi)
+        return new{F,E,typeof.((G0i,Q,QQh,Pifact,P,PLiRi))...}(
             ensemble,
             z,
             q,
@@ -62,7 +65,9 @@ mutable struct Workspace{
             QQh,
             Pifact,
             P,
+            PLiRi,
             s²min,
+            true,
             true,
             true,
             true,
@@ -72,7 +77,6 @@ mutable struct Workspace{
             # QhPQ,
             # QPQ_PLiRi,
             # QP,
-            # true,
             # true,
             # true,
             # false,
@@ -107,14 +111,14 @@ function Q!(ws, ensemble, z, q)
 end
 
 """
-    QQh!(ws, ensemble, z, q, normalizeQ=false)
+    _QQh!(ws, ensemble, z, q, normalizeQ=false)
 
 Calculate `Q(z, q) * Q'(z, q)`
 
 If `normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
 `ResolventProblem` documentation for further explanation.
 """
-function QQh!(ws, ensemble, z, q, normalizeQ=false)
+function _QQh!(ws, ensemble, z, q, normalizeQ=false)
     Q!(ws, ensemble, z, q)
     _set_normalizeQ!(ws, normalizeQ)
     _refresh_QQh!(ws)
@@ -127,7 +131,7 @@ end
 Factorize `P⁻¹ = Q * Q' + γ² * I`
 """
 function _Pifact!(ws, ensemble, z, q, regularizer, normalizeQ=false)
-    QQh!(ws, ensemble, z, q, normalizeQ)
+    _QQh!(ws, ensemble, z, q, normalizeQ)
     _set_regularizer!(ws, regularizer)
     _refresh_Pifact!(ws)
     return ws.Pifact
@@ -147,6 +151,45 @@ function P!(ws, ensemble, z, q, regularizer, normalizeQ=false)
     return ws.P
 end
 
+"""
+    _PLiRi!(ws, ensemble, z, q, regularizer, args...)
+
+Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
+
+The arguments are the same as for `P!`.
+"""
+function _PLiRi!(ws, ensemble, z, q, regularizer, args...)
+    _Pifact!(ws, ensemble, z, q, regularizer, args...)
+    _refresh_PLiRi!(ws)
+    return ws.PLiRi
+end
+
+## Scalar getters
+## ==============
+"""
+    k!(ws, ensemble, z, q, regularizer, args...)
+
+Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 1)`
+
+The arguments are the same as for `P!`
+"""
+function k!(ws, ensemble, z, q, regularizer, args...)
+    P = P!(ws, ensemble, z, q, regularizer, args...)
+    return _trn(P)
+end
+
+"""
+    E!(ws, ensemble, z, q, regularizer, args...)
+
+Calculate the normalized trace of `(RL)⁻¹ * Q'(z, q) * P(z, q, γ²)`
+
+The arguments are the same as for `P!`
+"""
+function E!(ws, ensemble, z, q, regularizer, args...)
+    PLiRi = _PLiRi!(ws, ensemble, z, q, regularizer, args...)
+    return _hsn(Q!(ws, ensemble, z, q), PLiRi)
+end
+
 ## Parameter setters
 ## =================
 function _set_ensemble!(ws::Workspace{<:Any,E}, ensemble::E) where {E}
@@ -159,6 +202,7 @@ function _set_ensemble!(ws::Workspace{<:Any,E}, ensemble::E) where {E}
     ws.QQhcurrent = false
     ws.Pifactcurrent = false
     ws.Pcurrent = false
+    ws.PLiRicurrent = false
     ws.ensemble = ensemble
     return nothing
 end
@@ -170,6 +214,7 @@ function _set_z!(ws::Workspace, z)
     ws.QQhcurrent = false
     ws.Pifactcurrent = false
     ws.Pcurrent = false
+    ws.PLiRicurrent = false
     ws.z = z
     return nothing
 end
@@ -180,6 +225,7 @@ function _set_q!(ws::Workspace, q)
     ws.QQhcurrent = false
     ws.Pifactcurrent = false
     ws.Pcurrent = false
+    ws.PLiRicurrent = false
     ws.q = q
     return nothing
 end
@@ -189,6 +235,7 @@ function _set_normalizeQ!(ws::Workspace, normalizeQ)
     ws.QQhcurrent = false
     ws.Pifactcurrent = false
     ws.Pcurrent = false
+    ws.PLiRicurrent = false
     ws.normalizeQ = normalizeQ
     return nothing
 end
@@ -197,6 +244,7 @@ function _set_regularizer!(ws::Workspace, regularizer)
     (ws.regularizer == regularizer) && return nothing
     ws.Pifactcurrent = false
     ws.Pcurrent = false
+    ws.PLiRicurrent = false
     ws.regularizer = regularizer
     return nothing
 end
@@ -246,6 +294,13 @@ function _refresh_P!(ws)
     return nothing
 end
 
+function _refresh_PLiRi!(ws)
+    ws.PLiRicurrent && return nothing
+    ws.PLiRi = ldiv!!(ws.Pifact, _copy!!(ws.PLiRi, ws.ensemble.LiRi))
+    ws.PLiRicurrent = true
+    return nothing
+end
+
 ## Array arithmetic helpers
 ## ========================
 """
@@ -287,6 +342,24 @@ _diagview(A::Tridiagonal) = A.d
 Return the scalar value of the uniform scaling matrix ``A``
 """
 _diagview(A::UniformScaling) = A.λ
+
+"""
+    _trn(A)
+
+Compute the normalized trace `tr(A) / size(A, 1)`
+"""
+_trn(A) = tr(A) / size(A, 1)
+_trn(A::UniformScaling) = A.λ
+
+"""
+    _hsn(A, B)
+
+Compute the normalized Hilbert-Schmidt inner product `tr(A' * B) / size(B, 2)`
+"""
+_hsn(A, B) = dot(A, B) / size(B, 2)
+_hsn(A, B::UniformScaling) = dot(_trn(A), B.λ)
+_hsn(A::UniformScaling, B) = dot(A.λ, _trn(B))
+_hsn(A::UniformScaling, B::UniformScaling) = dot(A.λ, B.λ)
 
 """
     _muladd!!(C, λ::Number, A, B)
@@ -499,17 +572,6 @@ function δ²!(problem, q, ws)
         Q!(problem, q, ws)
     end
     return _δ²(r², ws)
-end
-
-function k!(problem, q, ws)
-    P = P!(problem, q, ws)
-    return _tr(P) / size(P, 1)
-end
-
-# TODO: Ahmadian calls this E(z) so why not use that? r is a bad name for this variable and
-# conflicts with r² as a common name for γ² and δ²
-function r!(problem, q, ws)
-    return _dot(Q!(problem, q, ws), PL⁻¹R⁻¹!(problem, q, ws))
 end
 
 function q∞!(problem, γ∞², ws)

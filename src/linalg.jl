@@ -167,8 +167,18 @@ Return `A \\ B`
 This provides a generic left division interface that also covers cases where the most
 efficient or only option is out-of-place division.
 """
-ldiv!!(A, B::Immutable) = A \ B
-ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = A \ B
+ldiv!!(A, B::Immutable) = ldiv(A, B)
+ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = ldiv(A, B)
+
+"""
+    ldiv(L, A)
+
+Left division like `L \\ A`, but with consistent support for `A::UniformScaling`
+"""
+ldiv(L, A) = L \ A
+ldiv(L::AnySMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue
+ldiv(L::SparseMatrixCSC, A::UniformScaling) = L \ A(size(L, 1))
+ldiv(L::SuiteSparse.CHOLMOD.Factor, A::UniformScaling) = L \ _uniformdiagm(size(L, 1), A.λ)
 
 """
     invert(F)
@@ -255,6 +265,14 @@ function _shift_diag!(A, shift)
         A[i] += shift
     end
     return nothing
+end
+
+function _uniformdiagm(N, λ)
+    M = zeros(typeof(λ), (N, N))
+    @inbounds for i in 1:N
+        M[i, i] = λ
+    end
+    return M
 end
 
 ## Smallest eigenvalue
