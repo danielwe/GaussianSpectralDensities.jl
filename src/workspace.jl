@@ -27,20 +27,11 @@ mutable struct Workspace{
     P::TP
     PLiRi::TPLiRi
     s²min::F
-    G0icurrent::Bool  # also covers off-diagonal elements of Q
-    Qcurrent::Bool
-    QQhcurrent::Bool  # also covers s²min
-    Pifactcurrent::Bool
-    Pcurrent::Bool
-    PLiRicurrent::Bool
+    state::UInt8
     # PQ::TQ
     # QP::TQ
     # PLiRi_or_QPQ::Matrix{Complex{F}}
     # QhPQ::Hermitian{Complex{F},Matrix{Complex{F}}}
-    # PQcurrent::Bool  # Depends on P
-    # QPcurrent::Bool  # Depends on P
-    # QPQcurrent::Bool  # Depends on PQ, voids PLiRi
-    # QhPQcurrent::Bool  # Depends on PQ
 
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
@@ -67,22 +58,22 @@ mutable struct Workspace{
             P,
             PLiRi,
             s²min,
-            true,
-            true,
-            true,
-            true,
-            true,
-            true,
+            G0iSET & QSET & QQhSET & PifactSET & PSET & PLiRiSET,
             # PQ,
             # QhPQ,
             # QPQ_PLiRi,
             # QP,
-            # true,
-            # true,
-            # false,
         )
     end
 end
+
+const CLEARED = 0b00000000
+const G0iSET = 0b00000001  # Also covers off-diagonal parts of Q
+const QSET = 0b00000010
+const QQhSET = 0b00000100  # Also covers s²min
+const PifactSET = 0b00001000
+const PSET = 0b00010000
+const PLiRiSET = 0b00100000
 
 ## Matrix getters
 ## ==============
@@ -197,54 +188,35 @@ function _set_ensemble!(ws::Workspace{<:Any,E}, ensemble::E) where {E}
     if size(ws.ensemble) != size(ensemble)
         throw(ArgumentError("new ensemble size does not match workspace"))
     end
-    ws.G0icurrent = false
-    ws.Qcurrent = false
-    ws.QQhcurrent = false
-    ws.Pifactcurrent = false
-    ws.Pcurrent = false
-    ws.PLiRicurrent = false
+    ws.state &= CLEARED
     ws.ensemble = ensemble
     return nothing
 end
 
 function _set_z!(ws::Workspace, z)
     (ws.z == z) && return nothing
-    ws.G0icurrent = false
-    ws.Qcurrent = false
-    ws.QQhcurrent = false
-    ws.Pifactcurrent = false
-    ws.Pcurrent = false
-    ws.PLiRicurrent = false
+    ws.state &= CLEARED
     ws.z = z
     return nothing
 end
 
 function _set_q!(ws::Workspace, q)
     (ws.q == q) && return nothing
-    ws.Qcurrent = false
-    ws.QQhcurrent = false
-    ws.Pifactcurrent = false
-    ws.Pcurrent = false
-    ws.PLiRicurrent = false
+    ws.state &= G0iSET
     ws.q = q
     return nothing
 end
 
 function _set_normalizeQ!(ws::Workspace, normalizeQ)
     (ws.normalizeQ == normalizeQ) && return nothing
-    ws.QQhcurrent = false
-    ws.Pifactcurrent = false
-    ws.Pcurrent = false
-    ws.PLiRicurrent = false
+    ws.state &= G0iSET & QSET
     ws.normalizeQ = normalizeQ
     return nothing
 end
 
 function _set_regularizer!(ws::Workspace, regularizer)
     (ws.regularizer == regularizer) && return nothing
-    ws.Pifactcurrent = false
-    ws.Pcurrent = false
-    ws.PLiRicurrent = false
+    ws.state &= G0iSET & QSET & QQhSET
     ws.regularizer = regularizer
     return nothing
 end
@@ -252,52 +224,52 @@ end
 ## Matrix refreshers
 ## =================
 function _refresh_G0i!(ws)
-    ws.G0icurrent && return nothing
+    (!iszero(ws.state & G0iSET)) && return nothing
     ws.G0i = _muladd!!(ws.G0i, ws.z, ws.ensemble.LiRi, _mapped(-, ws.ensemble.LiMRi))
     if !(ws.Q isa DiagonalOrUniform)
         ws.Q = _copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
     end
-    ws.G0icurrent = true
+    ws.state |= G0iSET
     return nothing
 end
 
 function _refresh_Q!(ws)
-    ws.Qcurrent && return nothing
+    (!iszero(ws.state & QSET)) && return nothing
     ws.Q = _muladd_diag!!(ws.Q, -ws.q, ws.ensemble.T, ws.G0i)
-    ws.Qcurrent = true
+    ws.state |= QSET
     return nothing
 end
 
 function _refresh_QQh!(ws)
-    ws.QQhcurrent && return nothing
+    (!iszero(ws.state & QQhSET)) && return nothing
     ws.QQh = psdmul!!(ws.QQh, ws.Q)
     if !(ws.Q isa DiagonalOrUniform) && ws.normalizeQ
         half = one(real(eltype(ws.QQh))) / 2
         ws.QQh = psdmul!!(ws.QQh, ws.Q', half, half)
     end
     ws.s²min = eigmin!!(ws.Pifact, ws.QQh)
-    ws.QQhcurrent = true
+    ws.state |= QQhSET
     return nothing
 end
 
 function _refresh_Pifact!(ws)
-    ws.Pifactcurrent && return nothing
+    (!iszero(ws.state & PifactSET)) && return nothing
     ws.Pifact = decompose!!(ws.Pifact, ws.QQh; shift=γ²(ws.regularizer, ws.s²min))
-    ws.Pifactcurrent = true
+    ws.state |= PifactSET
     return nothing
 end
 
 function _refresh_P!(ws)
-    ws.Pcurrent && return nothing
+    (!iszero(ws.state & PSET)) && return nothing
     ws.P = invert!!(ws.P, ws.Pifact)
-    ws.Pcurrent = true
+    ws.state |= PSET
     return nothing
 end
 
 function _refresh_PLiRi!(ws)
-    ws.PLiRicurrent && return nothing
+    (!iszero(ws.state & PLiRiSET)) && return nothing
     ws.PLiRi = ldiv!!(ws.Pifact, _copy!!(ws.PLiRi, ws.ensemble.LiRi))
-    ws.PLiRicurrent = true
+    ws.state |= PLiRiSET
     return nothing
 end
 
