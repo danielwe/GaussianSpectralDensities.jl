@@ -1,8 +1,10 @@
 using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt, γ², δ²
+using GaussianSpectralDensities: Regularizer, LocalResolventEquation
+using GaussianSpectralDensities: LocalQProblem, LocalQRegularizerProblem
+using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, qrhs!, γ²!, δ²!, k!, E!
 using GaussianSpectralDensities: psdmul!!, decompose, decompose!!, ldiv, ldiv!!
 using GaussianSpectralDensities: invert, invert!!, eigmin!!
-using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, k!, E!
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
 using LinearAlgebra
@@ -235,6 +237,64 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test adapt(Float64, roF) === ro
         end
     end
+    @testset "problems" begin
+        ensemble, z, μ, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, 1.0, false
+        k, rkind, rvalue, q0 = 1.0, :δ, 0.5, complex(eps())
+        regularizer = Regularizer(rkind, rvalue)
+
+        eq = LocalResolventEquation(ensemble, z, μ, normalizeQ)
+        qproblem = LocalQProblem(eq, regularizer, q0)
+        qrproblem = LocalQRegularizerProblem(eq, k, q0, regularizer)
+
+        # Traits
+        @test eq isa LocalResolventEquation{Float64}
+        @test qproblem isa LocalQProblem{Float64}
+        @test qrproblem isa LocalQRegularizerProblem{Float64}
+
+        @testset "$F" for (F, (zF, μF, kF, rvalueF, q0F)) in floattypes(z, μ, k, rvalue, q0)
+            ensembleF = MatrixEnsemble{F}(I, I, I, I)
+            regularizerF = Regularizer(rkind, rvalueF)
+
+            eqF = LocalResolventEquation(ensembleF, zF, μF, normalizeQ)
+            qproblemF = LocalQProblem(eqF, regularizerF, q0F)
+            qrproblemF = LocalQRegularizerProblem(eqF, kF, q0F, regularizerF)
+
+            # Floattype inferring constructor
+            @test eqF isa LocalResolventEquation{F}
+            @test qproblemF isa LocalQProblem{F}
+            @test qrproblemF isa LocalQRegularizerProblem{F}
+
+            # Floattype enforcing constructor
+            @test LocalResolventEquation{F}(ensemble, z, μ, normalizeQ) === eqF
+            @test LocalQProblem{F}(eq, regularizer, q0) === qproblemF
+            @test LocalQRegularizerProblem{F}(eq, k, q0, regularizer) === qrproblemF
+            @test LocalResolventEquation{Float64}(ensembleF, zF, μF, normalizeQ) === eq
+            @test LocalQProblem{Float64}(eqF, regularizerF, q0F) === qproblem
+            @test LocalQRegularizerProblem{Float64}(
+                eqF, kF, q0F, regularizerF
+            ) === qrproblem
+
+            # Floattype conversions
+            @test convert(LocalResolventEquation{F}, eq) === eqF
+            @test convert(LocalQProblem{F}, qproblem) === qproblemF
+            @test convert(LocalQRegularizerProblem{F}, qrproblem) === qrproblemF
+            @test convert(LocalResolventEquation{Float64}, eqF) === eq
+            @test convert(LocalQProblem{Float64}, qproblemF) === qproblem
+            @test convert(LocalQRegularizerProblem{Float64}, qrproblemF) === qrproblem
+            @test adapt(F, eq) === eqF
+            @test adapt(F, qproblem) === qproblemF
+            @test adapt(F, qrproblem) === qrproblemF
+            @test adapt(Float64, eqF) === eq
+            @test adapt(Float64, qproblemF) === qproblem
+            @test adapt(Float64, qrproblemF) === qrproblem
+        end
+
+        # Sanity checks: μ ∈ [0, 1]
+        @test_throws ArgumentError LocalResolventEquation(ensemble, z, -0.1, normalizeQ)
+        @test_throws ArgumentError LocalResolventEquation(ensemble, z, 1.1, normalizeQ)
+        @test_throws ArgumentError LocalResolventEquation(ensemble, z, 0.5im, normalizeQ)
+    end
+    #=
     @testset "ResolventProblem" begin
         ro = RegularizerObjective()
         @testset "$label" for (label, z) in [
@@ -252,6 +312,83 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                 @test p isa ResolventProblem{F}
                 p = ResolventProblem(ensembleF, z, ro; normalizeQ=true)
                 @test p isa ResolventProblem{F}
+            end
+        end
+    end
+    =#
+    @testset "Workspace" begin
+        function workspace_tests(F, ens)
+            _inv(A) = inv(A)
+            _inv(A::SparseMatrixCSC) = inv(Matrix(A))
+            _hermitian(A) = Hermitian(A)
+            _hermitian(A::SparseMatrixCSC) = Hermitian(Matrix(A))
+            _hermitian(A::Union{<:Diagonal,<:UniformScaling}) = real(A)
+            _eigmin(A) = eigmin(A)
+            _eigmin(A::UniformScaling) = A.λ
+            _trn(A) = tr(A) / size(A, 1)
+            _trn(A::UniformScaling) = A.λ
+
+            ws = Workspace(ens)
+            @test ws isa Workspace{F}
+
+            z, q = convert.(Complex{F}, (-(im + 2) / 4, (1 - im) / 2))
+            eq = LocalResolventEquation(ens, z, 1, false)
+            eqn = LocalResolventEquation(ens, z, 1, true)
+
+            G0i = _inv(ens.L) * (z * I - ens.M) * _inv(ens.R)
+            Q = G0i - q * ens.T
+            @test G0i!(ws, eq) ≈ G0i
+            @test Q!(ws, eq, q) ≈ Q
+
+            QQh = Q * Q'
+            QQhn = (QQh + Q' * Q) / 2
+            s²min, s²minn = _eigmin(_hermitian(QQh)), _eigmin(_hermitian(QQhn))
+            γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
+            γ²valueδ = δ².value - s²min
+            δ²valueγ = γ².value + s²min
+            γ²valueδn = δ².value - s²minn
+            δ²valueγn = γ².value + s²minn
+            Pγ = _inv(QQh + γ².value * I)
+            Pδ = _inv(QQh + γ²valueδ * I)
+            Pγn = _inv(QQhn + γ².value * I)
+            Pδn = _inv(QQhn + γ²valueδn * I)
+            @test P!(ws, eq, q, γ²) ≈ Pγ
+            @test P!(ws, eq, q, δ²) ≈ Pδ
+            @test P!(ws, eqn, q, γ²) ≈ Pγn
+            @test P!(ws, eqn, q, δ²) ≈ Pδn
+
+            qrhsγ, qrhsδ = _trn(ens.T * Q' * Pγ), _trn(ens.T * Q' * Pδ)
+            qrhsγn, qrhsδn = _trn(ens.T * Q' * Pγn), _trn(ens.T * Q' * Pδn)
+            @test qrhs!(ws, eq, q, γ²) ≈ qrhsγ
+            @test qrhs!(ws, eq, q, δ²) ≈ qrhsδ
+            @test qrhs!(ws, eqn, q, γ²) ≈ qrhsγn
+            @test qrhs!(ws, eqn, q, δ²) ≈ qrhsδn
+
+            @test γ²!(ws, eq, q, γ²) ≈ γ².value
+            @test γ²!(ws, eq, q, δ²) ≈ γ²valueδ
+            @test γ²!(ws, eqn, q, γ²) ≈ γ².value
+            @test γ²!(ws, eqn, q, δ²) ≈ γ²valueδn
+            @test δ²!(ws, eq, q, γ²) ≈ δ²valueγ
+            @test δ²!(ws, eq, q, δ²) ≈ δ².value
+            @test δ²!(ws, eqn, q, γ²) ≈ δ²valueγn
+            @test δ²!(ws, eqn, q, δ²) ≈ δ².value
+
+            Eγ, Eδ = _trn(ens.LiRi * Q' * Pγ), _trn(ens.LiRi * Q' * Pδ)
+            Eγn, Eδn = _trn(ens.LiRi * Q' * Pγn), _trn(ens.LiRi * Q' * Pδn)
+            @test E!(ws, eq, q, γ²) ≈ Eγ
+            @test E!(ws, eq, q, δ²) ≈ Eδ
+            @test E!(ws, eqn, q, γ²) ≈ Eγn
+            @test E!(ws, eqn, q, δ²) ≈ Eδn
+        end
+
+        Adata, Ddata = ComplexF64[1 -1; 1 1], Diagonal([0.75, 0.25])
+        @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)
+            @testset "$F" for F in FLOATTYPES
+                workspace_tests(F, MatrixEnsemble{F}(I, I, I, I))
+                workspace_tests(F, MatrixEnsemble{F}(A, I, I, I))
+                workspace_tests(F, MatrixEnsemble{F}(I, A, I, I))
+                workspace_tests(F, MatrixEnsemble{F}(I, I, A, I))
+                workspace_tests(F, MatrixEnsemble{F}(I, I, I, D))
             end
         end
     end
@@ -526,74 +663,6 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                         @test_throws TypeError decompose(A; shift=im)
                         linalg_tests(A, Ai, Aeigmin, shift, Asi, B, A_B, As_B, _sparse(X))
                     end
-                end
-            end
-        end
-    end
-    @testset "workspace" begin
-        @testset "Workspace" begin
-            function workspace_tests(F, ens)
-                _inv(A) = inv(A)
-                _inv(A::SparseMatrixCSC) = inv(Matrix(A))
-                _hermitian(A) = Hermitian(A)
-                _hermitian(A::SparseMatrixCSC) = Hermitian(Matrix(A))
-                _hermitian(A::Union{<:Diagonal,<:UniformScaling}) = real(A)
-                _eigmin(A) = eigmin(A)
-                _eigmin(A::UniformScaling) = A.λ
-                _trn(A) = tr(A) / size(A, 1)
-                _trn(A::UniformScaling) = A.λ
-
-                ws = Workspace(ens)
-                @test ws isa Workspace{F}
-
-                z, q = convert.(Complex{F}, (-(im + 2) / 4, (1 - im) / 2))
-                G0i = _inv(ens.L) * (z * I - ens.M) * _inv(ens.R)
-                Q = G0i - q * ens.T
-                @test G0i!(ws, ens, z) ≈ G0i
-                @test Q!(ws, ens, z, q) ≈ Q
-
-                QQh = Q * Q'
-                QQhn = (QQh + Q' * Q) / 2
-                s²min, s²minn = _eigmin(_hermitian(QQh)), _eigmin(_hermitian(QQhn))
-                γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
-                Pγ = _inv(QQh + γ².value * I)
-                Pδ = _inv(QQh + (δ².value - s²min) * I)
-                Pγn = _inv(QQhn + γ².value * I)
-                Pδn = _inv(QQhn + (δ².value - s²min) * I)
-                @test P!(ws, ens, z, q, γ²) ≈ Pγ
-                @test P!(ws, ens, z, q, δ²) ≈ Pδ
-                @test P!(ws, ens, z, q, γ², false) ≈ Pγ
-                @test P!(ws, ens, z, q, δ², false) ≈ Pδ
-                @test P!(ws, ens, z, q, γ², true) ≈ Pγn
-                @test P!(ws, ens, z, q, δ², true) ≈ Pδn
-
-                kγ, kδ = _trn(Pγ), _trn(Pδ)
-                kγn, kδn = _trn(Pγn), _trn(Pδn)
-                @test k!(ws, ens, z, q, γ²) ≈ kγ
-                @test k!(ws, ens, z, q, δ²) ≈ kδ
-                @test k!(ws, ens, z, q, γ², false) ≈ kγ
-                @test k!(ws, ens, z, q, δ², false) ≈ kδ
-                @test k!(ws, ens, z, q, γ², true) ≈ kγn
-                @test k!(ws, ens, z, q, δ², true) ≈ kδn
-
-                Eγ, Eδ = _trn(ens.LiRi * Q' * Pγ), _trn(ens.LiRi * Q' * Pδ)
-                Eγn, Eδn = _trn(ens.LiRi * Q' * Pγn), _trn(ens.LiRi * Q' * Pδn)
-                @test E!(ws, ens, z, q, γ²) ≈ Eγ
-                @test E!(ws, ens, z, q, δ²) ≈ Eδ
-                @test E!(ws, ens, z, q, γ², false) ≈ Eγ
-                @test E!(ws, ens, z, q, δ², false) ≈ Eδ
-                @test E!(ws, ens, z, q, γ², true) ≈ Eγn
-                @test E!(ws, ens, z, q, δ², true) ≈ Eδn
-            end
-
-            Adata, Ddata = ComplexF64[1 -1; 1 1], Diagonal([0.75, 0.25])
-            @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)
-                @testset "$F" for F in FLOATTYPES
-                    workspace_tests(F, MatrixEnsemble{F}(I, I, I, I))
-                    workspace_tests(F, MatrixEnsemble{F}(A, I, I, I))
-                    workspace_tests(F, MatrixEnsemble{F}(I, A, I, I))
-                    workspace_tests(F, MatrixEnsemble{F}(I, I, A, I))
-                    workspace_tests(F, MatrixEnsemble{F}(I, I, I, D))
                 end
             end
         end

@@ -21,8 +21,7 @@ using SuiteSparse
 =#
 
 export MatrixEnsemble
-export TraceObjective, RegularizerObjective, Regularizer
-export ResolventProblem
+export TraceObjective, RegularizerObjective
 export DirectSolve, RegularizerSchedule, SymmetrySchedule
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 # export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
@@ -64,15 +63,15 @@ include("ensemble.jl")
 include("regularizers.jl")
 include("objectives.jl")
 include("problems.jl")
-include("algorithms.jl")
-include("linalg.jl")
 include("workspace.jl")
-# include("sampling.jl")
+include("algorithms.jl")
 # include("solutions.jl")
+include("linalg.jl")
 include("newton.jl")
 # include("qsolve.jl")
 # include("solve.jl")
 # include("density.jl")
+# include("sampling.jl")
 # include("automesh.jl")
 # include("printing.jl")
 

@@ -17,7 +17,7 @@ mutable struct Workspace{
 } <: AbstractWorkspace{F}
     ensemble::TE
     z::Complex{F}
-    q::Complex{F}
+    μq::Complex{F}
     normalizeQ::Bool
     regularizer::Regularizer{F}
     G0i::TG0i
@@ -35,10 +35,10 @@ mutable struct Workspace{
 
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
-        q = convert(Complex{F}, DEFAULTS.q0)
+        μq = convert(Complex{F}, DEFAULTS.q0)
         regularizer = convert(Regularizer{F}, first(DEFAULTS.rschedule))
         G0i = muladd(z, ensemble.LiRi, -ensemble.LiMRi)
-        Q = muladd(-q, ensemble.T, G0i)
+        Q = muladd(-μq, ensemble.T, G0i)
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
         Pifact = decompose(QQh)
         s²min = eigmin!!(Pifact, QQh)
@@ -48,7 +48,7 @@ mutable struct Workspace{
         return new{F,E,typeof.((G0i,Q,QQh,Pifact,P,PLiRi))...}(
             ensemble,
             z,
-            q,
+            μq,
             false,
             regularizer,
             G0i,
@@ -78,79 +78,79 @@ const PLiRiSET = 0b00100000
 ## Matrix getters
 ## ==============
 """
-    G0i!(ws, ensemble, z)
+    G0i!(ws, eq)
 
 Calculate the bare inverse resolvent `G0i(z) = L \\ (z * I - M) / R`
 """
-function G0i!(ws, ensemble, z)
-    _set_ensemble!(ws, ensemble)
-    _set_z!(ws, z)
+function G0i!(ws, eq)
+    _set_ensemble!(ws, eq.ensemble)
+    _set_z!(ws, eq.z)
     _refresh_G0i!(ws)
     return ws.G0i
 end
 
 """
-    Q!(ws, ensemble, z, q)
+    Q!(ws, eq, q)
 
 Calculate `Q(z, q) = G0i(z) - q * T`
 """
-function Q!(ws, ensemble, z, q)
-    G0i!(ws, ensemble, z)
-    _set_q!(ws, q)
+function Q!(ws, eq, q)
+    G0i!(ws, eq)
+    _set_μq!(ws, eq.μ * q)
     _refresh_Q!(ws)
     return ws.Q
 end
 
 """
-    _QQh!(ws, ensemble, z, q, normalizeQ=false)
+    _QQh!(ws, eq, q)
 
 Calculate `Q(z, q) * Q'(z, q)`
 
-If `normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
+If `eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
 `ResolventProblem` documentation for further explanation.
 """
-function _QQh!(ws, ensemble, z, q, normalizeQ=false)
-    Q!(ws, ensemble, z, q)
-    _set_normalizeQ!(ws, normalizeQ)
+function _QQh!(ws, eq, q)
+    Q!(ws, eq, q)
+    _set_normalizeQ!(ws, eq.normalizeQ)
     _refresh_QQh!(ws)
     return ws.QQh
 end
 
 """
-    _Pifact!(ws, ensemble, z, q, regularizer, normalizeQ=false)
+    _Pifact!(ws, eq, q, regularizer)
 
 Factorize `P⁻¹ = Q * Q' + γ² * I`
 """
-function _Pifact!(ws, ensemble, z, q, regularizer, normalizeQ=false)
-    _QQh!(ws, ensemble, z, q, normalizeQ)
+function _Pifact!(ws, eq, q, regularizer)
+    _QQh!(ws, eq, q)
     _set_regularizer!(ws, regularizer)
     _refresh_Pifact!(ws)
     return ws.Pifact
 end
 
 """
-    P!(ws, ensemble, z, q, regularizer, normalizeQ=false)
+    P!(ws, eq, q, regularizer)
 
 Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
 
 The value of `γ²` is provided through `regularizer::Regularizer`, which can hold either the
 value of `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
-function P!(ws, ensemble, z, q, regularizer, normalizeQ=false)
-    _Pifact!(ws, ensemble, z, q, regularizer, normalizeQ)
+function P!(ws, eq, q, regularizer)
+    _Pifact!(ws, eq, q, regularizer)
     _refresh_P!(ws)
     return ws.P
 end
 
 """
-    _PLiRi!(ws, ensemble, z, q, regularizer, args...)
+    _PLiRi!(ws, eq, q, regularizer)
 
 Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 
 The arguments are the same as for `P!`.
 """
-function _PLiRi!(ws, ensemble, z, q, regularizer, args...)
-    _Pifact!(ws, ensemble, z, q, regularizer, args...)
+function _PLiRi!(ws, eq, q, regularizer)
+    _Pifact!(ws, eq, q, regularizer)
     _refresh_PLiRi!(ws)
     return ws.PLiRi
 end
@@ -158,28 +158,57 @@ end
 ## Scalar getters
 ## ==============
 """
-    k!(ws, ensemble, z, q, regularizer, args...)
+    qrhs!(ws, eq, q, regularizer)
 
-Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 1)`
-
-The arguments are the same as for `P!`
-"""
-function k!(ws, ensemble, z, q, regularizer, args...)
-    P = P!(ws, ensemble, z, q, regularizer, args...)
-    return _trn(P)
-end
-
-"""
-    E!(ws, ensemble, z, q, regularizer, args...)
-
-Calculate the normalized trace of `(RL)⁻¹ * Q'(z, q) * P(z, q, γ²)`
+Calculate the RHS of the self-consistency relation for ``q``: `μ * tr(T * Q'P) / size(P, 2)`
 
 The arguments are the same as for `P!`
 """
-function E!(ws, ensemble, z, q, regularizer, args...)
-    PLiRi = _PLiRi!(ws, ensemble, z, q, regularizer, args...)
-    return _hsn(Q!(ws, ensemble, z, q), PLiRi)
+function qrhs!(ws, eq, q, regularizer)
+    return eq.μ * _hsn(eq.ensemble.T, Q!(ws, eq, q), P!(ws, eq, q, regularizer))
 end
+
+"""
+    γ²!(ws, eq, q, regularizer)
+
+Calculate the regularizer ``γ²``
+
+The arguments are the same as for `P!`
+"""
+function γ²!(ws, eq, q, regularizer)
+    _QQh!(ws, eq, q)
+    return γ²(regularizer, ws.s²min)
+end
+
+"""
+    γ²!(ws, eq, q, regularizer)
+
+Calculate the regularizer ``δ²``
+
+The arguments are the same as for `P!`
+"""
+function δ²!(ws, eq, q, regularizer)
+    _QQh!(ws, eq, q)
+    return δ²(regularizer, ws.s²min)
+end
+
+"""
+    k!(ws, eq, q, regularizer)
+
+Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 2)`
+
+The arguments are the same as for `P!`
+"""
+k!(ws, eq, q, regularizer) = _trn(P!(ws, eq, q, regularizer))
+
+"""
+    E!(ws, eq, q, regularizer)
+
+Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, q) * P(z, q, γ²)`
+
+The arguments are the same as for `P!`
+"""
+E!(ws, eq, q, regularizer) = _hsn(Q!(ws, eq, q), _PLiRi!(ws, eq, q, regularizer))
 
 ## Parameter setters
 ## =================
@@ -200,10 +229,10 @@ function _set_z!(ws::Workspace, z)
     return nothing
 end
 
-function _set_q!(ws::Workspace, q)
-    (ws.q == q) && return nothing
+function _set_μq!(ws::Workspace, μq)
+    (ws.μq == μq) && return nothing
     ws.state &= G0iSET
-    ws.q = q
+    ws.μq = μq
     return nothing
 end
 
@@ -235,7 +264,7 @@ end
 
 function _refresh_Q!(ws)
     (!iszero(ws.state & QSET)) && return nothing
-    ws.Q = _muladd_diag!!(ws.Q, -ws.q, ws.ensemble.T, ws.G0i)
+    ws.Q = _muladd_diag!!(ws.Q, -ws.μq, ws.ensemble.T, ws.G0i)
     ws.state |= QSET
     return nothing
 end
@@ -316,24 +345,6 @@ Return the scalar value of the uniform scaling matrix ``A``
 _diagview(A::UniformScaling) = A.λ
 
 """
-    _trn(A)
-
-Compute the normalized trace `tr(A) / size(A, 1)`
-"""
-_trn(A) = tr(A) / size(A, 1)
-_trn(A::UniformScaling) = A.λ
-
-"""
-    _hsn(A, B)
-
-Compute the normalized Hilbert-Schmidt inner product `tr(A' * B) / size(B, 2)`
-"""
-_hsn(A, B) = dot(A, B) / size(B, 2)
-_hsn(A, B::UniformScaling) = dot(_trn(A), B.λ)
-_hsn(A::UniformScaling, B) = dot(A.λ, _trn(B))
-_hsn(A::UniformScaling, B::UniformScaling) = dot(A.λ, B.λ)
-
-"""
     _muladd!!(C, λ::Number, A, B)
 
 Overwrite ``C`` with ``λA + B` and return ``C``
@@ -392,6 +403,53 @@ which is the case of interest in this package.
 """
 _muladd_diag!!(::Immutable, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
 
+## Traces and trace inner products
+## ===============================
+"""
+    _trn(A)
+
+Compute the normalized trace `tr(A) / size(A, 2)`
+"""
+_trn(A) = tr(A) / size(A, 2)
+_trn(A::UniformScaling) = A.λ
+
+"""
+    _hsn(A, B)
+
+Compute the normalized Hilbert-Schmidt inner product `tr(A'B) / size(B, 2)`
+"""
+_hsn(A, B) = dot(A, B) / size(B, 2)
+_hsn(A, B::UniformScaling) = dot(_trn(A), B.λ)
+_hsn(A::UniformScaling, B) = dot(A.λ, _trn(B))
+_hsn(A::UniformScaling, B::UniformScaling) = dot(A.λ, B.λ)
+
+"""
+    _hsn(T::UniformScaling, A, B)
+    _hsn(T::Diagonal, A, B)
+
+Compute the normalized trace `tr(T * A'B) / size(B, 2)`
+
+For positive definite `T` this can be seen as a generalized Hilbert-Schmidt inner product
+"""
+function _hsn(T::Diagonal, A, B)
+    @boundscheck begin
+        if (axes(A) != axes(B)) || (axes(T.diag, 1) != axes(A, 2))
+            throw(ArgumentError("matrix axes don't match"))
+        end
+    end
+    out = zero(promote_type(eltype(T), eltype(A), eltype(B)))
+    @inbounds for j in axes(A, 2)
+        out += T.diag[j] * dot(view(A, :, j), view(B, :, j))
+    end
+    return out / length(T.diag)
+end
+
+_hsn(T::Diagonal, A::UniformScaling, B) = dot(A.λ, _hsn(T', B))
+_hsn(T::Diagonal, A, B::UniformScaling) = B.λ * _hsn(A, T)
+_hsn(T::Diagonal, A::UniformScaling, B::UniformScaling) = _trn(T) * dot(A.λ, B.λ)
+
+_hsn(T::UniformScaling, A, B) = T.λ * _hsn(A, B)
+
 ## Attic---may be scavenged for further functionality
 ## ==================================================
 #=
@@ -417,12 +475,6 @@ end
 
 function set_QP!(status::WorkspaceStatus, QᴴPQ)
     status.QP = QP
-    return nothing
-end
-
-function set_PL⁻¹R⁻¹!(status::WorkspaceStatus, PL⁻¹R⁻¹)
-    PL⁻¹R⁻¹ && set_QPQ!(status, false)
-    status.PL⁻¹R⁻¹ = PL⁻¹R⁻¹
     return nothing
 end
 =#
@@ -456,26 +508,6 @@ function _QP!(ws)
     rdiv!(ws.QP, U)
     rdiv!(ws.QP, L)
     return nothing
-end
-
-function _PL⁻¹R⁻¹!(problem, ws)
-    ens = problem.ensemble
-    if ens.L⁻¹R⁻¹ isa UniformScaling
-        mul!(ws.QPQ_PL⁻¹R⁻¹, ws.P, ens.L⁻¹R⁻¹)
-    else
-        @inbounds copyto!(ws.QPQ_PL⁻¹R⁻¹, ens.L⁻¹R⁻¹)
-        LAPACK.potrs!(ws.P.uplo, ws.P⁻¹f, ws.QPQ_PL⁻¹R⁻¹)
-    end
-    return nothing
-end
-
-function P!(problem, q, ws)
-    Q!(problem, q, ws)
-    if ws.status.r² !== problem.objective
-        _P!(problem, ws)
-        set_r²!(ws.status, problem.objective)
-    end
-    return ws.P
 end
 
 function PQ!(problem, q, ws)
@@ -512,38 +544,6 @@ function QP!(problem, q, ws)
         set_QP!(ws.status, true)
     end
     return ws.QP
-end
-
-function PL⁻¹R⁻¹!(problem, q, ws)
-    P!(problem, q, ws)
-    if !ws.status.PL⁻¹R⁻¹
-        _PL⁻¹R⁻¹!(ws)
-        set_PL⁻¹R⁻¹!(ws.status, true)
-    end
-    return ws.QPQ_PL⁻¹R⁻¹
-end
-=#
-
-#=
-_γ²!(r²::Fixγ², ::Any) = r².value
-_γ²!(r²::Fixδ², ws) = r².value - ws.s²min[]
-_δ²!(r²::Fixγ², ws) = r².value + ws.s²min[]
-_δ²!(r²::Fixδ², ::Any) = r².value
-
-function γ²!(problem, q, ws)
-    r² = problem.objective
-    if !(r² isa Fixγ²)
-        Q!(problem, q, ws)
-    end
-    return _γ²(r², ws)
-end
-
-function δ²!(problem, q, ws)
-    r² = problem.objective
-    if !(r² isa Fixδ²)
-        Q!(problem, q, ws)
-    end
-    return _δ²(r², ws)
 end
 
 function q∞!(problem, γ∞², ws)
