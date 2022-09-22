@@ -48,7 +48,7 @@ function δ²(regularizer::Regularizer, s²min)
 end
 
 ## Conversions
-## ===================
+## ===========
 Base.convert(::Type{P}, r::Q) where {P<:Regularizer,Q<:Regularizer} = P(r.kind, r.value)
 
 #=

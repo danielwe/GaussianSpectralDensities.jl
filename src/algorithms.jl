@@ -97,6 +97,7 @@ end
 function Base.convert(
     ::Type{P}, alg::Q
 ) where {F,P<:RegularizerSchedule{F},Q<:RegularizerSchedule}
+    (alg isa P) && return alg
     return RegularizerSchedule{F}(alg.schedule, alg.γ²min)
 end
 
@@ -175,6 +176,7 @@ end
 function Base.convert(
     ::Type{P}, alg::Q
 ) where {F,P<:SymmetrySchedule{F},Q<:SymmetrySchedule}
+    (alg isa P) && return alg
     return SymmetrySchedule{F}(alg.initialalg, alg.schedule, alg.γ²min)
 end
 
