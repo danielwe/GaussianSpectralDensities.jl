@@ -332,13 +332,24 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test ws isa Workspace{F}
 
             z, q = convert.(Complex{F}, (-(im + 2) / 4, (1 - im) / 2))
-            eq = LocalResolventEquation(ens, z, 1, false)
-            eqn = LocalResolventEquation(ens, z, 1, true)
+            μ = convert(F, 2 // 3)
+            μens = MatrixEnsemble{F}(ens.M, ens.L, ens.R, μ * ens.T)
+
+            eq = LocalResolventEquation(ens, z, μ, false)
+            eqn = LocalResolventEquation(ens, z, μ, true)
+            μeq = LocalResolventEquation(μens, z, 1, false)
+            μeqn = LocalResolventEquation(μens, z, 1, true)
 
             G0i = _inv(ens.L) * (z * I - ens.M) * _inv(ens.R)
-            Q = G0i - q * ens.T
+            Q = G0i - q * μ * ens.T
             @test G0i!(ws, eq) ≈ G0i
+            @test G0i!(ws, eqn) ≈ G0i
+            @test G0i!(ws, μeq) ≈ G0i
+            @test G0i!(ws, μeqn) ≈ G0i
             @test Q!(ws, eq, q) ≈ Q
+            @test Q!(ws, eqn, q) ≈ Q
+            @test Q!(ws, μeq, q) ≈ Q
+            @test Q!(ws, μeqn, q) ≈ Q
 
             QQh = Q * Q'
             QQhn = (QQh + Q' * Q) / 2
@@ -356,13 +367,21 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test P!(ws, eq, q, δ²) ≈ Pδ
             @test P!(ws, eqn, q, γ²) ≈ Pγn
             @test P!(ws, eqn, q, δ²) ≈ Pδn
+            @test P!(ws, μeq, q, γ²) ≈ Pγ
+            @test P!(ws, μeq, q, δ²) ≈ Pδ
+            @test P!(ws, μeqn, q, γ²) ≈ Pγn
+            @test P!(ws, μeqn, q, δ²) ≈ Pδn
 
-            qrhsγ, qrhsδ = _trn(ens.T * Q' * Pγ), _trn(ens.T * Q' * Pδ)
-            qrhsγn, qrhsδn = _trn(ens.T * Q' * Pγn), _trn(ens.T * Q' * Pδn)
+            qrhsγ, qrhsδ = μ * _trn(ens.T * Q' * Pγ), μ * _trn(ens.T * Q' * Pδ)
+            qrhsγn, qrhsδn = μ * _trn(ens.T * Q' * Pγn), μ * _trn(ens.T * Q' * Pδn)
             @test qrhs!(ws, eq, q, γ²) ≈ qrhsγ
             @test qrhs!(ws, eq, q, δ²) ≈ qrhsδ
             @test qrhs!(ws, eqn, q, γ²) ≈ qrhsγn
             @test qrhs!(ws, eqn, q, δ²) ≈ qrhsδn
+            @test qrhs!(ws, μeq, q, γ²) ≈ qrhsγ
+            @test qrhs!(ws, μeq, q, δ²) ≈ qrhsδ
+            @test qrhs!(ws, μeqn, q, γ²) ≈ qrhsγn
+            @test qrhs!(ws, μeqn, q, δ²) ≈ qrhsδn
 
             @test γ²!(ws, eq, q, γ²) ≈ γ².value
             @test γ²!(ws, eq, q, δ²) ≈ γ²valueδ
@@ -372,6 +391,14 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test δ²!(ws, eq, q, δ²) ≈ δ².value
             @test δ²!(ws, eqn, q, γ²) ≈ δ²valueγn
             @test δ²!(ws, eqn, q, δ²) ≈ δ².value
+            @test γ²!(ws, μeq, q, γ²) ≈ γ².value
+            @test γ²!(ws, μeq, q, δ²) ≈ γ²valueδ
+            @test γ²!(ws, μeqn, q, γ²) ≈ γ².value
+            @test γ²!(ws, μeqn, q, δ²) ≈ γ²valueδn
+            @test δ²!(ws, μeq, q, γ²) ≈ δ²valueγ
+            @test δ²!(ws, μeq, q, δ²) ≈ δ².value
+            @test δ²!(ws, μeqn, q, γ²) ≈ δ²valueγn
+            @test δ²!(ws, μeqn, q, δ²) ≈ δ².value
 
             Eγ, Eδ = _trn(ens.LiRi * Q' * Pγ), _trn(ens.LiRi * Q' * Pδ)
             Eγn, Eδn = _trn(ens.LiRi * Q' * Pγn), _trn(ens.LiRi * Q' * Pδn)
@@ -379,6 +406,10 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test E!(ws, eq, q, δ²) ≈ Eδ
             @test E!(ws, eqn, q, γ²) ≈ Eγn
             @test E!(ws, eqn, q, δ²) ≈ Eδn
+            @test E!(ws, μeq, q, γ²) ≈ Eγ
+            @test E!(ws, μeq, q, δ²) ≈ Eδ
+            @test E!(ws, μeqn, q, γ²) ≈ Eγn
+            @test E!(ws, μeqn, q, δ²) ≈ Eδn
         end
 
         Adata, Ddata = ComplexF64[1 -1; 1 1], Diagonal([0.75, 0.25])

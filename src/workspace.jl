@@ -58,7 +58,7 @@ mutable struct Workspace{
             P,
             PLiRi,
             s²min,
-            G0iSET & QSET & QQhSET & PifactSET & PSET & PLiRiSET,
+            ALLVALID,
             # PQ,
             # QhPQ,
             # QPQ_PLiRi,
@@ -67,13 +67,25 @@ mutable struct Workspace{
     end
 end
 
-const CLEARED = 0b00000000
-const G0iSET = 0b00000001  # Also covers off-diagonal parts of Q
-const QSET = 0b00000010
-const QQhSET = 0b00000100  # Also covers s²min
-const PifactSET = 0b00001000
-const PSET = 0b00010000
-const PLiRiSET = 0b00100000
+const G0iCURRENT = 0b00000001  # Also covers off-diagonal parts of Q
+const QCURRENT = 0b00000010
+const QQhCURRENT = 0b00000100  # Also covers s²min
+const PifactCURRENT = 0b00001000
+const PCURRENT = 0b00010000
+const PLiRiCURRENT = 0b00100000
+
+const G0iVALID = G0iCURRENT
+const QVALID = QCURRENT | G0iVALID
+const QQhVALID =  QQhCURRENT |QVALID
+const PifactVALID =  PifactCURRENT |QQhVALID
+const PVALID =  PCURRENT | PifactVALID
+const PLiRiVALID =  PLiRiCURRENT | PifactVALID
+const ALLVALID = PVALID | PLiRiVALID
+
+_clearstate(ws) = (ws.state = 0b00000000)
+_clearstateexcept(ws, flags) = (ws.state &= flags)
+_addstate(ws, flags) = (ws.state |= flags)
+_statecontains(ws, flags) = ((ws.state & flags) == flags)
 
 ## Matrix getters
 ## ==============
@@ -83,10 +95,35 @@ const PLiRiSET = 0b00100000
 Calculate the bare inverse resolvent `G0i(z) = L \\ (z * I - M) / R`
 """
 function G0i!(ws, eq)
-    _set_ensemble!(ws, eq.ensemble)
-    _set_z!(ws, eq.z)
-    _refresh_G0i!(ws)
+    _setG0iparams!(ws, eq)
+    _updateG0i!(ws)
     return ws.G0i
+end
+
+function _setG0iparams!(ws, eq)
+    if ws.ensemble !== eq.ensemble
+        if size(ws.ensemble) != size(eq.ensemble)
+            throw(ArgumentError("new ensemble size does not match workspace"))
+        end
+        _clearstate(ws)
+        ws.ensemble = eq.ensemble
+    end
+    if ws.z != eq.z
+        _clearstate(ws)
+        ws.z = eq.z
+    end
+    return nothing
+end
+
+function _updateG0i!(ws)
+    _statecontains(ws, G0iVALID) && return nothing
+    ws.G0i = _muladd!!(ws.G0i, ws.z, ws.ensemble.LiRi, _mapped(-, ws.ensemble.LiMRi))
+    if !(ws.Q isa DiagonalOrUniform)
+        ws.Q = _copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
+    end
+    _addstate(ws, G0iCURRENT)
+    @assert _statecontains(ws, G0iVALID)
+    return nothing
 end
 
 """
@@ -95,10 +132,27 @@ end
 Calculate `Q(z, q) = G0i(z) - q * T`
 """
 function Q!(ws, eq, q)
-    G0i!(ws, eq)
-    _set_μq!(ws, eq.μ * q)
-    _refresh_Q!(ws)
+    _setQparams!(ws, eq, q)
+    _updateQ!(ws)
     return ws.Q
+end
+
+function _setQparams!(ws, eq, q)
+    _setG0iparams!(ws, eq)
+    μq = eq.μ * q
+    (ws.μq == μq) && return nothing
+    _clearstateexcept(ws, G0iVALID)
+    ws.μq = μq
+    return nothing
+end
+
+function _updateQ!(ws)
+    _statecontains(ws, QVALID) && return nothing
+    _updateG0i!(ws)
+    ws.Q = _muladd_diag!!(ws.Q, -ws.μq, ws.ensemble.T, ws.G0i)
+    _addstate(ws, QCURRENT)
+    @assert _statecontains(ws, QVALID)
+    return nothing
 end
 
 """
@@ -110,10 +164,31 @@ If `eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. 
 `ResolventProblem` documentation for further explanation.
 """
 function _QQh!(ws, eq, q)
-    Q!(ws, eq, q)
-    _set_normalizeQ!(ws, eq.normalizeQ)
-    _refresh_QQh!(ws)
+    _setQQhparams!(ws, eq, q)
+    _updateQQh!(ws)
     return ws.QQh
+end
+
+function _setQQhparams!(ws, eq, q)
+    _setQparams!(ws, eq, q)
+    (ws.normalizeQ == eq.normalizeQ) && return nothing
+    _clearstateexcept(ws, QVALID)
+    ws.normalizeQ = eq.normalizeQ
+    return nothing
+end
+
+function _updateQQh!(ws)
+    _statecontains(ws, QQhVALID) && return nothing
+    _updateQ!(ws)
+    ws.QQh = psdmul!!(ws.QQh, ws.Q)
+    if !(ws.Q isa DiagonalOrUniform) && ws.normalizeQ
+        half = one(real(eltype(ws.QQh))) / 2
+        ws.QQh = psdmul!!(ws.QQh, ws.Q', half, half)
+    end
+    ws.s²min = eigmin!!(ws.Pifact, ws.QQh)
+    _addstate(ws, QQhCURRENT)
+    @assert _statecontains(ws, QQhVALID)
+    return nothing
 end
 
 """
@@ -122,10 +197,26 @@ end
 Factorize `P⁻¹ = Q * Q' + γ² * I`
 """
 function _Pifact!(ws, eq, q, regularizer)
-    _QQh!(ws, eq, q)
-    _set_regularizer!(ws, regularizer)
-    _refresh_Pifact!(ws)
+    _setPifactparams!(ws, eq, q, regularizer)
+    _updatePifact!(ws)
     return ws.Pifact
+end
+
+function _setPifactparams!(ws, eq, q, regularizer)
+    _setQQhparams!(ws, eq, q)
+    (ws.regularizer == regularizer) && return nothing
+    _clearstateexcept(ws, QQhVALID)
+    ws.regularizer = regularizer
+    return nothing
+end
+
+function _updatePifact!(ws)
+    _statecontains(ws, PifactVALID) && return nothing
+    _updateQQh!(ws)
+    ws.Pifact = decompose!!(ws.Pifact, ws.QQh; shift=γ²(ws.regularizer, ws.s²min))
+    _addstate(ws, PifactCURRENT)
+    @assert _statecontains(ws, PifactVALID)
+    return nothing
 end
 
 """
@@ -137,9 +228,20 @@ The value of `γ²` is provided through `regularizer::Regularizer`, which can ho
 value of `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
 function P!(ws, eq, q, regularizer)
-    _Pifact!(ws, eq, q, regularizer)
-    _refresh_P!(ws)
+    _setPparams!(ws, eq, q, regularizer)
+    _updateP!(ws)
     return ws.P
+end
+
+_setPparams!(ws, eq, q, regularizer) = _setPifactparams!(ws, eq, q, regularizer)
+
+function _updateP!(ws)
+    _statecontains(ws, PVALID) && return nothing
+    _updatePifact!(ws)
+    ws.P = invert!!(ws.P, ws.Pifact)
+    _addstate(ws, PCURRENT)
+    @assert _statecontains(ws, PVALID)
+    return nothing
 end
 
 """
@@ -150,9 +252,20 @@ Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 The arguments are the same as for `P!`.
 """
 function _PLiRi!(ws, eq, q, regularizer)
-    _Pifact!(ws, eq, q, regularizer)
-    _refresh_PLiRi!(ws)
+    _setPLiRiparams!(ws, eq, q, regularizer)
+    _updatePLiRi!(ws)
     return ws.PLiRi
+end
+
+_setPLiRiparams!(ws, eq, q, regularizer) = _setPifactparams!(ws, eq, q, regularizer)
+
+function _updatePLiRi!(ws)
+    _statecontains(ws, PLiRiVALID) && return nothing
+    _updatePifact!(ws)
+    ws.PLiRi = ldiv!!(ws.Pifact, _copy!!(ws.PLiRi, ws.ensemble.LiRi))
+    _addstate(ws, PLiRiCURRENT)
+    @assert _statecontains(ws, PLiRiVALID)
+    return nothing
 end
 
 ## Scalar getters
@@ -181,7 +294,7 @@ function γ²!(ws, eq, q, regularizer)
 end
 
 """
-    γ²!(ws, eq, q, regularizer)
+    δ²!(ws, eq, q, regularizer)
 
 Calculate the regularizer ``δ²``
 
@@ -209,98 +322,6 @@ Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, q) *
 The arguments are the same as for `P!`
 """
 E!(ws, eq, q, regularizer) = _hsn(Q!(ws, eq, q), _PLiRi!(ws, eq, q, regularizer))
-
-## Parameter setters
-## =================
-function _set_ensemble!(ws::Workspace{<:Any,E}, ensemble::E) where {E}
-    (ws.ensemble == ensemble) && return nothing
-    if size(ws.ensemble) != size(ensemble)
-        throw(ArgumentError("new ensemble size does not match workspace"))
-    end
-    ws.state &= CLEARED
-    ws.ensemble = ensemble
-    return nothing
-end
-
-function _set_z!(ws::Workspace, z)
-    (ws.z == z) && return nothing
-    ws.state &= CLEARED
-    ws.z = z
-    return nothing
-end
-
-function _set_μq!(ws::Workspace, μq)
-    (ws.μq == μq) && return nothing
-    ws.state &= G0iSET
-    ws.μq = μq
-    return nothing
-end
-
-function _set_normalizeQ!(ws::Workspace, normalizeQ)
-    (ws.normalizeQ == normalizeQ) && return nothing
-    ws.state &= G0iSET & QSET
-    ws.normalizeQ = normalizeQ
-    return nothing
-end
-
-function _set_regularizer!(ws::Workspace, regularizer)
-    (ws.regularizer == regularizer) && return nothing
-    ws.state &= G0iSET & QSET & QQhSET
-    ws.regularizer = regularizer
-    return nothing
-end
-
-## Matrix refreshers
-## =================
-function _refresh_G0i!(ws)
-    (!iszero(ws.state & G0iSET)) && return nothing
-    ws.G0i = _muladd!!(ws.G0i, ws.z, ws.ensemble.LiRi, _mapped(-, ws.ensemble.LiMRi))
-    if !(ws.Q isa DiagonalOrUniform)
-        ws.Q = _copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
-    end
-    ws.state |= G0iSET
-    return nothing
-end
-
-function _refresh_Q!(ws)
-    (!iszero(ws.state & QSET)) && return nothing
-    ws.Q = _muladd_diag!!(ws.Q, -ws.μq, ws.ensemble.T, ws.G0i)
-    ws.state |= QSET
-    return nothing
-end
-
-function _refresh_QQh!(ws)
-    (!iszero(ws.state & QQhSET)) && return nothing
-    ws.QQh = psdmul!!(ws.QQh, ws.Q)
-    if !(ws.Q isa DiagonalOrUniform) && ws.normalizeQ
-        half = one(real(eltype(ws.QQh))) / 2
-        ws.QQh = psdmul!!(ws.QQh, ws.Q', half, half)
-    end
-    ws.s²min = eigmin!!(ws.Pifact, ws.QQh)
-    ws.state |= QQhSET
-    return nothing
-end
-
-function _refresh_Pifact!(ws)
-    (!iszero(ws.state & PifactSET)) && return nothing
-    ws.Pifact = decompose!!(ws.Pifact, ws.QQh; shift=γ²(ws.regularizer, ws.s²min))
-    ws.state |= PifactSET
-    return nothing
-end
-
-function _refresh_P!(ws)
-    (!iszero(ws.state & PSET)) && return nothing
-    ws.P = invert!!(ws.P, ws.Pifact)
-    ws.state |= PSET
-    return nothing
-end
-
-function _refresh_PLiRi!(ws)
-    (!iszero(ws.state & PLiRiSET)) && return nothing
-    ws.PLiRi = ldiv!!(ws.Pifact, _copy!!(ws.PLiRi, ws.ensemble.LiRi))
-    ws.state |= PLiRiSET
-    return nothing
-end
 
 ## Array arithmetic helpers
 ## ========================
