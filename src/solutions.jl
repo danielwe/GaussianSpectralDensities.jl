@@ -1,63 +1,45 @@
-abstract type AbstractSpectralSolution{R<:Real} end
+"""
+    LocalResolventSolution(problem::AbstractLocalResolventProblem, q, γ², δ², k, E)
+    LocalResolventSolution{F}(problem, q, γ², δ², k, E)
 
-struct BareSpectralSolution{R} <: AbstractSpectralSolution{R}
-    μ::MissingOr{R}
-    q::MissingOr{Complex{R}}
-    γ²::MissingOr{R}
-    δ²::MissingOr{R}
-    k::MissingOr{R}
-    r::MissingOr{Complex{R}}
+Represent a solution of an averaged resolvent equation at a point in the complex plane
+
+The constructor does not verify that the parameters form a consistent solution of the given
+problem. Use the function `eqsolve!` to obtain a consistent `LocalResolventSolution`.
+
+# Arguments
+
+- `problem`: the averaged resolvent equation problem
+- `q`: value of the self-consistently determined parameter ``q``
+- `γ²`: value of the regularizing parameter ``γ²``
+- `δ²`: value of the regularizing parameter ``δ²``
+- `k`: value of the normalized trace ``\\tr[(QQ^† + γ²I)⁻¹] / N``.
+- `E`: value of the normalized trace of the resolvent ``\\tr[Q^†(QQ^† + γ²I)⁻¹] / N``
+"""
+struct LocalResolventSolution{F,P<:AbstractLocalResolventProblem{F}}
+    problem::P
+    q::Complex{F}
+    regularizer::Regularizer{F}
+    γ²::F
+    δ²::F
+    k::F
+    E::Complex{F}
+
+    function LocalResolventSolution{F}(problem, q, regularizer, γ², δ², k, E) where {F}
+        problem = adapt(F, problem)
+        return new{F,typeof(problem)}(problem, q, regularizer, γ², δ², k, E)
+    end
 end
 
-function BareSpectralSolution(ws, objective, z, q)
-    return BareSpectralSolution(
-        objective.μ,
-        q,
-        γ²!(ws, objective, z, q),
-        δ²!(ws, objective, z, q),
-        k!(ws, objective, z, q),
-        r!(ws, objective, z, q),
-    )
+function LocalResolventSolution(
+    problem::AbstractLocalResolventProblem{F}, q, regularizer, γ², δ², k, E
+) where {F}
+    return LocalResolventSolution{F}(problem, q, regularizer, γ², δ², k, E)
 end
 
-function BareSpectralSolution(objective::Fixk)
-    return BareSpectralSolution(
-        objective.μ, missing, missing, missing, objective.value, missing
-    )
+function Base.convert(
+    ::Type{P}, s::Q
+) where {F,P<:LocalResolventSolution{F},Q<:LocalResolventSolution}
+    (s isa P) && return s
+    return LocalResolventSolution{F}(s.problem, s.q, s.regularizer, s.γ², s.δ², s.k, s.E)
 end
-
-function BareSpectralSolution(objective::Fixγ²)
-    return BareSpectralSolution(
-        objective.μ, missing, objective.value, missing, missing, missing
-    )
-end
-
-function BareSpectralSolution(objective::Fixδ²)
-    return BareSpectralSolution(
-        objective.μ, missing, missing, objective.value, missing, missing
-    )
-end
-
-const SpectralTrace{R} = StructVector{BareSpectralSolution{R}}
-
-@generated function empty_trace(::Type{R}) where {R}
-    etr = SpectralTrace{R}(undef, 0)
-    return :($etr)
-end
-
-struct SpectralSolution{R} <: AbstractSpectralSolution{R}
-    μ::MissingOr{R}
-    q::MissingOr{Complex{R}}
-    γ²::MissingOr{R}
-    δ²::MissingOr{R}
-    k::MissingOr{R}
-    r::MissingOr{Complex{R}}
-    algorithm::Algorithm{R}
-    trace::SpectralTrace{R}
-end
-
-function SpectralSolution(sol::BareSpectralSolution, algorithm, trace)
-    return SpectralSolution(sol.μ, sol.q, sol.γ², sol.δ², sol.k, sol.r, algorithm, trace)
-end
-
-const GlobalSpectralSolution{R} = StructArray{SpectralSolution{R}}

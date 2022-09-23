@@ -3,6 +3,7 @@ using GaussianSpectralDensities: DEFAULTS, adapt, γ², δ²
 using GaussianSpectralDensities: Regularizer, LocalResolventEquation
 using GaussianSpectralDensities: LocalQProblem, LocalQRegularizerProblem
 using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, qrhs!, γ²!, δ²!, k!, E!
+using GaussianSpectralDensities: LocalResolventSolution, eqsolve!
 using GaussianSpectralDensities: psdmul!!, decompose, decompose!!, ldiv, ldiv!!
 using GaussianSpectralDensities: invert, invert!!, eigmin!!
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
@@ -237,56 +238,74 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test adapt(Float64, roF) === ro
         end
     end
-    @testset "problems" begin
+    @testset "problems/solutions" begin
         ensemble, z, μ, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, 1.0, false
-        k, rkind, rvalue, q0 = 1.0, :δ, 0.5, complex(eps())
+        k, rkind, rvalue, q0, E = 1.0, :δ, 0.5, complex(eps()), 0.5 - im
         regularizer = Regularizer(rkind, rvalue)
 
         eq = LocalResolventEquation(ensemble, z, μ, normalizeQ)
         qproblem = LocalQProblem(eq, regularizer, q0)
         qrproblem = LocalQRegularizerProblem(eq, k, q0, regularizer)
+        solution = LocalResolventSolution(qproblem, q0, regularizer, rvalue, rvalue, k, E)
 
         # Traits
         @test eq isa LocalResolventEquation{Float64}
         @test qproblem isa LocalQProblem{Float64}
         @test qrproblem isa LocalQRegularizerProblem{Float64}
+        @test solution isa LocalResolventSolution{Float64}
 
-        @testset "$F" for (F, (zF, μF, kF, rvalueF, q0F)) in floattypes(z, μ, k, rvalue, q0)
+        @testset "$F" for (
+            F, (zF, μF, kF, rvalueF, q0F, EF)
+        ) in floattypes(z, μ, k, rvalue, q0, E)
             ensembleF = MatrixEnsemble{F}(I, I, I, I)
             regularizerF = Regularizer(rkind, rvalueF)
 
             eqF = LocalResolventEquation(ensembleF, zF, μF, normalizeQ)
             qproblemF = LocalQProblem(eqF, regularizerF, q0F)
             qrproblemF = LocalQRegularizerProblem(eqF, kF, q0F, regularizerF)
+            solutionF = LocalResolventSolution(
+                qproblemF, q0F, regularizerF, rvalueF, rvalueF, kF, EF
+            )
 
             # Floattype inferring constructor
             @test eqF isa LocalResolventEquation{F}
             @test qproblemF isa LocalQProblem{F}
             @test qrproblemF isa LocalQRegularizerProblem{F}
+            @test solutionF isa LocalResolventSolution{F}
 
             # Floattype enforcing constructor
             @test LocalResolventEquation{F}(ensemble, z, μ, normalizeQ) === eqF
             @test LocalQProblem{F}(eq, regularizer, q0) === qproblemF
             @test LocalQRegularizerProblem{F}(eq, k, q0, regularizer) === qrproblemF
+            @test LocalResolventSolution{F}(
+                qproblem, q0, regularizer, rvalue, rvalue, k, E
+            ) === solutionF
             @test LocalResolventEquation{Float64}(ensembleF, zF, μF, normalizeQ) === eq
             @test LocalQProblem{Float64}(eqF, regularizerF, q0F) === qproblem
             @test LocalQRegularizerProblem{Float64}(
                 eqF, kF, q0F, regularizerF
             ) === qrproblem
+            @test LocalResolventSolution{Float64}(
+                qproblemF, q0F, regularizerF, rvalueF, rvalueF, kF, EF
+            ) === solution
 
             # Floattype conversions
             @test convert(LocalResolventEquation{F}, eq) === eqF
             @test convert(LocalQProblem{F}, qproblem) === qproblemF
             @test convert(LocalQRegularizerProblem{F}, qrproblem) === qrproblemF
+            @test convert(LocalResolventSolution{F}, solution) === solutionF
             @test convert(LocalResolventEquation{Float64}, eqF) === eq
             @test convert(LocalQProblem{Float64}, qproblemF) === qproblem
             @test convert(LocalQRegularizerProblem{Float64}, qrproblemF) === qrproblem
+            @test convert(LocalResolventSolution{Float64}, solutionF) === solution
             @test adapt(F, eq) === eqF
             @test adapt(F, qproblem) === qproblemF
             @test adapt(F, qrproblem) === qrproblemF
+            @test adapt(F, solution) === solutionF
             @test adapt(Float64, eqF) === eq
             @test adapt(Float64, qproblemF) === qproblem
             @test adapt(Float64, qrproblemF) === qrproblem
+            @test adapt(Float64, solutionF) === solution
         end
 
         # Sanity checks: μ ∈ [0, 1]
@@ -420,6 +439,54 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                 workspace_tests(F, MatrixEnsemble{F}(I, A, I, I))
                 workspace_tests(F, MatrixEnsemble{F}(I, I, A, I))
                 workspace_tests(F, MatrixEnsemble{F}(I, I, I, D))
+            end
+        end
+    end
+    @testset "eqsolve" begin
+        function eqsolve_tests!(F, ws, problem)
+            tol = eps(F)^convert(F, 3 // 4)
+            sol = eqsolve!(ws, problem)
+            @test sol.problem === problem
+            if problem isa LocalQProblem
+                @test sol.regularizer === problem.regularizer
+            elseif problem isa LocalQRegularizerProblem
+                @test sol.k === problem.k
+            end
+            @test sol.q ≈ qrhs!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
+            @test sol.γ² ≈ γ²!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
+            @test sol.δ² ≈ δ²!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
+            @test sol.k ≈ k!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
+            @test sol.E ≈ E!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
+        end
+
+        Adata, Ddata = ComplexF64[1 0.1im; 0 -1], Diagonal([0.75, 0.25])
+        z_, μ_, γ²value_, δ²value_ = complex(0.8), 0.5, 100.0, 100.0
+        k_, q0_ = 0.01, DEFAULTS.q0
+        @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)
+            @testset "$F" for (
+                F, (z, μ, γ²value, δ²value, k, q0)
+            ) in floattypes(z_, μ_, γ²value_, δ²value_, k_, q0_)
+                γ², δ² = Regularizer(:γ, γ²value), Regularizer(:δ, δ²value)
+                @testset "$args" for (args, ensemble) in (
+                    ("(I, I, I, I)", MatrixEnsemble{F}(I, I, I, I)),
+                    ("(A, I, I, I)", MatrixEnsemble{F}(A, I, I, I)),
+                    ("(I, A, I, I)", MatrixEnsemble{F}(I, A, I, I)),
+                    ("(I, I, A, I)", MatrixEnsemble{F}(I, I, A, I)),
+                    ("(I, I, I, D)", MatrixEnsemble{F}(I, I, I, D)),
+                )
+                    ws = Workspace(ensemble)
+                    eq = LocalResolventEquation(ensemble, z, μ, false)
+                    eqn = LocalResolventEquation(ensemble, z, μ, true)
+
+                    eqsolve_tests!(F, ws, LocalQProblem(eq, γ², q0))
+                    eqsolve_tests!(F, ws, LocalQProblem(eq, δ², q0))
+                    eqsolve_tests!(F, ws, LocalQProblem(eqn, γ², q0))
+                    eqsolve_tests!(F, ws, LocalQProblem(eqn, δ², q0))
+                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eq, k, q0, γ²))
+                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eq, k, q0, δ²))
+                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eqn, k, q0, γ²))
+                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eqn, k, q0, δ²))
+                end
             end
         end
     end
@@ -706,14 +773,14 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
 
             @testset "$F" for (F, (x0,)) in floattypes(x0value)
                 # finite_difference_jacobian
+                rtol = eps(F)^convert(F, 2 // 5)
                 fx0 = f(x0)
                 dfx0 = df(x0, fx0)
-                rtol = eps(F)^convert(F, 0.4)
                 @test finite_difference_jacobian(f, x0, fx0) ≈ dfx0 rtol=rtol
                 @test finite_difference_jacobian(f, x0) ≈ dfx0 rtol=rtol
 
                 # newton
-                atol = sqrt(eps(F)) / 2
+                atol = eps(F)^convert(F, 3 // 4)
                 @test norm(f(first(newton(f, x0)))) < atol
                 @test norm(f(first(newton(f, df, x0)))) < atol
 
@@ -737,14 +804,14 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
 
             @testset "$F" for (F, (x0,)) in floattypes(x0value)
                 # finite_difference_jacobian
+                rtol = eps(F)^convert(F, 2 // 5)
                 gx0 = g(x0)
                 jgx0 = jg(x0, gx0)
-                rtol = eps(F)^convert(F, 0.4)
                 @test finite_difference_jacobian(g, x0, gx0) ≈ jgx0 rtol=rtol
                 @test finite_difference_jacobian(g, x0) ≈ jgx0 rtol=rtol
 
                 # newton
-                atol = sqrt(eps(F)) / 2
+                atol = eps(F)^convert(F, 3 // 4)
                 normalizednorm(y) = norm(y) / sqrt(length(y))
                 @test normalizednorm(g(first(newton(g, x0)))) < atol
                 @test normalizednorm(g(first(newton(g, jg, x0)))) < atol

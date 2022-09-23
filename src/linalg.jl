@@ -286,7 +286,8 @@ The factorization object `F` may be updated in-place or remain unused, depending
 of `A`. The appropriate type of `F` is the return type of `decompose(A)`.
 """
 function eigmin!!(F, A::Hermitian)
-    schur, history = partialschur(_invmap!(F, A); nev=1, which=LM(), tol=_eigmin_reltol(A))
+    Ai = _invmap!(F, A)
+    schur, history = partialschur(Ai; nev=1, which=LM(), tol=_eigmin_reltol(Ai))
     (history.nconverged >= 1) || error("smallest eigenvalue not found: did not converge")
     return inv(real(first(schur.eigenvalues)))
 end
@@ -295,7 +296,7 @@ eigmin!!(F, A::Diagonal{<:Real}) = minimum(A.diag)
 eigmin!!(F, A::UniformScaling{<:Real}) = A.λ
 eigmin!!(F, A::Immutable) = eigmin(A)
 
-_eigmin_reltol(::Type{T}) where {T} = eps(real(T))^(2//3)
+_eigmin_reltol(::Type{T}) where {T} = (eps(real(T))^(3 // 4)) * (oneunit(real(T))^(1 // 4))
 _eigmin_reltol(x) = _eigmin_reltol(eltype(x))
 
 function _invmap!(F::Cholesky{E}, A::Hermitian{E,<:StridedMatrix}) where {E}

@@ -17,7 +17,7 @@ implementation currently supports `x isa Real` and `x isa SVector` from `StaticA
 The keyword argument `atol` sets the tolerance for what's considered a scalar zero. For
 a vector `y` this is scaled by `sqrt(length(y))` and compared with the 2-norm, i.e., the
 criterion for `f(x)` to be considered zero is `norm(f(x)) < atol * sqrt(length(f(x)))`. The
-default value is `atol=sqrt(eps(T) * oneunit(T)) / 2` where `T = eltype(x)` (the `oneunit`
+default value is `atol=eps(T)^0.75 * oneunit(T)^0.25` where `T = eltype(x)` (the `oneunit`
 ensures dimensional consistency in case `T` is a dimensionful type).
 
 A `NewtonException` is thrown after `maxiters` iterations without convergence.
@@ -40,8 +40,8 @@ function newton(f, jac, x; atol=_atol(eltype(x)), maxiters=999)
     throw(NewtonException("failed to converge after maxiters=$maxiters iterations"))
 end
 
-_approxzero(y, atol) = (sum(abs2, y) < length(y) * atol^2)
-_atol(T) = sqrt(eps(T) * oneunit(T)) / 2  # oneunit for dimensional consistency
+_approxzero(y, atol) = (sqrt(sum(abs2, y) / length(y)) < atol)
+_atol(T) = (eps(T)^(3 // 4)) * (oneunit(T)^(1 // 4))
 
 """
     finite_difference_jacobian(f, x::Real, fx=f(x))
