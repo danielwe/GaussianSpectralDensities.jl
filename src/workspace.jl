@@ -39,7 +39,7 @@ mutable struct Workspace{
         regularizer = convert(Regularizer{F}, first(DEFAULTS.rschedule))
         G0i = muladd(z, ensemble.LiRi, _neg(ensemble.LiMRi))
         Q = muladd(-μq, ensemble.T, G0i)
-        QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
+        QQh = psdmul(Q)
         Pifact = decompose(QQh)
         s²min = eigmin!!(Pifact, QQh)
         Pifact = decompose!!(Pifact, QQh; shift=γ²(regularizer, s²min))

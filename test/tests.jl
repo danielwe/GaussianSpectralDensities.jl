@@ -4,7 +4,7 @@ using GaussianSpectralDensities: Regularizer, LocalResolventEquation
 using GaussianSpectralDensities: LocalQProblem, LocalQRegularizerProblem
 using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, qrhs!, γ²!, δ²!, k!, E!
 using GaussianSpectralDensities: LocalResolventSolution, eqsolve!
-using GaussianSpectralDensities: psdmul!!, decompose, decompose!!, ldiv!!
+using GaussianSpectralDensities: psdmul, psdmul!!, decompose, decompose!!, ldiv!!
 using GaussianSpectralDensities: invert, invert!!, eigmin!!
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
@@ -633,7 +633,9 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
 
             @test eigmin!!(F, A) ≈ Aeigmin_true
 
-            H = psdmul!!(deepcopy(A), X)
+            H = psdmul(X)
+            @test H ≈ X * X'
+            H = psdmul!!(H, X)
             @test H ≈ X * X'
             α, β = convert.(real(eltype(X)), (0.25, 1.33))
             H = psdmul!!(H, X', α, β)

@@ -1,6 +1,14 @@
 ## Positive semidefinite matrix multiplication
 ## ===========================================
 """
+    psdmul(A)
+
+Compute `A * A'` and return as an appropriate type
+"""
+psdmul(A) = Hermitian(A * A')
+psdmul(A::Diagonal) = Diagonal(abs2.(A.diag))
+
+"""
     psdmul!!(H, A)
 
 Compute `A * A'`, overwriting and returning `H` if possible as per `psdmul!!(H, A, α, β)`
