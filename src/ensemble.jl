@@ -1,3 +1,6 @@
+const _AbstractMatrixOrUniform{F} = Union{<:AbstractMatrix{F},UniformScaling{F}}
+const _RealOrComplex{F<:Real} = Union{F,Complex{F}}
+
 # TODO: consider generalizations where M, L, R can be LinearMaps etc.
 """
     MatrixEnsemble(M, L, R, T)
@@ -14,19 +17,18 @@ All of ``M, L, R`` must be square and of the same size, or `UniformScaling`. In 
 """
 struct MatrixEnsemble{
     F<:AbstractFloat,
-    TM<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
-    TL<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
-    TR<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
+    TM<:_AbstractMatrixOrUniform{<:_RealOrComplex{F}},
+    TL<:_AbstractMatrixOrUniform{<:_RealOrComplex{F}},
+    TR<:_AbstractMatrixOrUniform{<:_RealOrComplex{F}},
     TT<:DiagonalOrUniform{F},
-    TLiRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
-    TLiMRi<:AbstractMatrixOrUniform{<:RealOrComplex{F}},
+    TC<:AbstractMatrix{<:_RealOrComplex{F}},
 }
     M::TM
     L::TL
     R::TR
     T::TT
-    LiRi::TLiRi
-    LiMRi::TLiMRi
+    LiRi::TC
+    LiMRi::TC
 
     function MatrixEnsemble{F}(M, L, R, T) where {F}
         sizes = NamedTuple(
@@ -55,9 +57,9 @@ struct MatrixEnsemble{
         end
         M, L, R = _floatconvert.(F, (M, L, R))
         T = _floatconvert(F, T)  # Always real
-        LiRi = _floatconvert(F, ldiv(R * L, I))
-        LiMRi = _floatconvert(F, _rdiv(ldiv(L, M), R))
-        return new{F,typeof.((M, L, R, T, LiRi, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
+        LiMRi = _sized(_floatconvert(F, _rdiv(_ldiv(L, M), R)), T)
+        LiRi = _sized(_floatconvert(F, _ldiv(R * L, I)), LiMRi)
+        return new{F,typeof.((M, L, R, T, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
     end
 end
 
@@ -65,12 +67,7 @@ MatrixEnsemble(M, L, R, T) = MatrixEnsemble{_floattype(M, L, R, T)}(M, L, R, T)
 
 ## Traits, comparisons, conversions
 ## ================================
-function Base.size(e::MatrixEnsemble)
-    for A in (e.M, e.L, e.R, e.T)
-        applicable(size, A) && return size(A)
-    end
-    return (0, 0)
-end
+Base.size(e::MatrixEnsemble) = size(e.LiMRi)
 
 function Base.:(==)(a::E, b::E) where {E<:MatrixEnsemble}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
@@ -111,4 +108,15 @@ end
 
 _elconvert(::Type{E}, A::UniformScaling) where {E} = UniformScaling(convert(E, A.λ))
 
-_rdiv(A, R) = transpose(ldiv(transpose(R), transpose(A)))
+_ldiv(L, A) = L \ A
+_ldiv(L::AnySMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue
+_ldiv(L::SparseMatrixCSC, A::UniformScaling) = L \ A(size(L, 1))
+
+_rdiv(A, R) = A / R
+_rdiv(A::UniformScaling, R::AnySMatrix) = SMatrix{size(R, 2),size(R, 2)}(A) / R  # should file issue
+_rdiv(A::UniformScaling, R::SparseMatrixCSC) = A(size(R, 2)) / R
+
+_sized(A::UniformScaling, T::UniformScaling) = Diagonal(SVector{1}(A.λ))
+_sized(A::UniformScaling, T::AnySArray) = Diagonal(@SVector fill(A.λ, size(T, 1)))
+_sized(A::UniformScaling, T) = Diagonal(fill(A.λ, size(T, 1)))
+_sized(A, T) = A

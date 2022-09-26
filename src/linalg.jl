@@ -27,7 +27,6 @@ end
 """
     psdmul!!(H::Hermitian{<:Any,<:SMatrix}, A, α, β)
     psdmul!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β)
-    psdmul!!(H::UniformScaling{<:Real}, A::UniformScaling, α, β)
 
 Return `α * A * A' + β * H`
 """
@@ -39,12 +38,8 @@ function psdmul!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β)
     return Diagonal(α * abs2.(A.diag) + β * H.diag)
 end
 
-function psdmul!!(H::UniformScaling{<:Real}, A::UniformScaling, α, β)
-    return UniformScaling(α * abs2(A.λ) + β * H.λ)
-end
-
-## Decomposition and inversion
-## ===========================
+## Decomposition
+## =============
 """
     decompose(A::Hermitian{E}; shift=zero(E)) where {E}
 
@@ -68,11 +63,11 @@ decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = ldlt(A; kwargs...)
 
 """
 
-    decompose(A::Union{<:Diagonal{E},UniformScaling{E}}; shift=zero(E)) where {E}
+    decompose(A::Diagonal{E}; shift=zero(E)) where {E}
 
 Return `A + shift * I`
 """
-function decompose(A::DiagonalOrUniform{E}; shift=zero(E)) where {E}
+function decompose(A::Diagonal{E}; shift=zero(E)) where {E}
     return A + convert(E, shift) * I
 end
 
@@ -126,7 +121,6 @@ function decompose!!(F::Diagonal{E}, A::Diagonal{E}; shift=zero(E)) where {E}
 end
 
 """
-    decompose!!(F::UniformScaling{E}, A::UniformScaling{E}; kwargs...) where {E}
     decompose!!(F::Cholesky{E,<:SMatrix}, A::Hermitian{E,<:SMatrix}; kwargs...) where {E}
     decompose!!(F::Diagonal{E,<:SMatrix}, A::Diagonal{E,<:SMatrix}; kwargs...) where {E}
 
@@ -135,10 +129,6 @@ Return `A + shift * I`
 Ignores `F` and forwards the call to `decompose(A; kwargs...)`. This provides a generic
 factorization updating interface that also covers immutable factorization types.
 """
-function decompose!!(F::UniformScaling{E}, A::UniformScaling{E}; kwargs...) where {E}
-    return decompose(A; kwargs...)
-end
-
 function decompose!!(
     F::Cholesky{E,<:SMatrix}, A::Hermitian{E,<:SMatrix}; kwargs...
 ) where {E}
@@ -151,6 +141,19 @@ function decompose!!(
     return decompose(A; kwargs...)
 end
 
+# Decomposition helpers
+# ---------------------
+_check_shift(shift) = iszero(imag(shift)) || throw(DomainError("shift must be real"))
+
+function _shift_diag!(A, shift)
+    @inbounds for i in diagind(A)
+        A[i] += shift
+    end
+    return nothing
+end
+
+## Divison and inversion
+## =====================
 """
     ldiv!!(A, B)
 
@@ -159,7 +162,7 @@ Left-divide `A` into `B` in-place such that `B` is overwritten by `A \\ B`, and 
 ldiv!!(A, B) = ldiv!(A, B)
 
 """
-    ldiv!!(A, B::Immutable)
+    ldiv!!(A, B::AnySArray)
     ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B)
 
 Return `A \\ B`
@@ -167,18 +170,8 @@ Return `A \\ B`
 This provides a generic left division interface that also covers cases where the most
 efficient or only option is out-of-place division.
 """
-ldiv!!(A, B::Immutable) = ldiv(A, B)
-ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = ldiv(A, B)
-
-"""
-    ldiv(L, A)
-
-Left division like `L \\ A`, but with consistent support for `A::UniformScaling`
-"""
-ldiv(L, A) = L \ A
-ldiv(L::AnySMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue
-ldiv(L::SparseMatrixCSC, A::UniformScaling) = L \ A(size(L, 1))
-ldiv(L::SuiteSparse.CHOLMOD.Factor, A::UniformScaling) = L \ _uniformdiagm(size(L, 1), A.λ)
+ldiv!!(A, B::AnySArray) = A \ B
+ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = A \ B
 
 """
     invert(F)
@@ -245,7 +238,6 @@ function invert!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
 end
 
 """
-    invert!!(::UniformScaling{E}, F::UniformScaling{E}) where {E}
     invert!!(::Hermitian{E,<:SMatrix}, F::Cholesky{E,<:SMatrix}) where {E}
     invert!!(::Diagonal{E,<:SVector}, F::Cholesky{E,<:SVector}) where {E}
 
@@ -254,26 +246,8 @@ Compute the inverse of `F`
 The call is forwarded to `invert(F)`. This provides a inverse updating interface that also
 covers immutable inverse types.
 """
-invert!!(::UniformScaling{E}, F::UniformScaling{E}) where {E} = invert(F)
 invert!!(::Hermitian{E,<:SMatrix}, F::Cholesky{E,<:SMatrix}) where {E} = invert(F)
 invert!!(::Diagonal{E,<:SVector}, F::Diagonal{E,<:SVector}) where {E} = invert(F)
-
-_check_shift(shift) = iszero(imag(shift)) || throw(DomainError("shift must be real"))
-
-function _shift_diag!(A, shift)
-    @inbounds for i in diagind(A)
-        A[i] += shift
-    end
-    return nothing
-end
-
-function _uniformdiagm(N, λ)
-    M = zeros(typeof(λ), (N, N))
-    @inbounds for i in 1:N
-        M[i, i] = λ
-    end
-    return M
-end
 
 ## Smallest eigenvalue
 ## ==================
@@ -293,8 +267,7 @@ function eigmin!!(F, A::Hermitian)
 end
 
 eigmin!!(F, A::Diagonal{<:Real}) = minimum(A.diag)
-eigmin!!(F, A::UniformScaling{<:Real}) = A.λ
-eigmin!!(F, A::Immutable) = eigmin(A)
+eigmin!!(F, A::AnySArray) = eigmin(A)
 
 _eigmin_reltol(::Type{T}) where {T} = (eps(real(T))^(3 // 4)) * (oneunit(real(T))^(1 // 4))
 _eigmin_reltol(x) = _eigmin_reltol(eltype(x))

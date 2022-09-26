@@ -4,7 +4,7 @@ using GaussianSpectralDensities: Regularizer, LocalResolventEquation
 using GaussianSpectralDensities: LocalQProblem, LocalQRegularizerProblem
 using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, qrhs!, γ²!, δ²!, k!, E!
 using GaussianSpectralDensities: LocalResolventSolution, eqsolve!
-using GaussianSpectralDensities: psdmul!!, decompose, decompose!!, ldiv, ldiv!!
+using GaussianSpectralDensities: psdmul!!, decompose, decompose!!, ldiv!!
 using GaussianSpectralDensities: invert, invert!!, eigmin!!
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
 
@@ -80,7 +80,7 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
 
             # Traits
             @test ensemble isa MatrixEnsemble{Float64}
-            @test size(ensemble) == (0, 0)
+            @test size(ensemble) == (1, 1)
 
             @testset "$F" for F in FLOATTYPES
                 ensembleF = MatrixEnsemble{F}(I, I, I, I)
@@ -341,11 +341,8 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             _inv(A::SparseMatrixCSC) = inv(Matrix(A))
             _hermitian(A) = Hermitian(A)
             _hermitian(A::SparseMatrixCSC) = Hermitian(Matrix(A))
-            _hermitian(A::Union{<:Diagonal,<:UniformScaling}) = real(A)
-            _eigmin(A) = eigmin(A)
-            _eigmin(A::UniformScaling) = A.λ
+            _hermitian(A::Diagonal) = real(A)
             _trn(A) = tr(A) / size(A, 1)
-            _trn(A::UniformScaling) = A.λ
 
             ws = Workspace(ens)
             @test ws isa Workspace{F}
@@ -360,6 +357,9 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             μeqn = LocalResolventEquation(μens, z, 1, true)
 
             G0i = _inv(ens.L) * (z * I - ens.M) * _inv(ens.R)
+            if G0i isa UniformScaling
+                G0i = SMatrix{size(ens)...}(G0i)
+            end
             Q = G0i - q * μ * ens.T
             @test G0i!(ws, eq) ≈ G0i
             @test G0i!(ws, eqn) ≈ G0i
@@ -372,7 +372,7 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
 
             QQh = Q * Q'
             QQhn = (QQh + Q' * Q) / 2
-            s²min, s²minn = _eigmin(_hermitian(QQh)), _eigmin(_hermitian(QQhn))
+            s²min, s²minn = eigmin(_hermitian(QQh)), eigmin(_hermitian(QQhn))
             γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
             γ²valueδ = δ².value - s²min
             δ²valueγ = γ².value + s²min
@@ -622,16 +622,12 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             F = decompose(A)
             Ai = invert(F)
             @test Ai ≈ Ai_true
-            A_B = ldiv(F, B)
-            @test A_B ≈ A_B_true
             A_B = ldiv!!(F, copy(B))
             @test A_B ≈ A_B_true
             F = decompose!!(F, A; shift=shift)
             @test _isequal(F, decompose(A; shift=shift))
             Ai = invert!!(Ai, F)
             @test Ai ≈ Asi_true
-            A_B = ldiv(F, B)
-            @test A_B ≈ As_B_true
             A_B = ldiv!!(F, copy(B))
             @test A_B ≈ As_B_true
 
@@ -646,9 +642,6 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
 
         commondata = (
             shift=0.5,
-            U=2.0I,
-            Ui=0.5I,
-            Usi=0.4I,
             D=Diagonal([1.5, 2.0]),
             Di=Diagonal([2, 1.5] / 3),
             Dsi=Diagonal([0.5, 0.4]),
@@ -658,15 +651,10 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                 F,
                 (
                     shift,
-                    U,
-                    Ui,
-                    Usi,
                     D,
                     Di,
                     Dsi,
                     B,
-                    U_B,
-                    Us_B,
                     D_B,
                     Ds_B,
                     Adata,
@@ -684,8 +672,6 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                     if field === "Real"
                         (
                             B=[1 -1; 1 1],
-                            U_B=[0.5 -0.5; 0.5 0.5],
-                            Us_B=[0.4 -0.4; 0.4 0.4],
                             D_B=[2 -2; 1.5 1.5] / 3,
                             Ds_B=[0.5 -0.5; 0.4 0.4],
                             Adata=[1.5 -1; 1 2],  # deliberate asymmetry, masked in two different ways
@@ -700,8 +686,6 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                     else
                         (
                             B=[(1 + im) -1; 1 (1 - im)],
-                            U_B=[(0.5 + 0.5im) -0.5; 0.5 (0.5 - 0.5im)],
-                            Us_B=[(0.4 + 0.4im) -0.4; 0.4 (0.4 - 0.4im)],
                             D_B=[(2 + 2im) -2; 1.5 (1.5 - 1.5im)] / 3,
                             Ds_B=[(0.5 + 0.5im) -0.5; 0.4 (0.4 - 0.4im)],
                             Adata=[1.5 (-1 + im); (1 + im) 2],  # deliberate ahermiticity
@@ -716,9 +700,6 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                     end
                 )...,
             )
-                @testset "UniformScaling" begin
-                    linalg_tests(U, Ui, U.λ, shift, Usi, B, U_B, Us_B, first(B) * I)
-                end
                 @testset "Diagonal" begin
                     X = Diagonal(B)
                     @testset "Vector" begin

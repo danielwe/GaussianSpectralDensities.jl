@@ -30,9 +30,7 @@ export DirectSolve, RegularizerSchedule, SymmetrySchedule
 
 # const MissingOr{T} = Union{Missing, T}
 
-const AbstractMatrixOrUniform{E} = Union{<:AbstractMatrix{E},UniformScaling{E}}
-const DiagonalOrUniform{E} = Union{<:Diagonal{E},UniformScaling{E}}
-const RealOrComplex{F<:Real} = Union{F,Complex{F}}
+const DiagonalOrUniform{F} = Union{<:Diagonal{F},UniformScaling{F}}
 
 """
     AnySArray
@@ -47,16 +45,6 @@ const AnySArray{N} = Union{
     <:Hermitian{<:Any,<:SArray},  # Adapt.jl#51
 }
 const AnySMatrix = AnySArray{2}
-
-"""
-    Immutable
-
-Union of immutable array-like types of interest in this package
-
-Would love to rely on ArrayInterface.jl instead, but it lacks proper forwarding for
-structured matrices.
-"""
-const Immutable = Union{<:UniformScaling,<:AnySArray}
 
 # include("matrix_utils.jl")
 include("ensemble.jl")

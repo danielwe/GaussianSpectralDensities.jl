@@ -8,12 +8,12 @@ Workspace holding intermediate arrays used to compute the average resolvent from
 mutable struct Workspace{
     F,
     TE<:MatrixEnsemble{F},
-    TG0i<:AbstractMatrixOrUniform{Complex{F}},
-    TQ<:AbstractMatrixOrUniform{Complex{F}},
-    TQQh<:Union{<:DiagonalOrUniform{F},<:Hermitian{Complex{F}}},
-    TPifact<:Union{<:DiagonalOrUniform{F},<:Factorization{<:Complex}},  # factorizations can promote
-    TP<:Union{<:DiagonalOrUniform{F},<:Hermitian{<:Complex}},
-    TPLiRi<:AbstractMatrixOrUniform{<:Number},
+    TG0i<:AbstractMatrix{Complex{F}},
+    TQ<:AbstractMatrix{Complex{F}},
+    TQQh<:Union{<:Diagonal{F},<:Hermitian{Complex{F}}},
+    TPifact<:Union{<:Diagonal{F},<:Factorization{<:Complex}},  # factorizations can promote
+    TP<:Union{<:Diagonal{F},<:Hermitian{<:Complex}},
+    TPLiRi<:AbstractMatrix{<:Number},
 } <: AbstractWorkspace{F}
     ensemble::TE
     z::Complex{F}
@@ -37,14 +37,14 @@ mutable struct Workspace{
         z = zero(Complex{F})
         μq = convert(Complex{F}, DEFAULTS.q0)
         regularizer = convert(Regularizer{F}, first(DEFAULTS.rschedule))
-        G0i = muladd(z, ensemble.LiRi, -ensemble.LiMRi)
+        G0i = muladd(z, ensemble.LiRi, _neg(ensemble.LiMRi))
         Q = muladd(-μq, ensemble.T, G0i)
         QQh = (Q isa DiagonalOrUniform) ? real(Q * Q') : Hermitian(Q * Q')
         Pifact = decompose(QQh)
         s²min = eigmin!!(Pifact, QQh)
         Pifact = decompose!!(Pifact, QQh; shift=γ²(regularizer, s²min))
         P = invert(Pifact)
-        PLiRi = ldiv(Pifact, ensemble.LiRi)
+        PLiRi = Pifact \ ensemble.LiRi
         return new{F,E,typeof.((G0i,Q,QQh,Pifact,P,PLiRi))...}(
             ensemble,
             z,
@@ -117,8 +117,8 @@ end
 
 function _updateG0i!(ws)
     _statecontains(ws, G0iVALID) && return nothing
-    ws.G0i = _muladd!!(ws.G0i, ws.z, ws.ensemble.LiRi, _mapped(-, ws.ensemble.LiMRi))
-    if !(ws.Q isa DiagonalOrUniform)
+    ws.G0i = _muladd!!(ws.G0i, ws.z, ws.ensemble.LiRi, _neg(ws.ensemble.LiMRi))
+    if !(ws.Q isa Diagonal)
         ws.Q = _copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
     end
     _addstate(ws, G0iCURRENT)
@@ -181,7 +181,7 @@ function _updateQQh!(ws)
     _statecontains(ws, QQhVALID) && return nothing
     _updateQ!(ws)
     ws.QQh = psdmul!!(ws.QQh, ws.Q)
-    if !(ws.Q isa DiagonalOrUniform) && ws.normalizeQ
+    if (!(ws.Q isa Diagonal)) && ws.normalizeQ
         half = one(real(eltype(ws.QQh))) / 2
         ws.QQh = psdmul!!(ws.QQh, ws.Q', half, half)
     end
@@ -333,20 +333,11 @@ Overwrite `dest` with the contents of `src` and return `dest`
 _copy!!(dest, src) = copyto!(dest, src)
 
 """
-    _copy!!(::Immutable, src)
+    _copy!!(::AnySArray, src)
 
 Return a copy of `src` 
 """
-_copy!!(::Immutable, src) = deepcopy(src)
-
-"""
-    _mapped(f, A)
-    _mapped(f, A::UniformScaling)
-
-Wrapper for `mappedarray(f, A)` that also works when `A isa UniformScaling`
-"""
-_mapped(f, A) = mappedarray(f, A)
-_mapped(f, A::UniformScaling) = UniformScaling(f(A.λ))
+_copy!!(::AnySArray, src) = deepcopy(src)
 
 """
     _diagview(A)
@@ -357,13 +348,22 @@ _diagview(A) = view(A, diagind(A))
 _diagview(A::Diagonal) = A.diag
 _diagview(A::Union{<:Bidiagonal,<:SymTridiagonal}) = A.dv
 _diagview(A::Tridiagonal) = A.d
-
-"""
-    _diagview(A::UniformScaling)
-
-Return the scalar value of the uniform scaling matrix ``A``
-"""
 _diagview(A::UniformScaling) = A.λ
+
+"""
+   _neg(A)
+
+Return a non-allocating representation of `-A`
+
+Uses `-` for static arrays and `MappedArrays` otherwise, and preserves structured matrix
+types.
+"""
+_neg(A) = mappedarray(-, A)
+_neg(A::SArray) = -A
+_neg(A::Diagonal) = Diagonal(_neg(A.diag))
+_neg(A::Bidiagonal) = Bidiagonal(_neg(A.dv), _neg(A.ev), Symbol(A.uplo))
+_neg(A::SymTridiagonal) = SymTridiagonal(_neg(A.dv), _neg(A.ev))
+_neg(A::Tridiagonal) = Tridiagonal(_neg(A.dl), _neg(A.d), _neg(A.du))
 
 """
     _muladd!!(C, λ::Number, A, B)
@@ -375,33 +375,12 @@ function _muladd!!(C, λ::Number, A, B)
     return C
 end
 
-function _muladd!!(C, λ::Number, A::UniformScaling, B)
-    copyto!(C, B)
-    _muladd_diag!!(C, λ, A, B)  # muladd for accuracy rather than _diagview(C) .+= λ * A.λ
-    return C
-end
-
-function _muladd!!(C, λ::Number, A, B::UniformScaling)
-    C .= λ .* A
-    _muladd_diag!!(C, λ, A, B)  # muladd for accuracy rather than _diagview(C) .+= B.λ
-    return C
-end
-
-function _muladd!!(C, λ::Number, A::UniformScaling, B::UniformScaling)
-    fill!(C, zero(eltype(C)))
-    fill!(_diagview(C), muladd(λ, A.λ, B.λ))
-    return C
-end
-
 """
-    _muladd!!(::Immutable, λ, A, B)
+    _muladd!!(::AnySArray, λ, A, B)
 
 Return ``λA + B``
 """
-_muladd!!(::Immutable, λ::Number, A, B) = muladd(λ, A, B)
-_muladd!!(::Immutable, λ::Number, A::UniformScaling, B) = muladd(λ, A, B)
-_muladd!!(::Immutable, λ::Number, A, B::UniformScaling) = muladd(λ, A, B)
-_muladd!!(::Immutable, λ::Number, A::UniformScaling, B::UniformScaling) = muladd(λ, A, B)
+_muladd!!(::AnySArray, λ::Number, A, B) = muladd(λ, A, B)
 
 """
     _muladd_diag!!(C, λ::Number, A, B)
@@ -414,7 +393,7 @@ function _muladd_diag!!(C, λ::Number, A, B)
 end
 
 """
-    _muladd_diag!!(C::Immutable, λ::Number, A::DiagonalOrUniform, B)
+    _muladd_diag!!(C::AnySArray, λ::Number, A::Union{Diagonal,UniformScaling}, B)
 
 Return ``λA + B``
 
@@ -422,7 +401,7 @@ This is intended as an out-of-place equivalent of the in-place ``_muladd_diag!!`
 implementation. This only makes sense when ``C`` and ``B`` only differ on the diagonal,
 which is the case of interest in this package.
 """
-_muladd_diag!!(::Immutable, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
+_muladd_diag!!(::AnySArray, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
 
 ## Traces and trace inner products
 ## ===============================
@@ -432,7 +411,6 @@ _muladd_diag!!(::Immutable, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A,
 Compute the normalized trace `tr(A) / size(A, 2)`
 """
 _trn(A) = tr(A) / size(A, 2)
-_trn(A::UniformScaling) = A.λ
 
 """
     _hsn(A, B)
@@ -440,13 +418,10 @@ _trn(A::UniformScaling) = A.λ
 Compute the normalized Hilbert-Schmidt inner product `tr(A'B) / size(B, 2)`
 """
 _hsn(A, B) = dot(A, B) / size(B, 2)
-_hsn(A, B::UniformScaling) = dot(_trn(A), B.λ)
-_hsn(A::UniformScaling, B) = dot(A.λ, _trn(B))
-_hsn(A::UniformScaling, B::UniformScaling) = dot(A.λ, B.λ)
 
 """
-    _hsn(T::UniformScaling, A, B)
     _hsn(T::Diagonal, A, B)
+    _hsn(T::UniformScaling, A, B)
 
 Compute the normalized trace `tr(T * A'B) / size(B, 2)`
 
@@ -464,10 +439,6 @@ function _hsn(T::Diagonal, A, B)
     end
     return out / length(T.diag)
 end
-
-_hsn(T::Diagonal, A::UniformScaling, B) = dot(A.λ, _hsn(T', B))
-_hsn(T::Diagonal, A, B::UniformScaling) = B.λ * _hsn(A, T)
-_hsn(T::Diagonal, A::UniformScaling, B::UniformScaling) = _trn(T) * dot(A.λ, B.λ)
 
 _hsn(T::UniformScaling, A, B) = T.λ * _hsn(A, B)
 
