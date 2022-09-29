@@ -275,7 +275,8 @@ function eigmin!!(F, A::Hermitian)
 end
 
 eigmin!!(F, A::Diagonal{<:Real}) = minimum(A.diag)
-eigmin!!(F, A::AnySArray) = eigmin(A)
+eigmin!!(F, A::Diagonal{<:Real,<:SArray}) = minimum(A.diag)  # Ambiguity resolution
+eigmin!!(F, A::AnySMatrix) = eigmin(A)
 
 _eigmin_reltol(::Type{T}) where {T} = (eps(real(T))^(3 // 4)) * (oneunit(real(T))^(1 // 4))
 _eigmin_reltol(x) = _eigmin_reltol(eltype(x))

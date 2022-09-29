@@ -2,7 +2,7 @@ using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt, γ², δ²
 using GaussianSpectralDensities: Regularizer, LocalResolventEquation
 using GaussianSpectralDensities: LocalQProblem, LocalQRegularizerProblem
-using GaussianSpectralDensities: Workspace, G0i!, Q!, P!, qrhs!, γ²!, δ²!, k!, E!
+using GaussianSpectralDensities: Workspace, qrhs!, γ²!, δ²!, k!, E!
 using GaussianSpectralDensities: LocalResolventSolution, eqsolve!
 using GaussianSpectralDensities: psdmul, psdmul!!, decompose, decompose!!, ldiv!!
 using GaussianSpectralDensities: invert, invert!!, eigmin!!
@@ -52,7 +52,7 @@ _sarray(A::AbstractMatrix) = SMatrix{size(A)...}(A)
 _sarray(D::Diagonal) = Diagonal(SVector{length(D.diag)}(D.diag))
 
 _sparse(A) = sparse(A)
-_sparse(D::Diagonal) = Diagonal(sparse(D.diag))
+_sparse(D::Diagonal) = D
 
 ## Test guidelines
 ## ===============
@@ -96,7 +96,12 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             end
         end
 
-        Adata, Ddata = complex.([1.0 -1.0; 1.0 1.0]), Diagonal([0.75, 0.25])
+        function _isapprox(a::E, b::E) where {E<:MatrixEnsemble}
+            return all(p -> getproperty(a, p) ≈ getproperty(b, p), propertynames(a))
+        end
+
+        Adata = ComplexF64[1.0 -1.0; 1.0 1.0]
+        Ddata = Diagonal(ComplexF64[0.75, 0.25 * cis(pi / 3)])
         N = length(Ddata.diag)
         @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)
             ensembles = [
@@ -122,34 +127,46 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
                 @test all(e -> e isa MatrixEnsemble{F}, ensemblesF)
 
                 # Floattype enforcing constructor
-                @test MatrixEnsemble{F}(A, I, I, I) == ensemblesF[1]
-                @test MatrixEnsemble{F}(I, A, I, I) == ensemblesF[2]
-                @test MatrixEnsemble{F}(I, I, A, I) == ensemblesF[3]
-                @test MatrixEnsemble{F}(I, I, I, D) == ensemblesF[4]
-                @test MatrixEnsemble{Float64}(AF, I, I, I) == ensembles[1]
-                @test MatrixEnsemble{Float64}(I, AF, I, I) == ensembles[2]
-                @test MatrixEnsemble{Float64}(I, I, AF, I) == ensembles[3]
-                @test MatrixEnsemble{Float64}(I, I, I, DF) == ensembles[4]
+                @test _isapprox(MatrixEnsemble{F}(A, I, I, I), ensemblesF[1])
+                @test _isapprox(MatrixEnsemble{F}(I, A, I, I), ensemblesF[2])
+                @test _isapprox(MatrixEnsemble{F}(I, I, A, I), ensemblesF[3])
+                @test _isapprox(MatrixEnsemble{F}(I, I, I, D), ensemblesF[4])
+                @test _isapprox(MatrixEnsemble{Float64}(AF, I, I, I), ensembles[1])
+                @test _isapprox(MatrixEnsemble{Float64}(I, AF, I, I), ensembles[2])
+                @test _isapprox(MatrixEnsemble{Float64}(I, I, AF, I), ensembles[3])
+                @test _isapprox(MatrixEnsemble{Float64}(I, I, I, DF), ensembles[4])
 
                 # Floattype conversions
-                @test all(
-                    ((e, eF),) -> convert(MatrixEnsemble{F}, e) == eF,
-                    zip(ensembles, ensemblesF),
+                @test _isapprox(convert(MatrixEnsemble{F}, ensembles[1]), ensemblesF[1])
+                @test _isapprox(convert(MatrixEnsemble{F}, ensembles[2]), ensemblesF[2])
+                @test _isapprox(convert(MatrixEnsemble{F}, ensembles[3]), ensemblesF[3])
+                @test _isapprox(convert(MatrixEnsemble{F}, ensembles[4]), ensemblesF[4])
+                @test _isapprox(
+                    convert(MatrixEnsemble{Float64}, ensemblesF[1]), ensembles[1]
                 )
-                @test all(
-                    ((e, eF),) -> convert(MatrixEnsemble{Float64}, eF) == e,
-                    zip(ensembles, ensemblesF)
+                @test _isapprox(
+                    convert(MatrixEnsemble{Float64}, ensemblesF[2]), ensembles[2]
                 )
-                @test all(((e, eF),) -> adapt(F, e) == eF, zip(ensembles, ensemblesF))
-                @test all(((e, eF),) -> adapt(Float64, eF) == e, zip(ensembles, ensemblesF))
+                @test _isapprox(
+                    convert(MatrixEnsemble{Float64}, ensemblesF[3]), ensembles[3]
+                )
+                @test _isapprox(
+                    convert(MatrixEnsemble{Float64}, ensemblesF[4]), ensembles[4]
+                )
+                @test _isapprox(adapt(F, ensembles[1]), ensemblesF[1])
+                @test _isapprox(adapt(F, ensembles[2]), ensemblesF[2])
+                @test _isapprox(adapt(F, ensembles[3]), ensemblesF[3])
+                @test _isapprox(adapt(F, ensembles[4]), ensemblesF[4])
+                @test _isapprox(adapt(Float64, ensemblesF[1]), ensembles[1])
+                @test _isapprox(adapt(Float64, ensemblesF[2]), ensembles[2])
+                @test _isapprox(adapt(Float64, ensemblesF[3]), ensembles[3])
+                @test _isapprox(adapt(Float64, ensemblesF[4]), ensembles[4])
             end
         end
 
         # Sanity checks
-        @test_throws ArgumentError MatrixEnsemble(I, I, I, real(Adata))  # T not diagonal
-        @test_throws ArgumentError MatrixEnsemble(I, I, I, complex(Ddata))  # T not real
-        @test_throws ArgumentError MatrixEnsemble(I, I, I, 2I)  # T not in unit interval
-        @test_throws ArgumentError MatrixEnsemble(I, I, I, -I)  # T not in unit interval
+        @test_throws ArgumentError MatrixEnsemble(I, I, I, Adata)  # T not diagonal
+        @test_throws ArgumentError MatrixEnsemble(I, I, I, 2im * I)  # T not in unit disc
         @test_throws DimensionMismatch MatrixEnsemble(Adata, I(N + 1), I, I)
         @test_throws DimensionMismatch MatrixEnsemble(Adata, I, I(N + 1), I)
         @test_throws DimensionMismatch MatrixEnsemble(Adata, I, I, I(N + 1))
@@ -336,7 +353,7 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
     end
     =#
     @testset "Workspace" begin
-        function workspace_tests(F, ens)
+        function workspace_tests(F, M, L, R, T)
             _inv(A) = inv(A)
             _inv(A::SparseMatrixCSC) = inv(Matrix(A))
             _hermitian(A) = Hermitian(A)
@@ -344,36 +361,29 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             _hermitian(A::Diagonal) = real(A)
             _trn(A) = tr(A) / size(A, 1)
 
+            M, L, R, T = floatconvert.(F, (M, L, R, T))
+            ens = MatrixEnsemble(M, L, R, T)
             ws = Workspace(ens)
             @test ws isa Workspace{F}
 
             z, q = convert.(Complex{F}, (-(im + 2) / 4, (1 - im) / 2))
+            γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
             μ = convert(F, 2 // 3)
-            μens = MatrixEnsemble{F}(ens.M, ens.L, ens.R, μ * ens.T)
+            μens = MatrixEnsemble(M, L, R, μ * T)
 
             eq = LocalResolventEquation(ens, z, μ, false)
             eqn = LocalResolventEquation(ens, z, μ, true)
             μeq = LocalResolventEquation(μens, z, 1, false)
             μeqn = LocalResolventEquation(μens, z, 1, true)
 
-            G0i = _inv(ens.L) * (z * I - ens.M) * _inv(ens.R)
+            G0i = _inv(L) * (z * I - M) * _inv(R)
             if G0i isa UniformScaling
                 G0i = SMatrix{size(ens)...}(G0i)
             end
-            Q = G0i - q * μ * ens.T
-            @test G0i!(ws, eq) ≈ G0i
-            @test G0i!(ws, eqn) ≈ G0i
-            @test G0i!(ws, μeq) ≈ G0i
-            @test G0i!(ws, μeqn) ≈ G0i
-            @test Q!(ws, eq, q) ≈ Q
-            @test Q!(ws, eqn, q) ≈ Q
-            @test Q!(ws, μeq, q) ≈ Q
-            @test Q!(ws, μeqn, q) ≈ Q
-
+            Q = G0i - q * μ * T
             QQh = Q * Q'
             QQhn = (QQh + Q' * Q) / 2
             s²min, s²minn = eigmin(_hermitian(QQh)), eigmin(_hermitian(QQhn))
-            γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
             γ²valueδ = δ².value - s²min
             δ²valueγ = γ².value + s²min
             γ²valueδn = δ².value - s²minn
@@ -382,17 +392,8 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             Pδ = _inv(QQh + γ²valueδ * I)
             Pγn = _inv(QQhn + γ².value * I)
             Pδn = _inv(QQhn + γ²valueδn * I)
-            @test P!(ws, eq, q, γ²) ≈ Pγ
-            @test P!(ws, eq, q, δ²) ≈ Pδ
-            @test P!(ws, eqn, q, γ²) ≈ Pγn
-            @test P!(ws, eqn, q, δ²) ≈ Pδn
-            @test P!(ws, μeq, q, γ²) ≈ Pγ
-            @test P!(ws, μeq, q, δ²) ≈ Pδ
-            @test P!(ws, μeqn, q, γ²) ≈ Pγn
-            @test P!(ws, μeqn, q, δ²) ≈ Pδn
-
-            qrhsγ, qrhsδ = μ * _trn(ens.T * Q' * Pγ), μ * _trn(ens.T * Q' * Pδ)
-            qrhsγn, qrhsδn = μ * _trn(ens.T * Q' * Pγn), μ * _trn(ens.T * Q' * Pδn)
+            qrhsγ, qrhsδ = μ * _trn(T * Q' * Pγ), μ * _trn(T * Q' * Pδ)
+            qrhsγn, qrhsδn = μ * _trn(T * Q' * Pγn), μ * _trn(T * Q' * Pδn)
             @test qrhs!(ws, eq, q, γ²) ≈ qrhsγ
             @test qrhs!(ws, eq, q, δ²) ≈ qrhsδ
             @test qrhs!(ws, eqn, q, γ²) ≈ qrhsγn
@@ -419,8 +420,9 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test δ²!(ws, μeqn, q, γ²) ≈ δ²valueγn
             @test δ²!(ws, μeqn, q, δ²) ≈ δ².value
 
-            Eγ, Eδ = _trn(ens.LiRi * Q' * Pγ), _trn(ens.LiRi * Q' * Pδ)
-            Eγn, Eδn = _trn(ens.LiRi * Q' * Pγn), _trn(ens.LiRi * Q' * Pδn)
+            LiRi = _inv(R * L)
+            Eγ, Eδ = _trn(LiRi * Q' * Pγ), _trn(LiRi * Q' * Pδ)
+            Eγn, Eδn = _trn(LiRi * Q' * Pγn), _trn(LiRi * Q' * Pδn)
             @test E!(ws, eq, q, γ²) ≈ Eγ
             @test E!(ws, eq, q, δ²) ≈ Eδ
             @test E!(ws, eqn, q, γ²) ≈ Eγn
@@ -431,14 +433,14 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test E!(ws, μeqn, q, δ²) ≈ Eδn
         end
 
-        Adata, Ddata = ComplexF64[1 -1; 1 1], Diagonal([0.75, 0.25])
-        @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)
-            @testset "$F" for F in FLOATTYPES
-                workspace_tests(F, MatrixEnsemble{F}(I, I, I, I))
-                workspace_tests(F, MatrixEnsemble{F}(A, I, I, I))
-                workspace_tests(F, MatrixEnsemble{F}(I, A, I, I))
-                workspace_tests(F, MatrixEnsemble{F}(I, I, A, I))
-                workspace_tests(F, MatrixEnsemble{F}(I, I, I, D))
+        Adata, Ddata = ComplexF64[1 -1; 1 1], Diagonal([0.75, 0.25 * cis(pi / 3)])
+        @testset "$F" for F in FLOATTYPES
+            workspace_tests(F, I, I, I, I)
+            @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)
+                workspace_tests(F, A, I, I, I)
+                workspace_tests(F, I, A, I, I)
+                workspace_tests(F, I, I, A, I)
+                workspace_tests(F, I, I, I, D)
             end
         end
     end
@@ -459,7 +461,7 @@ _sparse(D::Diagonal) = Diagonal(sparse(D.diag))
             @test sol.E ≈ E!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
         end
 
-        Adata, Ddata = ComplexF64[1 0.1im; 0 -1], Diagonal([0.75, 0.25])
+        Adata, Ddata = ComplexF64[1 0.1im; 0 -1], Diagonal([0.75, 0.25 * cis(pi / 3)])
         z_, μ_, γ²value_, δ²value_ = complex(0.8), 0.5, 100.0, 100.0
         k_, q0_ = 0.01, DEFAULTS.q0
         @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)

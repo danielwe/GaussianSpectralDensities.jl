@@ -38,13 +38,12 @@ const DiagonalOrUniform{F} = Union{<:Diagonal{F},UniformScaling{F}}
 
 Union of plain and wrapped `SArray`s
 """
-const AnySArray{N} = Union{
-    <:SArray{<:Any,<:Any,N},
-    <:WrappedArray{<:Any,N,<:SArray},
-    <:WrappedArray{<:Any,N,<:Any,<:SArray},
-    <:Hermitian{<:Any,<:SArray},  # Adapt.jl#51
+const AnySArray{T,N} = Union{
+    <:SArray{<:Any,T,N},
+    <:WrappedArray{T,N,<:SArray,<:SArray},  # Last parameter should be SArray{<:Any,T,N} after Adapt.jl#51
+    <:Hermitian{T,<:SArray{<:Any,T,N}},  # Adapt.jl#51
 }
-const AnySMatrix = AnySArray{2}
+const AnySMatrix{T} = AnySArray{T,2}
 
 # include("matrix_utils.jl")
 include("ensemble.jl")

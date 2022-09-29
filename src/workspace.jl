@@ -90,11 +90,11 @@ _statecontains(ws, flags) = ((ws.state & flags) == flags)
 ## Matrix getters
 ## ==============
 """
-    G0i!(ws, eq)
+    _G0i!(ws, eq)
 
 Calculate the bare inverse resolvent `G0i(z) = L \\ (z * I - M) / R`
 """
-function G0i!(ws, eq)
+function _G0i!(ws, eq)
     _setG0iparams!(ws, eq)
     _updateG0i!(ws)
     return ws.G0i
@@ -127,11 +127,11 @@ function _updateG0i!(ws)
 end
 
 """
-    Q!(ws, eq, q)
+    _Q!(ws, eq, q)
 
 Calculate `Q(z, q) = G0i(z) - q * T`
 """
-function Q!(ws, eq, q)
+function _Q!(ws, eq, q)
     _setQparams!(ws, eq, q)
     _updateQ!(ws)
     return ws.Q
@@ -220,14 +220,14 @@ function _updatePifact!(ws)
 end
 
 """
-    P!(ws, eq, q, regularizer)
+    _P!(ws, eq, q, regularizer)
 
 Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
 
 The value of `γ²` is provided through `regularizer::Regularizer`, which can hold either the
 value of `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
-function P!(ws, eq, q, regularizer)
+function _P!(ws, eq, q, regularizer)
     _setPparams!(ws, eq, q, regularizer)
     _updateP!(ws)
     return ws.P
@@ -249,7 +249,7 @@ end
 
 Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 
-The arguments are the same as for `P!`.
+The arguments are the same as for `_P!`.
 """
 function _PLiRi!(ws, eq, q, regularizer)
     _setPLiRiparams!(ws, eq, q, regularizer)
@@ -275,10 +275,10 @@ end
 
 Calculate the RHS of the self-consistency relation for ``q``: `μ * tr(T * Q'P) / size(P, 2)`
 
-The arguments are the same as for `P!`
+The arguments are the same as for `_P!`
 """
 function qrhs!(ws, eq, q, regularizer)
-    return eq.μ * _hsn(eq.ensemble.T, Q!(ws, eq, q), P!(ws, eq, q, regularizer))
+    return eq.μ * _hsn(eq.ensemble.T, _Q!(ws, eq, q), _P!(ws, eq, q, regularizer))
 end
 
 """
@@ -286,7 +286,7 @@ end
 
 Calculate the regularizer ``γ²``
 
-The arguments are the same as for `P!`
+The arguments are the same as for `_P!`
 """
 function γ²!(ws, eq, q, regularizer)
     _QQh!(ws, eq, q)
@@ -298,7 +298,7 @@ end
 
 Calculate the regularizer ``δ²``
 
-The arguments are the same as for `P!`
+The arguments are the same as for `_P!`
 """
 function δ²!(ws, eq, q, regularizer)
     _QQh!(ws, eq, q)
@@ -310,18 +310,18 @@ end
 
 Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 2)`
 
-The arguments are the same as for `P!`
+The arguments are the same as for `_P!`
 """
-k!(ws, eq, q, regularizer) = _trn(P!(ws, eq, q, regularizer))
+k!(ws, eq, q, regularizer) = _trn(_P!(ws, eq, q, regularizer))
 
 """
     E!(ws, eq, q, regularizer)
 
 Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, q) * P(z, q, γ²)`
 
-The arguments are the same as for `P!`
+The arguments are the same as for `_P!`
 """
-E!(ws, eq, q, regularizer) = _hsn(Q!(ws, eq, q), _PLiRi!(ws, eq, q, regularizer))
+E!(ws, eq, q, regularizer) = _hsn(_Q!(ws, eq, q), _PLiRi!(ws, eq, q, regularizer))
 
 ## Array arithmetic helpers
 ## ========================
@@ -393,7 +393,7 @@ function _muladd_diag!!(C, λ::Number, A, B)
 end
 
 """
-    _muladd_diag!!(C::AnySArray, λ::Number, A::Union{Diagonal,UniformScaling}, B)
+    _muladd_diag!!(C::AnySMatrix, λ::Number, A::Union{Diagonal,UniformScaling}, B)
 
 Return ``λA + B``
 
@@ -401,7 +401,7 @@ This is intended as an out-of-place equivalent of the in-place ``_muladd_diag!!`
 implementation. This only makes sense when ``C`` and ``B`` only differ on the diagonal,
 which is the case of interest in this package.
 """
-_muladd_diag!!(::AnySArray, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
+_muladd_diag!!(::AnySMatrix, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
 
 ## Traces and trace inner products
 ## ===============================

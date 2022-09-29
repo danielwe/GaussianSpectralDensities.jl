@@ -51,12 +51,12 @@ struct MatrixEnsemble{
                 (nexts == s) || throwsizeerror()
             end
         end
-        if !((T isa DiagonalOrUniform{<:Real}) && _inunitinterval(T))
-            msg = "T must be Diagonal or UniformScaling with elements in [0, 1]"
+        if !((T isa DiagonalOrUniform) && _inunitdisc(T))
+            msg = "T must be Diagonal or UniformScaling with elements in the unit disc"
             throw(ArgumentError(msg))
         end
-        M, L, R = _floatconvert.(F, (M, L, R))
-        T = _floatconvert(F, T)  # Always real
+        M, L, R = _floatconvert.(F, (M, L, _phase(T) * R))
+        T = _floatconvert(F, _abs(T))
         LiMRi = _sized(_floatconvert(F, _rdiv(_ldiv(L, M), R)), T)
         LiRi = _sized(_floatconvert(F, _ldiv(R * L, I)), LiMRi)
         return new{F,typeof.((M, L, R, T, LiMRi))...}(M, L, R, T, LiRi, LiMRi)
@@ -80,10 +80,23 @@ end
 
 ## Helpers
 ## =======
-_inunitinterval(a::Number) = ((imag(a) == 0) && (0 <= real(a) <= 1))
-_inunitinterval(v::AbstractVector) = all(_inunitinterval(a) for a in v)
-_inunitinterval(A::Diagonal) = _inunitinterval(A.diag)
-_inunitinterval(A::UniformScaling) = _inunitinterval(A.λ)
+_inunitdisc(a::Number) = (abs2(a) <= 1)
+_inunitdisc(v::AbstractVector) = all(_inunitdisc, v)
+_inunitdisc(A::Diagonal) = _inunitdisc(A.diag)
+_inunitdisc(A::UniformScaling) = _inunitdisc(A.λ)
+
+_phase(a::Number) = (a == 0) ? one(a) : a / abs(a)  # like sign except when a == 0
+_phase(A::UniformScaling) = UniformScaling(_phase(A.λ))
+
+function _phase(A::Diagonal)
+    if all(a -> ((imag(a) == 0) && (real(a) >= 0)), A.diag)
+        return UniformScaling(one(eltype(A)))
+    end
+    return Diagonal(_phase.(A.diag))
+end
+
+_abs(A::Diagonal) = Diagonal(abs.(A.diag))
+_abs(A::UniformScaling) = UniformScaling(abs(A.λ))
 
 function _floattype(M, L, R, T)
     Mu, Lu, Ru, Tu = (oneunit ∘ eltype).((M, L, R, T))
@@ -110,13 +123,15 @@ _elconvert(::Type{E}, A::UniformScaling) where {E} = UniformScaling(convert(E, A
 
 _ldiv(L, A) = L \ A
 _ldiv(L::AnySMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue
-_ldiv(L::SparseMatrixCSC, A::UniformScaling) = L \ A(size(L, 1))
+_ldiv(L::Diagonal{<:Any,<:SArray}, A::UniformScaling) = L \ _sized(A, L)
+_ldiv(L::SparseMatrixCSC, A::UniformScaling) = L \ _sized(A, L)
 
 _rdiv(A, R) = A / R
 _rdiv(A::UniformScaling, R::AnySMatrix) = SMatrix{size(R, 2),size(R, 2)}(A) / R  # should file issue
-_rdiv(A::UniformScaling, R::SparseMatrixCSC) = A(size(R, 2)) / R
+_rdiv(A::UniformScaling, R::Diagonal{<:Any,<:SArray}) = _sized(A, R') / R
+_rdiv(A::UniformScaling, R::SparseMatrixCSC) = _sized(A, R') / R
 
 _sized(A::UniformScaling, T::UniformScaling) = Diagonal(SVector{1}(A.λ))
-_sized(A::UniformScaling, T::AnySArray) = Diagonal(@SVector fill(A.λ, size(T, 1)))
-_sized(A::UniformScaling, T) = Diagonal(fill(A.λ, size(T, 1)))
+_sized(A::UniformScaling, T::AnySMatrix) = Diagonal(@SVector fill(A.λ, size(T, 1)))
+_sized(A::UniformScaling, T) = A(size(T, 1))
 _sized(A, T) = A
