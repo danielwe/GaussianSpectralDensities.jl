@@ -208,9 +208,13 @@ _sparse(D::Diagonal) = D
 
             # Interface
             @test γ²(γrF, s²minF) === γ²valueF
+            @test γ²(γrF, () -> s²minF) === γ²valueF
             @test δ²(γrF, s²minF) === δ²valueF
+            @test δ²(γrF, () -> s²minF) === δ²valueF
             @test γ²(δrF, s²minF) === γ²valueF
+            @test γ²(δrF, () -> s²minF) === γ²valueF
             @test δ²(δrF, s²minF) === δ²valueF
+            @test δ²(δrF, () -> s²minF) === δ²valueF
         end
     end
     @testset "objectives" begin

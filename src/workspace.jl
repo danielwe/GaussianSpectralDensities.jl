@@ -289,8 +289,10 @@ Calculate the regularizer ``γ²``
 The arguments are the same as for `_P!`
 """
 function γ²!(ws, eq, q, regularizer)
-    _QQh!(ws, eq, q)
-    return γ²(regularizer, ws.s²min)
+    s²min = let ws=ws, eq=eq, q=q
+        s²min() = _s²min(ws, eq, q)
+    end
+    return γ²(regularizer, s²min)
 end
 
 """
@@ -301,8 +303,15 @@ Calculate the regularizer ``δ²``
 The arguments are the same as for `_P!`
 """
 function δ²!(ws, eq, q, regularizer)
+    s²min = let ws=ws, eq=eq, q=q
+        s²min() = _s²min(ws, eq, q)
+    end
+    return δ²(regularizer, s²min)
+end
+
+function _s²min(ws, eq, q)
     _QQh!(ws, eq, q)
-    return δ²(regularizer, ws.s²min)
+    return ws.s²min
 end
 
 """
