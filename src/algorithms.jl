@@ -8,8 +8,8 @@ Base.length(alg::AbstractSchedule) = length(alg.schedule)
 
 """
     DirectSolve()
-    DirectSolve(q0, δ0)
-    DirectSolve{F}(q0, δ0) where {F<:Real}
+    DirectSolve(q0, reg0)
+    DirectSolve{F}(q0, reg0) where {F<:Real}
 
 Solve the average resolvent equation directly for the given objective
 
@@ -17,20 +17,21 @@ This solution strategy can converge to the wrong branch when ``T ≠ 0``. A sche
 algorithm is recommended to mitigate this.
 
 `q0` sets the initial value for ``q = \\tr TQ^†(QQ^† + γ²I)⁻¹`` in the nonlinear solver.
-`δ0` sets the initial value for the regularizer ``δ`` explained in [`Regularizer`](@ref).
+`reg0` sets the initial value for one of the regularizers ``γ²,δ²``, see
+[`Regularizer`](@ref).
 
-Default values: `DEFAULTS.q0, DEFAULTS.δ0`.
+Default values: `DEFAULTS.q0, DEFAULTS.reg0`.
 """
 struct DirectSolve{F} <: AbstractAlgorithm{F}
     q0::Complex{F}
-    δ0::F
+    reg0::Regularizer{F}
 end
 
-DirectSolve() = DirectSolve(DEFAULTS.q0, DEFAULTS.δ0)
+DirectSolve() = DirectSolve(DEFAULTS.q0, DEFAULTS.reg0)
 
 ## Conversions
 ## ===========
-Base.convert(::Type{P}, alg::Q) where {P<:DirectSolve,Q<:DirectSolve} = P(alg.q0, alg.δ0)
+Base.convert(::Type{P}, alg::Q) where {P<:DirectSolve,Q<:DirectSolve} = P(alg.q0, alg.reg0)
 
 """
     RegularizerSchedule()

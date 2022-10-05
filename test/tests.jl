@@ -498,25 +498,27 @@ _sparse(D::Diagonal) = D
     end
     @testset "algorithms" begin
         @testset "DirectSolve" begin
-            q0, δ0 = complex(eps()), 0.0
-            dsolve = DirectSolve(q0, δ0)
+            reg0kind, reg0value = :δ, 0.0
+            q0, reg0 = complex(eps()), Regularizer(reg0kind, reg0value)
+            dsolve = DirectSolve(q0, reg0)
 
             # Traits
             @test dsolve isa DirectSolve{Float64}
             @test length(dsolve) == 0
 
             # Defaults
-            @test DirectSolve() === DirectSolve(DEFAULTS.q0, DEFAULTS.δ0)
+            @test DirectSolve() === DirectSolve(DEFAULTS.q0, DEFAULTS.reg0)
 
-            @testset "$F" for (F, (q0F, δ0F)) in floattypes(q0, δ0)
-                dsolveF = DirectSolve(q0F, δ0F)
+            @testset "$F" for (F, (q0F, reg0valueF)) in floattypes(q0, reg0value)
+                reg0F = Regularizer(reg0kind, reg0valueF)
+                dsolveF = DirectSolve(q0F, reg0F)
 
                 # Floattype inferring constructor
                 @test dsolveF isa DirectSolve{F}
 
                 # Floattype enforcing constructor
-                @test DirectSolve{F}(q0, δ0) isa DirectSolve{F}
-                @test DirectSolve{Float64}(q0F, δ0F) isa DirectSolve{Float64}
+                @test DirectSolve{F}(q0, reg0) isa DirectSolve{F}
+                @test DirectSolve{Float64}(q0F, reg0F) isa DirectSolve{Float64}
 
                 # Floattype conversions
                 @test convert(DirectSolve{F}, dsolve) === dsolveF
