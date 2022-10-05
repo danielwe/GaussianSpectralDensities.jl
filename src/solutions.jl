@@ -19,27 +19,27 @@ problem. Use the function `eqsolve!` to obtain a consistent `LocalResolventSolut
 struct LocalResolventSolution{F,P<:AbstractLocalResolventProblem{F}}
     problem::P
     q::Complex{F}
-    regularizer::Regularizer{F}
+    reg::Regularizer{F}
     γ²::F
     δ²::F
     k::F
     E::Complex{F}
 
-    function LocalResolventSolution{F}(problem, q, regularizer, γ², δ², k, E) where {F}
+    function LocalResolventSolution{F}(problem, q, reg, γ², δ², k, E) where {F}
         problem = adapt(F, problem)
-        return new{F,typeof(problem)}(problem, q, regularizer, γ², δ², k, E)
+        return new{F,typeof(problem)}(problem, q, reg, γ², δ², k, E)
     end
 end
 
 function LocalResolventSolution(
-    problem::AbstractLocalResolventProblem{F}, q, regularizer, γ², δ², k, E
+    problem::AbstractLocalResolventProblem{F}, q, reg, γ², δ², k, E
 ) where {F}
-    return LocalResolventSolution{F}(problem, q, regularizer, γ², δ², k, E)
+    return LocalResolventSolution{F}(problem, q, reg, γ², δ², k, E)
 end
 
 function Base.convert(
     ::Type{P}, s::Q
 ) where {F,P<:LocalResolventSolution{F},Q<:LocalResolventSolution}
     (s isa P) && return s
-    return LocalResolventSolution{F}(s.problem, s.q, s.regularizer, s.γ², s.δ², s.k, s.E)
+    return LocalResolventSolution{F}(s.problem, s.q, s.reg, s.γ², s.δ², s.k, s.E)
 end

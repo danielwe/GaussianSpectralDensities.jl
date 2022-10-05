@@ -175,157 +175,155 @@ _sparse(D::Diagonal) = D
     @testset "Regularizer" begin
         γ²value, δ²value = 0.0, 0.5
         s²min = δ²value - γ²value
-        γr, δr = Regularizer(:γ, γ²value), Regularizer(:δ, δ²value)
+        γreg, δreg = Regularizer(:γ, γ²value), Regularizer(:δ, δ²value)
 
         # Traits
-        @test γr isa Regularizer{Float64}
-        @test δr isa Regularizer{Float64}
+        @test γreg isa Regularizer{Float64}
+        @test δreg isa Regularizer{Float64}
 
         @testset "$F" for (F, (γ²valueF, δ²valueF, s²minF)) in floattypes(
             γ²value, δ²value, s²min
         )
-            γrF, δrF = Regularizer(:γ, γ²valueF), Regularizer(:δ, δ²valueF)
+            γregF, δregF = Regularizer(:γ, γ²valueF), Regularizer(:δ, δ²valueF)
 
             # Floattype inferring constructor
-            @test γrF isa Regularizer{F}
-            @test δrF isa Regularizer{F}
+            @test γregF isa Regularizer{F}
+            @test δregF isa Regularizer{F}
 
             # Floattype enforcing constructor
-            @test Regularizer{F}(:γ, γ²value) === γrF
-            @test Regularizer{F}(:δ, δ²value) === δrF
-            @test Regularizer{Float64}(:γ, γ²valueF) === γr
-            @test Regularizer{Float64}(:δ, δ²valueF) === δr
+            @test Regularizer{F}(:γ, γ²value) === γregF
+            @test Regularizer{F}(:δ, δ²value) === δregF
+            @test Regularizer{Float64}(:γ, γ²valueF) === γreg
+            @test Regularizer{Float64}(:δ, δ²valueF) === δreg
 
             # Floattype conversions
-            @test convert(Regularizer{F}, γr) === γrF
-            @test convert(Regularizer{F}, δr) === δrF
-            @test convert(Regularizer{Float64}, γrF) === γr
-            @test convert(Regularizer{Float64}, δrF) === δr
-            @test adapt(F, γr) === γrF
-            @test adapt(F, δr) === δrF
-            @test adapt(Float64, γrF) === γr
-            @test adapt(Float64, δrF) === δr
+            @test convert(Regularizer{F}, γreg) === γregF
+            @test convert(Regularizer{F}, δreg) === δregF
+            @test convert(Regularizer{Float64}, γregF) === γreg
+            @test convert(Regularizer{Float64}, δregF) === δreg
+            @test adapt(F, γreg) === γregF
+            @test adapt(F, δreg) === δregF
+            @test adapt(Float64, γregF) === γreg
+            @test adapt(Float64, δregF) === δreg
 
             # Interface
-            @test γ²(γrF, s²minF) === γ²valueF
-            @test γ²(γrF, () -> s²minF) === γ²valueF
-            @test δ²(γrF, s²minF) === δ²valueF
-            @test δ²(γrF, () -> s²minF) === δ²valueF
-            @test γ²(δrF, s²minF) === γ²valueF
-            @test γ²(δrF, () -> s²minF) === γ²valueF
-            @test δ²(δrF, s²minF) === δ²valueF
-            @test δ²(δrF, () -> s²minF) === δ²valueF
+            @test γ²(γregF, s²minF) === γ²valueF
+            @test γ²(γregF, () -> s²minF) === γ²valueF
+            @test δ²(γregF, s²minF) === δ²valueF
+            @test δ²(γregF, () -> s²minF) === δ²valueF
+            @test γ²(δregF, s²minF) === γ²valueF
+            @test γ²(δregF, () -> s²minF) === γ²valueF
+            @test δ²(δregF, s²minF) === δ²valueF
+            @test δ²(δregF, () -> s²minF) === δ²valueF
         end
     end
     @testset "objectives" begin
-        kvalue, rkind, rvalue = 1.0, :δ, 0.5
-        reg = Regularizer(rkind, rvalue)
+        kvalue, regkind, regvalue = 1.0, :δ, 0.5
+        reg = Regularizer(regkind, regvalue)
         ko = TraceObjective(kvalue)
-        ro = RegularizerObjective(reg)
+        rego = RegularizerObjective(reg)
 
         # Traits
         @test ko isa TraceObjective{Float64}
-        @test ro isa RegularizerObjective{Float64}
+        @test rego isa RegularizerObjective{Float64}
 
         # Defaults
         @test TraceObjective() === TraceObjective(DEFAULTS.kobjective)
-        @test RegularizerObjective() === RegularizerObjective(DEFAULTS.robjective)
+        @test RegularizerObjective() === RegularizerObjective(DEFAULTS.regobjective)
 
-        @testset "$F" for (F, (kvalueF, rvalueF)) in floattypes(kvalue, rvalue)
-            regF = Regularizer(rkind, rvalueF)
+        @testset "$F" for (F, (kvalueF, regvalueF)) in floattypes(kvalue, regvalue)
+            regF = Regularizer(regkind, regvalueF)
             koF = TraceObjective(kvalueF)
-            roF = RegularizerObjective(regF)
+            regoF = RegularizerObjective(regF)
 
             # Floattype inferring constructor
             @test koF isa TraceObjective{F}
-            @test roF isa RegularizerObjective{F}
+            @test regoF isa RegularizerObjective{F}
             # - All the signatures
-            @test RegularizerObjective(rkind, rvalueF) === roF
+            @test RegularizerObjective(regkind, regvalueF) === regoF
 
             # Floattype enforcing constructor
             @test TraceObjective{F}(kvalue) === koF
-            @test RegularizerObjective{F}(reg) === roF
+            @test RegularizerObjective{F}(reg) === regoF
             @test TraceObjective{Float64}(kvalueF) === ko
-            @test RegularizerObjective{Float64}(regF) === ro
+            @test RegularizerObjective{Float64}(regF) === rego
 
             # Floattype conversions
             @test convert(TraceObjective{F}, ko) === koF
-            @test convert(RegularizerObjective{F}, ro) === roF
+            @test convert(RegularizerObjective{F}, rego) === regoF
             @test convert(TraceObjective{Float64}, koF) === ko
-            @test convert(RegularizerObjective{Float64}, roF) === ro
+            @test convert(RegularizerObjective{Float64}, regoF) === rego
             @test adapt(F, ko) === koF
-            @test adapt(F, ro) === roF
+            @test adapt(F, rego) === regoF
             @test adapt(Float64, koF) === ko
-            @test adapt(Float64, roF) === ro
+            @test adapt(Float64, regoF) === rego
         end
     end
     @testset "problems/solutions" begin
         ensemble, z, μ, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, 1.0, false
-        k, rkind, rvalue, q0, E = 1.0, :δ, 0.5, complex(eps()), 0.5 - im
-        regularizer = Regularizer(rkind, rvalue)
+        k, regkind, regvalue, q0, E = 1.0, :δ, 0.5, complex(eps()), 0.5 - im
+        reg = Regularizer(regkind, regvalue)
 
         eq = LocalResolventEquation(ensemble, z, μ, normalizeQ)
-        qproblem = LocalQProblem(eq, regularizer, q0)
-        qrproblem = LocalQRegularizerProblem(eq, k, q0, regularizer)
-        solution = LocalResolventSolution(qproblem, q0, regularizer, rvalue, rvalue, k, E)
+        qproblem = LocalQProblem(eq, reg, q0)
+        qregproblem = LocalQRegularizerProblem(eq, k, q0, reg)
+        solution = LocalResolventSolution(qproblem, q0, reg, regvalue, regvalue, k, E)
 
         # Traits
         @test eq isa LocalResolventEquation{Float64}
         @test qproblem isa LocalQProblem{Float64}
-        @test qrproblem isa LocalQRegularizerProblem{Float64}
+        @test qregproblem isa LocalQRegularizerProblem{Float64}
         @test solution isa LocalResolventSolution{Float64}
 
         @testset "$F" for (
-            F, (zF, μF, kF, rvalueF, q0F, EF)
-        ) in floattypes(z, μ, k, rvalue, q0, E)
+            F, (zF, μF, kF, regvalueF, q0F, EF)
+        ) in floattypes(z, μ, k, regvalue, q0, E)
             ensembleF = MatrixEnsemble{F}(I, I, I, I)
-            regularizerF = Regularizer(rkind, rvalueF)
+            regF = Regularizer(regkind, regvalueF)
 
             eqF = LocalResolventEquation(ensembleF, zF, μF, normalizeQ)
-            qproblemF = LocalQProblem(eqF, regularizerF, q0F)
-            qrproblemF = LocalQRegularizerProblem(eqF, kF, q0F, regularizerF)
+            qproblemF = LocalQProblem(eqF, regF, q0F)
+            qregproblemF = LocalQRegularizerProblem(eqF, kF, q0F, regF)
             solutionF = LocalResolventSolution(
-                qproblemF, q0F, regularizerF, rvalueF, rvalueF, kF, EF
+                qproblemF, q0F, regF, regvalueF, regvalueF, kF, EF
             )
 
             # Floattype inferring constructor
             @test eqF isa LocalResolventEquation{F}
             @test qproblemF isa LocalQProblem{F}
-            @test qrproblemF isa LocalQRegularizerProblem{F}
+            @test qregproblemF isa LocalQRegularizerProblem{F}
             @test solutionF isa LocalResolventSolution{F}
 
             # Floattype enforcing constructor
             @test LocalResolventEquation{F}(ensemble, z, μ, normalizeQ) === eqF
-            @test LocalQProblem{F}(eq, regularizer, q0) === qproblemF
-            @test LocalQRegularizerProblem{F}(eq, k, q0, regularizer) === qrproblemF
+            @test LocalQProblem{F}(eq, reg, q0) === qproblemF
+            @test LocalQRegularizerProblem{F}(eq, k, q0, reg) === qregproblemF
             @test LocalResolventSolution{F}(
-                qproblem, q0, regularizer, rvalue, rvalue, k, E
+                qproblem, q0, reg, regvalue, regvalue, k, E
             ) === solutionF
             @test LocalResolventEquation{Float64}(ensembleF, zF, μF, normalizeQ) === eq
-            @test LocalQProblem{Float64}(eqF, regularizerF, q0F) === qproblem
-            @test LocalQRegularizerProblem{Float64}(
-                eqF, kF, q0F, regularizerF
-            ) === qrproblem
+            @test LocalQProblem{Float64}(eqF, regF, q0F) === qproblem
+            @test LocalQRegularizerProblem{Float64}(eqF, kF, q0F, regF) === qregproblem
             @test LocalResolventSolution{Float64}(
-                qproblemF, q0F, regularizerF, rvalueF, rvalueF, kF, EF
+                qproblemF, q0F, regF, regvalueF, regvalueF, kF, EF
             ) === solution
 
             # Floattype conversions
             @test convert(LocalResolventEquation{F}, eq) === eqF
             @test convert(LocalQProblem{F}, qproblem) === qproblemF
-            @test convert(LocalQRegularizerProblem{F}, qrproblem) === qrproblemF
+            @test convert(LocalQRegularizerProblem{F}, qregproblem) === qregproblemF
             @test convert(LocalResolventSolution{F}, solution) === solutionF
             @test convert(LocalResolventEquation{Float64}, eqF) === eq
             @test convert(LocalQProblem{Float64}, qproblemF) === qproblem
-            @test convert(LocalQRegularizerProblem{Float64}, qrproblemF) === qrproblem
+            @test convert(LocalQRegularizerProblem{Float64}, qregproblemF) === qregproblem
             @test convert(LocalResolventSolution{Float64}, solutionF) === solution
             @test adapt(F, eq) === eqF
             @test adapt(F, qproblem) === qproblemF
-            @test adapt(F, qrproblem) === qrproblemF
+            @test adapt(F, qregproblem) === qregproblemF
             @test adapt(F, solution) === solutionF
             @test adapt(Float64, eqF) === eq
             @test adapt(Float64, qproblemF) === qproblem
-            @test adapt(Float64, qrproblemF) === qrproblem
+            @test adapt(Float64, qregproblemF) === qregproblem
             @test adapt(Float64, solutionF) === solution
         end
 
@@ -366,23 +364,23 @@ _sparse(D::Diagonal) = D
             _trn(A) = tr(A) / size(A, 1)
 
             M, L, R, T = floatconvert.(F, (M, L, R, T))
-            ens = MatrixEnsemble(M, L, R, T)
-            ws = Workspace(ens)
+            ensemble = MatrixEnsemble(M, L, R, T)
+            ws = Workspace(ensemble)
             @test ws isa Workspace{F}
 
             z, q = convert.(Complex{F}, (-(im + 2) / 4, (1 - im) / 2))
             γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
             μ = convert(F, 2 // 3)
-            μens = MatrixEnsemble(M, L, R, μ * T)
+            μensemble = MatrixEnsemble(M, L, R, μ * T)
 
-            eq = LocalResolventEquation(ens, z, μ, false)
-            eqn = LocalResolventEquation(ens, z, μ, true)
-            μeq = LocalResolventEquation(μens, z, 1, false)
-            μeqn = LocalResolventEquation(μens, z, 1, true)
+            eq = LocalResolventEquation(ensemble, z, μ, false)
+            eqn = LocalResolventEquation(ensemble, z, μ, true)
+            μeq = LocalResolventEquation(μensemble, z, 1, false)
+            μeqn = LocalResolventEquation(μensemble, z, 1, true)
 
             G0i = _inv(L) * (z * I - M) * _inv(R)
             if G0i isa UniformScaling
-                G0i = SMatrix{size(ens)...}(G0i)
+                G0i = SMatrix{size(ensemble)...}(G0i)
             end
             Q = G0i - q * μ * T
             QQh = Q * Q'
@@ -454,15 +452,15 @@ _sparse(D::Diagonal) = D
             sol = eqsolve!(ws, problem)
             @test sol.problem === problem
             if problem isa LocalQProblem
-                @test sol.regularizer === problem.regularizer
+                @test sol.reg === problem.reg
             elseif problem isa LocalQRegularizerProblem
                 @test sol.k === problem.k
             end
-            @test sol.q ≈ qrhs!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
-            @test sol.γ² ≈ γ²!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
-            @test sol.δ² ≈ δ²!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
-            @test sol.k ≈ k!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
-            @test sol.E ≈ E!(ws, problem.equation, sol.q, sol.regularizer) rtol=tol atol=tol
+            @test sol.q ≈ qrhs!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
+            @test sol.γ² ≈ γ²!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
+            @test sol.δ² ≈ δ²!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
+            @test sol.k ≈ k!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
+            @test sol.E ≈ E!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
         end
 
         Adata, Ddata = ComplexF64[1 0.1im; 0 -1], Diagonal([0.75, 0.25 * cis(pi / 3)])
@@ -528,31 +526,31 @@ _sparse(D::Diagonal) = D
             end
         end
         @testset "RegularizerSchedule" begin
-            kind, values, γ²min = :δ, 2.0.^(2:-1:-2), 0.0
-            rschedule = Regularizer.(kind, values)
-            schedule = RegularizerSchedule(rschedule, γ²min)
+            regkind, regvalues, γ²min = :δ, 2.0.^(2:-1:-2), 0.0
+            regschedule = Regularizer.(regkind, regvalues)
+            schedule = RegularizerSchedule(regschedule, γ²min)
 
             # Traits
             @test schedule isa RegularizerSchedule{Float64}
-            @test length(schedule) == length(values)
+            @test length(schedule) == length(regvalues)
 
             # Defaults
             @test RegularizerSchedule() === RegularizerSchedule(
-                DEFAULTS.rschedule, DEFAULTS.γ²min
+                DEFAULTS.regschedule, DEFAULTS.γ²min
             )
 
-            @testset "$F" for (F, (valuesF, γ²minF)) in floattypes(values, γ²min)
-                rscheduleF = Regularizer.(kind, valuesF)
-                scheduleF = RegularizerSchedule(rscheduleF, γ²minF)
+            @testset "$F" for (F, (regvaluesF, γ²minF)) in floattypes(regvalues, γ²min)
+                regscheduleF = Regularizer.(regkind, regvaluesF)
+                scheduleF = RegularizerSchedule(regscheduleF, γ²minF)
 
                 # Floattype inferring constructor
                 @test scheduleF isa RegularizerSchedule{F}
                 # - All the signatures
-                @test RegularizerSchedule(kind, valuesF, γ²minF) == scheduleF
+                @test RegularizerSchedule(regkind, regvaluesF, γ²minF) == scheduleF
 
                 # Floattype enforcing constructor
-                @test RegularizerSchedule{F}(rschedule, γ²min) == scheduleF
-                @test RegularizerSchedule{Float64}(rscheduleF, γ²minF) == schedule
+                @test RegularizerSchedule{F}(regschedule, γ²min) == scheduleF
+                @test RegularizerSchedule{Float64}(regscheduleF, γ²minF) == schedule
 
                 # Floattype conversions
                 @test convert(RegularizerSchedule{F}, schedule) == scheduleF

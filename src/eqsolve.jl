@@ -8,44 +8,44 @@ Solve an averaged resolvent equation at a point in the complex plane
 Returns a `LocalResolventSolution`
 """
 function eqsolve!(ws::Workspace{F}, problem::LocalQProblem{F}, verbosity=0) where {F}
-    fq = let ws=ws, eq=problem.equation, regularizer=problem.regularizer
+    fq = let ws=ws, eq=problem.eq, reg=problem.reg
         function fq(qv)
             q = complex(qv...)
-            dq = qrhs!(ws, eq, q, regularizer) - q
+            dq = qrhs!(ws, eq, q, reg) - q
             return SVector(real(dq), imag(dq))
         end
     end
     q0v = SVector(real(problem.q0), imag(problem.q0))
     qv, niters = newton(fq, q0v)
     # print_niters(niters, verbosity)
-    q, regularizer = complex(qv...), problem.regularizer
-    k = k!(ws, problem.equation, q, regularizer)
-    return _local_resolvent_solution!(ws, problem, q, regularizer, k)
+    q, reg = complex(qv...), problem.reg
+    k = k!(ws, problem.eq, q, reg)
+    return _local_resolvent_solution!(ws, problem, q, reg, k)
 end
 
 function eqsolve!(
     ws::Workspace{F}, problem::LocalQRegularizerProblem{F}, verbosity=0
 ) where {F}
-    fqr = let kind=problem.regularizer0.kind, ws=ws, eq=problem.equation, klhs=problem.k
-        function fqr(qrv)
-            q, regularizer = complex(qrv[1], qrv[2]), Regularizer(kind, qrv[3])
-            dq = qrhs!(ws, eq, q, regularizer) - q
-            dk = k!(ws, eq, q, regularizer) - klhs
+    fqreg = let kind=problem.reg0.kind, ws=ws, eq=problem.eq, klhs=problem.k
+        function fqreg(qregv)
+            q, reg = complex(qregv[1], qregv[2]), Regularizer(kind, qregv[3])
+            dq = qrhs!(ws, eq, q, reg) - q
+            dk = k!(ws, eq, q, reg) - klhs
             return SVector(real(dq), imag(dq), dk)
         end
     end
-    qr0v = SVector(real(problem.q0), imag(problem.q0), problem.regularizer0.value)
-    qrv, niters = newton(fqr, qr0v)
+    qreg0v = SVector(real(problem.q0), imag(problem.q0), problem.reg0.value)
+    qregv, niters = newton(fqreg, qreg0v)
     # print_niters(niters, verbosity)
-    q, regularizer = complex(qrv[1], qrv[2]), Regularizer(problem.regularizer0.kind, qrv[3])
-    return _local_resolvent_solution!(ws, problem, q, regularizer, problem.k)
+    q, reg = complex(qregv[1], qregv[2]), Regularizer(problem.reg0.kind, qregv[3])
+    return _local_resolvent_solution!(ws, problem, q, reg, problem.k)
 end
 
-function _local_resolvent_solution!(ws, problem, q, regularizer, k)
-    γ² = γ²!(ws, problem.equation, q, regularizer)
-    δ² = δ²!(ws, problem.equation, q, regularizer)
-    E = E!(ws, problem.equation, q, regularizer)
-    return LocalResolventSolution(problem, q, regularizer, γ², δ², k, E)
+function _local_resolvent_solution!(ws, problem, q, reg, k)
+    γ² = γ²!(ws, problem.eq, q, reg)
+    δ² = δ²!(ws, problem.eq, q, reg)
+    E = E!(ws, problem.eq, q, reg)
+    return LocalResolventSolution(problem, q, reg, γ², δ², k, E)
 end
 
 ## Attic

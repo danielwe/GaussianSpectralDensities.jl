@@ -66,10 +66,10 @@ Base.@kwdef mutable struct Defaults
     verbosity::Int = 0
     store_trace::Bool = false
     kobjective::Float64 = 1.0
-    robjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
+    regobjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
     q0::ComplexF64 = sqrt(eps(Float32))
     reg0::Regularizer{Float64} = Regularizer(:δ, 1.0)
-    rschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0.^(4:-0.5:-4))
+    regschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0.^(4:-0.5:-4))
     μschedule::typeof(0.0:1.0) = range(0, 1, 11)
     γ²min::Float64 = -Inf
     margin::Float64 = 0.1

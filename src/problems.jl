@@ -49,69 +49,67 @@ end
 abstract type AbstractLocalResolventProblem{F<:AbstractFloat} end
 
 """
-    LocalQProblem(equation::LocalResolventEquation, regularizer, q0) where {F}
-    LocalQProblem{F}(equation, regularizer, q0)
+    LocalQProblem(eq::LocalResolventEquation, reg, q0) where {F}
+    LocalQProblem{F}(eq, reg, q0)
 
 Specify the problem of finding ``q`` given a regularizer in the averaged resolvent equation
 
 `q0` is a starting guess for `q`
 """
 struct LocalQProblem{F,E<:LocalResolventEquation{F}} <: AbstractLocalResolventProblem{F}
-    equation::E
-    regularizer::Regularizer{F}
+    eq::E
+    reg::Regularizer{F}
     q0::Complex{F}
 
-    function LocalQProblem{F}(equation, regularizer, q0) where {F}
-        equation = adapt(F, equation)
-        return new{F,typeof(equation)}(equation, regularizer, q0)
+    function LocalQProblem{F}(eq, reg, q0) where {F}
+        eq = adapt(F, eq)
+        return new{F,typeof(eq)}(eq, reg, q0)
     end
 end
 
-function LocalQProblem(equation::LocalResolventEquation{F}, regularizer, q0) where {F}
-    return LocalQProblem{F}(equation, regularizer, q0)
+function LocalQProblem(eq::LocalResolventEquation{F}, reg, q0) where {F}
+    return LocalQProblem{F}(eq, reg, q0)
 end
 
 function Base.convert(::Type{P}, p::Q) where {F,P<:LocalQProblem{F},Q<:LocalQProblem}
     (p isa P) && return p
-    return LocalQProblem{F}(p.equation, p.regularizer, p.q0)
+    return LocalQProblem{F}(p.eq, p.reg, p.q0)
 end
 
 """
-    LocalQRegularizerProblem(equation::LocalResolventEquation, k, q0, regularizer0)
-    LocalQRegularizerProblem{F}(equation, k, q0, regularizer0)
+    LocalQRegularizerProblem(eq::LocalResolventEquation, k, q0, reg0)
+    LocalQRegularizerProblem{F}(eq, k, q0, reg0)
 
 Specify the problem of finding ``q,γ²`` given ``k`` in the averaged resolvent equation
 
 Here, ``k`` is the target value of the normalized trace ``k = \\tr[(QQ^† + γ²I)⁻¹] / N``.
 
-`q0` and `regularizer0` represent starting guesses for ``q`` and one of the regularizing
-parameters ``γ²,δ²``
+`q0` and `reg0` represent starting guesses for ``q`` and one of the regularizing parameters
+``γ²,δ²``
 """
 struct LocalQRegularizerProblem{
     F,E<:LocalResolventEquation{F}
 } <: AbstractLocalResolventProblem{F}
-    equation::E
+    eq::E
     k::F
     q0::Complex{F}
-    regularizer0::Regularizer{F}
+    reg0::Regularizer{F}
 
-    function LocalQRegularizerProblem{F}(equation, k, q0, regularizer0) where {F}
-        equation = adapt(F, equation)
-        return new{F,typeof(equation)}(equation, k, q0, regularizer0)
+    function LocalQRegularizerProblem{F}(eq, k, q0, reg0) where {F}
+        eq = adapt(F, eq)
+        return new{F,typeof(eq)}(eq, k, q0, reg0)
     end
 end
 
-function LocalQRegularizerProblem(
-    equation::LocalResolventEquation{F}, k, q0, regularizer0
-) where {F}
-    return LocalQRegularizerProblem{F}(equation, k, q0, regularizer0)
+function LocalQRegularizerProblem(eq::LocalResolventEquation{F}, k, q0, reg0) where {F}
+    return LocalQRegularizerProblem{F}(eq, k, q0, reg0)
 end
 
 function Base.convert(
     ::Type{P}, p::Q
 ) where {F,P<:LocalQRegularizerProblem{F},Q<:LocalQRegularizerProblem}
     (p isa P) && return p
-    return LocalQRegularizerProblem{F}(p.equation, p.k, p.q0, p.regularizer0)
+    return LocalQRegularizerProblem{F}(p.eq, p.k, p.q0, p.reg0)
 end
 
 #=

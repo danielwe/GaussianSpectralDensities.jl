@@ -64,7 +64,7 @@ values, where the solver usually gets slow and unstable as the solution branch i
 annihilated in a bifurcation.
 
 Default values:
-- `DEFAULTS.rschedule`, an exponentially decaying sequence of ``δ``-regularizers
+- `DEFAULTS.regschedule`, an exponentially decaying sequence of ``δ``-regularizers
 - `DEFAULTS.γ²min`
 """
 struct RegularizerSchedule{F,U<:AbstractVector{Regularizer{F}}} <: AbstractSchedule{F}
@@ -87,7 +87,7 @@ function RegularizerSchedule(kind, schedule, γ²min)
     return RegularizerSchedule(Regularizer.(kind, schedule), γ²min)
 end
 
-RegularizerSchedule() = RegularizerSchedule(DEFAULTS.rschedule, DEFAULTS.γ²min)
+RegularizerSchedule() = RegularizerSchedule(DEFAULTS.regschedule, DEFAULTS.γ²min)
 
 ## Comparisons, conversions
 ## ========================

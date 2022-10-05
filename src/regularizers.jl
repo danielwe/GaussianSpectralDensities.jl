@@ -38,38 +38,38 @@ end
 Regularizer(kind, value::F) where {F} = Regularizer{F}(kind, value)
 
 """
-    γ²(regularizer::Regularizer, s²min::Number)
-    γ²(regularizer::Regularizer, () -> s²min)
+    γ²(reg::Regularizer, s²min::Number)
+    γ²(reg::Regularizer, () -> s²min)
 
 Return the value of ``γ²`` given a regularizer and a value for `s²min = eigmin(Q * Q')`
 
 The minimum eigenvalue `s²min` can either be given as a numerical value, or as a callable
 returning the value. That way, any heavy computation involved in determining `s²min` can be
-deferred and only invoked if needed, that is, if the `kind` of `regularizer` is `:δ`.
+deferred and only invoked if needed, that is, if the `kind` of `reg` is `:δ`.
 """
-function γ²(regularizer::Regularizer, s²min)
-    (regularizer.kind === Regularizers.γ) && return regularizer.value
-    if (regularizer.kind === Regularizers.δ)
-        (s²min isa Number) && return regularizer.value - s²min
-        return regularizer.value - s²min()
+function γ²(reg::Regularizer, s²min)
+    (reg.kind === Regularizers.γ) && return reg.value
+    if (reg.kind === Regularizers.δ)
+        (s²min isa Number) && return reg.value - s²min
+        return reg.value - s²min()
     end
 end
 
 """
-    δ²(regularizer::Regularizer, s²min::Number)
-    δ²(regularizer::Regularizer, () -> s²min)
+    δ²(reg::Regularizer, s²min::Number)
+    δ²(reg::Regularizer, () -> s²min)
 
 Return the value of ``δ²`` given a regularizer and a value for `s²min = eigmin(Q * Q')`
 
 The minimum eigenvalue `s²min` can either be given as a numerical value, or as a callable
 returning the value. That way, any heavy computation involved in determining `s²min` can be
-deferred and only invoked if needed, that is, if the `kind` of `regularizer` is `:γ`.
+deferred and only invoked if needed, that is, if the `kind` of `reg` is `:γ`.
 """
-function δ²(regularizer::Regularizer, s²min)
-    (regularizer.kind === Regularizers.δ) && return regularizer.value
-    if (regularizer.kind === Regularizers.γ)
-        (s²min isa Number) && return regularizer.value + s²min
-        return regularizer.value + s²min()
+function δ²(reg::Regularizer, s²min)
+    (reg.kind === Regularizers.δ) && return reg.value
+    if (reg.kind === Regularizers.γ)
+        (s²min isa Number) && return reg.value + s²min
+        return reg.value + s²min()
     end
 end
 

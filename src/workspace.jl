@@ -19,7 +19,7 @@ mutable struct Workspace{
     z::Complex{F}
     μq::Complex{F}
     normalizeQ::Bool
-    regularizer::Regularizer{F}
+    reg::Regularizer{F}
     G0i::TG0i
     Q::TQ
     QQh::TQQh
@@ -36,13 +36,13 @@ mutable struct Workspace{
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
         μq = convert(Complex{F}, DEFAULTS.q0)
-        regularizer = convert(Regularizer{F}, first(DEFAULTS.rschedule))
+        reg = convert(Regularizer{F}, first(DEFAULTS.regschedule))
         G0i = muladd(z, ensemble.LiRi, _neg(ensemble.LiMRi))
         Q = muladd(-μq, ensemble.T, G0i)
         QQh = psdmul(Q)
         Pifact = decompose(QQh)
         s²min = eigmin!!(Pifact, QQh)
-        Pifact = decompose!!(Pifact, QQh; shift=γ²(regularizer, s²min))
+        Pifact = decompose!!(Pifact, QQh; shift=γ²(reg, s²min))
         P = invert(Pifact)
         PLiRi = Pifact \ ensemble.LiRi
         return new{F,E,typeof.((G0i,Q,QQh,Pifact,P,PLiRi))...}(
@@ -50,7 +50,7 @@ mutable struct Workspace{
             z,
             μq,
             false,
-            regularizer,
+            reg,
             G0i,
             Q,
             QQh,
@@ -192,48 +192,48 @@ function _updateQQh!(ws)
 end
 
 """
-    _Pifact!(ws, eq, q, regularizer)
+    _Pifact!(ws, eq, q, reg)
 
 Factorize `P⁻¹ = Q * Q' + γ² * I`
 """
-function _Pifact!(ws, eq, q, regularizer)
-    _setPifactparams!(ws, eq, q, regularizer)
+function _Pifact!(ws, eq, q, reg)
+    _setPifactparams!(ws, eq, q, reg)
     _updatePifact!(ws)
     return ws.Pifact
 end
 
-function _setPifactparams!(ws, eq, q, regularizer)
+function _setPifactparams!(ws, eq, q, reg)
     _setQQhparams!(ws, eq, q)
-    (ws.regularizer == regularizer) && return nothing
+    (ws.reg == reg) && return nothing
     _clearstateexcept(ws, QQhVALID)
-    ws.regularizer = regularizer
+    ws.reg = reg
     return nothing
 end
 
 function _updatePifact!(ws)
     _statecontains(ws, PifactVALID) && return nothing
     _updateQQh!(ws)
-    ws.Pifact = decompose!!(ws.Pifact, ws.QQh; shift=γ²(ws.regularizer, ws.s²min))
+    ws.Pifact = decompose!!(ws.Pifact, ws.QQh; shift=γ²(ws.reg, ws.s²min))
     _addstate(ws, PifactCURRENT)
     @assert _statecontains(ws, PifactVALID)
     return nothing
 end
 
 """
-    _P!(ws, eq, q, regularizer)
+    _P!(ws, eq, q, reg)
 
 Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
 
-The value of `γ²` is provided through `regularizer::Regularizer`, which can hold either the
-value of `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
+The value of `γ²` is provided through `reg::Regularizer`, which can hold either the value of
+`γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
-function _P!(ws, eq, q, regularizer)
-    _setPparams!(ws, eq, q, regularizer)
+function _P!(ws, eq, q, reg)
+    _setPparams!(ws, eq, q, reg)
     _updateP!(ws)
     return ws.P
 end
 
-_setPparams!(ws, eq, q, regularizer) = _setPifactparams!(ws, eq, q, regularizer)
+_setPparams!(ws, eq, q, reg) = _setPifactparams!(ws, eq, q, reg)
 
 function _updateP!(ws)
     _statecontains(ws, PVALID) && return nothing
@@ -245,19 +245,19 @@ function _updateP!(ws)
 end
 
 """
-    _PLiRi!(ws, eq, q, regularizer)
+    _PLiRi!(ws, eq, q, reg)
 
 Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 
 The arguments are the same as for `_P!`.
 """
-function _PLiRi!(ws, eq, q, regularizer)
-    _setPLiRiparams!(ws, eq, q, regularizer)
+function _PLiRi!(ws, eq, q, reg)
+    _setPLiRiparams!(ws, eq, q, reg)
     _updatePLiRi!(ws)
     return ws.PLiRi
 end
 
-_setPLiRiparams!(ws, eq, q, regularizer) = _setPifactparams!(ws, eq, q, regularizer)
+_setPLiRiparams!(ws, eq, q, reg) = _setPifactparams!(ws, eq, q, reg)
 
 function _updatePLiRi!(ws)
     _statecontains(ws, PLiRiVALID) && return nothing
@@ -271,42 +271,42 @@ end
 ## Scalar getters
 ## ==============
 """
-    qrhs!(ws, eq, q, regularizer)
+    qrhs!(ws, eq, q, reg)
 
 Calculate the RHS of the self-consistency relation for ``q``: `μ * tr(T * Q'P) / size(P, 2)`
 
 The arguments are the same as for `_P!`
 """
-function qrhs!(ws, eq, q, regularizer)
-    return eq.μ * _hsn(eq.ensemble.T, _Q!(ws, eq, q), _P!(ws, eq, q, regularizer))
+function qrhs!(ws, eq, q, reg)
+    return eq.μ * _hsn(eq.ensemble.T, _Q!(ws, eq, q), _P!(ws, eq, q, reg))
 end
 
 """
-    γ²!(ws, eq, q, regularizer)
+    γ²!(ws, eq, q, reg)
 
 Calculate the regularizer ``γ²``
 
 The arguments are the same as for `_P!`
 """
-function γ²!(ws, eq, q, regularizer)
+function γ²!(ws, eq, q, reg)
     s²min = let ws=ws, eq=eq, q=q
         s²min() = _s²min(ws, eq, q)
     end
-    return γ²(regularizer, s²min)
+    return γ²(reg, s²min)
 end
 
 """
-    δ²!(ws, eq, q, regularizer)
+    δ²!(ws, eq, q, reg)
 
 Calculate the regularizer ``δ²``
 
 The arguments are the same as for `_P!`
 """
-function δ²!(ws, eq, q, regularizer)
+function δ²!(ws, eq, q, reg)
     s²min = let ws=ws, eq=eq, q=q
         s²min() = _s²min(ws, eq, q)
     end
-    return δ²(regularizer, s²min)
+    return δ²(reg, s²min)
 end
 
 function _s²min(ws, eq, q)
@@ -315,13 +315,13 @@ function _s²min(ws, eq, q)
 end
 
 """
-    k!(ws, eq, q, regularizer)
+    k!(ws, eq, q, reg)
 
 Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 2)`
 
 The arguments are the same as for `_P!`
 """
-k!(ws, eq, q, regularizer) = _trn(_P!(ws, eq, q, regularizer))
+k!(ws, eq, q, reg) = _trn(_P!(ws, eq, q, reg))
 
 """
     E!(ws, eq, q, regularizer)
@@ -330,7 +330,7 @@ Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, q) *
 
 The arguments are the same as for `_P!`
 """
-E!(ws, eq, q, regularizer) = _hsn(_Q!(ws, eq, q), _PLiRi!(ws, eq, q, regularizer))
+E!(ws, eq, q, reg) = _hsn(_Q!(ws, eq, q), _PLiRi!(ws, eq, q, reg))
 
 ## Array arithmetic helpers
 ## ========================

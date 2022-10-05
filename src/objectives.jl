@@ -14,7 +14,7 @@ TraceObjective() = TraceObjective(DEFAULTS.kobjective)
 
 """
     RegularizerObjective(kind, value)
-    RegularizerObjective(value::Regularizer=DEFAULTS.robjective)
+    RegularizerObjective(value::Regularizer=DEFAULTS.regobjective)
     RegularizerObjective{F}(value::Regularizer) where {F<:Real}
 
 Set a target value for a regularizer when solving averaged resolvent equations
@@ -29,7 +29,7 @@ struct RegularizerObjective{F} <: AbstractObjective{F}
 end
 
 RegularizerObjective(kind, value) = RegularizerObjective(Regularizer(kind, value))
-RegularizerObjective() = RegularizerObjective(DEFAULTS.robjective)
+RegularizerObjective() = RegularizerObjective(DEFAULTS.regobjective)
 
 ## Conversions
 ## ===========
