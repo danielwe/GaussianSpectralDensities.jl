@@ -127,19 +127,19 @@ function _updateG0i!(ws)
 end
 
 """
-    _Q!(ws, eq, q)
+    _Q!(ws, eq, μq)
 
-Calculate `Q(z, q) = G0i(z) - q * T`
+Calculate `Q(z, μq) = G0i(z) - μq * T`
 """
-function _Q!(ws, eq, q)
-    _setQparams!(ws, eq, q)
+function _Q!(ws, eq, μq)
+    _setQparams!(ws, eq, μq)
     _updateQ!(ws)
     return ws.Q
 end
 
-function _setQparams!(ws, eq, q)
+function _setQparams!(ws, eq, μq)
     _setG0iparams!(ws, eq)
-    μq = eq.μ * q
+    μq = μq
     (ws.μq == μq) && return nothing
     _clearstateexcept(ws, G0iVALID)
     ws.μq = μq
@@ -156,21 +156,21 @@ function _updateQ!(ws)
 end
 
 """
-    _QQh!(ws, eq, q)
+    _QQh!(ws, eq, μq)
 
-Calculate `Q(z, q) * Q'(z, q)`
+Calculate `Q(z, μq) * Q'(z, μq)`
 
 If `eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
 `ResolventProblem` documentation for further explanation.
 """
-function _QQh!(ws, eq, q)
-    _setQQhparams!(ws, eq, q)
+function _QQh!(ws, eq, μq)
+    _setQQhparams!(ws, eq, μq)
     _updateQQh!(ws)
     return ws.QQh
 end
 
-function _setQQhparams!(ws, eq, q)
-    _setQparams!(ws, eq, q)
+function _setQQhparams!(ws, eq, μq)
+    _setQparams!(ws, eq, μq)
     (ws.normalizeQ == eq.normalizeQ) && return nothing
     _clearstateexcept(ws, QVALID)
     ws.normalizeQ = eq.normalizeQ
@@ -192,18 +192,18 @@ function _updateQQh!(ws)
 end
 
 """
-    _Pifact!(ws, eq, q, reg)
+    _Pifact!(ws, eq, μq, reg)
 
 Factorize `P⁻¹ = Q * Q' + γ² * I`
 """
-function _Pifact!(ws, eq, q, reg)
-    _setPifactparams!(ws, eq, q, reg)
+function _Pifact!(ws, eq, μq, reg)
+    _setPifactparams!(ws, eq, μq, reg)
     _updatePifact!(ws)
     return ws.Pifact
 end
 
-function _setPifactparams!(ws, eq, q, reg)
-    _setQQhparams!(ws, eq, q)
+function _setPifactparams!(ws, eq, μq, reg)
+    _setQQhparams!(ws, eq, μq)
     (ws.reg == reg) && return nothing
     _clearstateexcept(ws, QQhVALID)
     ws.reg = reg
@@ -220,20 +220,20 @@ function _updatePifact!(ws)
 end
 
 """
-    _P!(ws, eq, q, reg)
+    _P!(ws, eq, μq, reg)
 
-Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
+Calculate `P(z, μq, γ²) = inv(Q * Q' + γ² * I)`
 
 The value of `γ²` is provided through `reg::Regularizer`, which can hold either the value of
 `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
-function _P!(ws, eq, q, reg)
-    _setPparams!(ws, eq, q, reg)
+function _P!(ws, eq, μq, reg)
+    _setPparams!(ws, eq, μq, reg)
     _updateP!(ws)
     return ws.P
 end
 
-_setPparams!(ws, eq, q, reg) = _setPifactparams!(ws, eq, q, reg)
+_setPparams!(ws, eq, μq, reg) = _setPifactparams!(ws, eq, μq, reg)
 
 function _updateP!(ws)
     _statecontains(ws, PVALID) && return nothing
@@ -245,19 +245,19 @@ function _updateP!(ws)
 end
 
 """
-    _PLiRi!(ws, eq, q, reg)
+    _PLiRi!(ws, eq, μq, reg)
 
 Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 
 The arguments are the same as for `_P!`.
 """
-function _PLiRi!(ws, eq, q, reg)
-    _setPLiRiparams!(ws, eq, q, reg)
+function _PLiRi!(ws, eq, μq, reg)
+    _setPLiRiparams!(ws, eq, μq, reg)
     _updatePLiRi!(ws)
     return ws.PLiRi
 end
 
-_setPLiRiparams!(ws, eq, q, reg) = _setPifactparams!(ws, eq, q, reg)
+_setPLiRiparams!(ws, eq, μq, reg) = _setPifactparams!(ws, eq, μq, reg)
 
 function _updatePLiRi!(ws)
     _statecontains(ws, PLiRiVALID) && return nothing
@@ -271,66 +271,66 @@ end
 ## Scalar getters
 ## ==============
 """
-    qrhs!(ws, eq, q, reg)
+    q_μrhs!(ws, eq, μq, reg)
 
-Calculate the RHS of the self-consistency relation for ``q``: `μ * tr(T * Q'P) / size(P, 2)`
+Calculate the RHS of the self-consistency relation for ``q / μ``: `tr(T * Q'P) / size(P, 2)`
 
 The arguments are the same as for `_P!`
 """
-function qrhs!(ws, eq, q, reg)
-    return eq.μ * _hsn(eq.ensemble.T, _Q!(ws, eq, q), _P!(ws, eq, q, reg))
+function q_μrhs!(ws, eq, μq, reg)
+    return _hsn(eq.ensemble.T, _Q!(ws, eq, μq), _P!(ws, eq, μq, reg))
 end
 
 """
-    γ²!(ws, eq, q, reg)
+    γ²!(ws, eq, μq, reg)
 
 Calculate the regularizer ``γ²``
 
 The arguments are the same as for `_P!`
 """
-function γ²!(ws, eq, q, reg)
-    s²min = let ws=ws, eq=eq, q=q
-        s²min() = _s²min(ws, eq, q)
+function γ²!(ws, eq, μq, reg)
+    s²min = let ws=ws, eq=eq, μq=μq
+        s²min() = _s²min(ws, eq, μq)
     end
     return γ²(reg, s²min)
 end
 
 """
-    δ²!(ws, eq, q, reg)
+    δ²!(ws, eq, μq, reg)
 
 Calculate the regularizer ``δ²``
 
 The arguments are the same as for `_P!`
 """
-function δ²!(ws, eq, q, reg)
-    s²min = let ws=ws, eq=eq, q=q
-        s²min() = _s²min(ws, eq, q)
+function δ²!(ws, eq, μq, reg)
+    s²min = let ws=ws, eq=eq, μq=μq
+        s²min() = _s²min(ws, eq, μq)
     end
     return δ²(reg, s²min)
 end
 
-function _s²min(ws, eq, q)
-    _QQh!(ws, eq, q)
+function _s²min(ws, eq, μq)
+    _QQh!(ws, eq, μq)
     return ws.s²min
 end
 
 """
-    k!(ws, eq, q, reg)
+    k!(ws, eq, μq, reg)
 
-Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 2)`
-
-The arguments are the same as for `_P!`
-"""
-k!(ws, eq, q, reg) = _trn(_P!(ws, eq, q, reg))
-
-"""
-    E!(ws, eq, q, regularizer)
-
-Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, q) * P(z, q, γ²)`
+Calculate the normalized trace of `P(z, μq, γ²)`, i.e., `tr(P) / size(P, 2)`
 
 The arguments are the same as for `_P!`
 """
-E!(ws, eq, q, reg) = _hsn(_Q!(ws, eq, q), _PLiRi!(ws, eq, q, reg))
+k!(ws, eq, μq, reg) = _trn(_P!(ws, eq, μq, reg))
+
+"""
+    E!(ws, eq, μq, regularizer)
+
+Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, μq) * P(z, μq, γ²)`
+
+The arguments are the same as for `_P!`
+"""
+E!(ws, eq, μq, reg) = _hsn(_Q!(ws, eq, μq), _PLiRi!(ws, eq, μq, reg))
 
 ## Array arithmetic helpers
 ## ========================

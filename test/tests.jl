@@ -1,8 +1,8 @@
 using GaussianSpectralDensities
 using GaussianSpectralDensities: DEFAULTS, adapt, γ², δ²
 using GaussianSpectralDensities: Regularizer, LocalResolventEquation
-using GaussianSpectralDensities: LocalQProblem, LocalQRegularizerProblem
-using GaussianSpectralDensities: Workspace, qrhs!, γ²!, δ²!, k!, E!
+using GaussianSpectralDensities: LocalRegularizerProblem, LocalTraceProblem
+using GaussianSpectralDensities: Workspace, q_μrhs!, γ²!, δ²!, k!, E!
 using GaussianSpectralDensities: LocalResolventSolution, eqsolve!
 using GaussianSpectralDensities: psdmul, psdmul!!, decompose, decompose!!, ldiv!!
 using GaussianSpectralDensities: invert, invert!!, eigmin!!
@@ -260,77 +260,87 @@ _sparse(D::Diagonal) = D
         end
     end
     @testset "problems/solutions" begin
-        ensemble, z, μ, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, 1.0, false
-        k, regkind, regvalue, q0, E = 1.0, :δ, 0.5, complex(eps()), 0.5 - im
+        ensemble, z, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, false
+        k, regkind, regvalue, q, μ, E = 1.0, :δ, 0.5, complex(eps()), 1.0, 0.5 - im
         reg = Regularizer(regkind, regvalue)
 
-        eq = LocalResolventEquation(ensemble, z, μ, normalizeQ)
-        qproblem = LocalQProblem(eq, reg, q0)
-        qregproblem = LocalQRegularizerProblem(eq, k, q0, reg)
-        solution = LocalResolventSolution(qproblem, q0, reg, regvalue, regvalue, k, E)
+        eq = LocalResolventEquation(ensemble, z, normalizeQ)
+        regproblem = LocalRegularizerProblem(eq, reg, q, μ)
+        kproblem = LocalTraceProblem(eq, k, q, reg, μ)
+        solution = LocalResolventSolution(regproblem, q, reg, regvalue, regvalue, k, E)
 
         # Traits
         @test eq isa LocalResolventEquation{Float64}
-        @test qproblem isa LocalQProblem{Float64}
-        @test qregproblem isa LocalQRegularizerProblem{Float64}
+        @test regproblem isa LocalRegularizerProblem{Float64}
+        @test kproblem isa LocalTraceProblem{Float64}
         @test solution isa LocalResolventSolution{Float64}
 
+        # Defaults
+        @test LocalResolventEquation(
+            ensemble, z
+        ) === LocalResolventEquation(ensemble, z, false)
+        @test LocalRegularizerProblem(eq, reg, q) === LocalRegularizerProblem(eq, reg, q, 1)
+        @test LocalTraceProblem(eq, k, q, reg) === LocalTraceProblem(eq, k, q, reg, 1)
+
         @testset "$F" for (
-            F, (zF, μF, kF, regvalueF, q0F, EF)
-        ) in floattypes(z, μ, k, regvalue, q0, E)
+            F, (zF, kF, regvalueF, qF, μF, EF)
+        ) in floattypes(z, k, regvalue, q, μ, E)
             ensembleF = MatrixEnsemble{F}(I, I, I, I)
             regF = Regularizer(regkind, regvalueF)
 
-            eqF = LocalResolventEquation(ensembleF, zF, μF, normalizeQ)
-            qproblemF = LocalQProblem(eqF, regF, q0F)
-            qregproblemF = LocalQRegularizerProblem(eqF, kF, q0F, regF)
+            eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
+            regproblemF = LocalRegularizerProblem(eqF, regF, qF, μF)
+            kproblemF = LocalTraceProblem(eqF, kF, qF, regF, μF)
             solutionF = LocalResolventSolution(
-                qproblemF, q0F, regF, regvalueF, regvalueF, kF, EF
+                regproblemF, qF, regF, regvalueF, regvalueF, kF, EF
             )
 
             # Floattype inferring constructor
             @test eqF isa LocalResolventEquation{F}
-            @test qproblemF isa LocalQProblem{F}
-            @test qregproblemF isa LocalQRegularizerProblem{F}
+            @test regproblemF isa LocalRegularizerProblem{F}
+            @test kproblemF isa LocalTraceProblem{F}
             @test solutionF isa LocalResolventSolution{F}
 
             # Floattype enforcing constructor
-            @test LocalResolventEquation{F}(ensemble, z, μ, normalizeQ) === eqF
-            @test LocalQProblem{F}(eq, reg, q0) === qproblemF
-            @test LocalQRegularizerProblem{F}(eq, k, q0, reg) === qregproblemF
+            @test LocalResolventEquation{F}(ensemble, z, normalizeQ) === eqF
+            @test LocalRegularizerProblem{F}(eq, reg, q, μ) === regproblemF
+            @test LocalTraceProblem{F}(eq, k, q, reg, μ) === kproblemF
             @test LocalResolventSolution{F}(
-                qproblem, q0, reg, regvalue, regvalue, k, E
+                regproblem, q, reg, regvalue, regvalue, k, E
             ) === solutionF
-            @test LocalResolventEquation{Float64}(ensembleF, zF, μF, normalizeQ) === eq
-            @test LocalQProblem{Float64}(eqF, regF, q0F) === qproblem
-            @test LocalQRegularizerProblem{Float64}(eqF, kF, q0F, regF) === qregproblem
+            @test LocalResolventEquation{Float64}(ensembleF, zF, normalizeQ) === eq
+            @test LocalRegularizerProblem{Float64}(eqF, regF, qF, μF) === regproblem
+            @test LocalTraceProblem{Float64}(eqF, kF, qF, regF, μF) === kproblem
             @test LocalResolventSolution{Float64}(
-                qproblemF, q0F, regF, regvalueF, regvalueF, kF, EF
+                regproblemF, qF, regF, regvalueF, regvalueF, kF, EF
             ) === solution
 
             # Floattype conversions
             @test convert(LocalResolventEquation{F}, eq) === eqF
-            @test convert(LocalQProblem{F}, qproblem) === qproblemF
-            @test convert(LocalQRegularizerProblem{F}, qregproblem) === qregproblemF
+            @test convert(LocalRegularizerProblem{F}, regproblem) === regproblemF
+            @test convert(LocalTraceProblem{F}, kproblem) === kproblemF
             @test convert(LocalResolventSolution{F}, solution) === solutionF
             @test convert(LocalResolventEquation{Float64}, eqF) === eq
-            @test convert(LocalQProblem{Float64}, qproblemF) === qproblem
-            @test convert(LocalQRegularizerProblem{Float64}, qregproblemF) === qregproblem
+            @test convert(LocalRegularizerProblem{Float64}, regproblemF) === regproblem
+            @test convert(LocalTraceProblem{Float64}, kproblemF) === kproblem
             @test convert(LocalResolventSolution{Float64}, solutionF) === solution
             @test adapt(F, eq) === eqF
-            @test adapt(F, qproblem) === qproblemF
-            @test adapt(F, qregproblem) === qregproblemF
+            @test adapt(F, regproblem) === regproblemF
+            @test adapt(F, kproblem) === kproblemF
             @test adapt(F, solution) === solutionF
             @test adapt(Float64, eqF) === eq
-            @test adapt(Float64, qproblemF) === qproblem
-            @test adapt(Float64, qregproblemF) === qregproblem
+            @test adapt(Float64, regproblemF) === regproblem
+            @test adapt(Float64, kproblemF) === kproblem
             @test adapt(Float64, solutionF) === solution
         end
 
         # Sanity checks: μ ∈ [0, 1]
-        @test_throws ArgumentError LocalResolventEquation(ensemble, z, -0.1, normalizeQ)
-        @test_throws ArgumentError LocalResolventEquation(ensemble, z, 1.1, normalizeQ)
-        @test_throws ArgumentError LocalResolventEquation(ensemble, z, 0.5im, normalizeQ)
+        @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, -0.1)
+        @test_throws ArgumentError LocalTraceProblem(eq, k, q, reg, -0.1)
+        @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, 1.1)
+        @test_throws ArgumentError LocalTraceProblem(eq, k, q, reg, 1.1)
+        @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, 0.5im)
+        @test_throws ArgumentError LocalTraceProblem(eq, k, q, reg, 0.5im)
     end
     #=
     @testset "ResolventProblem" begin
@@ -371,32 +381,33 @@ _sparse(D::Diagonal) = D
             z, q = convert.(Complex{F}, (-(im + 2) / 4, (1 - im) / 2))
             γ², δ² = Regularizer{F}(:γ, 0.25), Regularizer{F}(:δ, 0.5)
             μ = convert(F, 2 // 3)
+            μq = μ * q
             μensemble = MatrixEnsemble(M, L, R, μ * T)
 
-            eq = LocalResolventEquation(ensemble, z, μ, false)
-            eqn = LocalResolventEquation(ensemble, z, μ, true)
-            μeq = LocalResolventEquation(μensemble, z, 1, false)
-            μeqn = LocalResolventEquation(μensemble, z, 1, true)
+            eq = LocalResolventEquation(ensemble, z, false)
+            eqn = LocalResolventEquation(ensemble, z, true)
+            μeq = LocalResolventEquation(μensemble, z, false)
+            μeqn = LocalResolventEquation(μensemble, z, true)
 
             G0i = _inv(L) * (z * I - M) * _inv(R)
             if G0i isa UniformScaling
                 G0i = SMatrix{size(ensemble)...}(G0i)
             end
-            Q = G0i - q * μ * T
+            Q = G0i - μq * T
             QQh = Q * Q'
             QQhn = (QQh + Q' * Q) / 2
             s²min, s²minn = eigmin(_hermitian(QQh)), eigmin(_hermitian(QQhn))
 
             γ²valueδ, δ²valueγ= δ².value - s²min, γ².value + s²min
             γ²valueδn, δ²valueγn = δ².value - s²minn, γ².value + s²minn
-            @test γ²!(ws, eq, q, γ²) ≈ γ².value
-            @test γ²!(ws, eq, q, δ²) ≈ γ²valueδ
-            @test γ²!(ws, eqn, q, γ²) ≈ γ².value
-            @test γ²!(ws, eqn, q, δ²) ≈ γ²valueδn
-            @test δ²!(ws, eq, q, γ²) ≈ δ²valueγ
-            @test δ²!(ws, eq, q, δ²) ≈ δ².value
-            @test δ²!(ws, eqn, q, γ²) ≈ δ²valueγn
-            @test δ²!(ws, eqn, q, δ²) ≈ δ².value
+            @test γ²!(ws, eq, μq, γ²) ≈ γ².value
+            @test γ²!(ws, eq, μq, δ²) ≈ γ²valueδ
+            @test γ²!(ws, eqn, μq, γ²) ≈ γ².value
+            @test γ²!(ws, eqn, μq, δ²) ≈ γ²valueδn
+            @test δ²!(ws, eq, μq, γ²) ≈ δ²valueγ
+            @test δ²!(ws, eq, μq, δ²) ≈ δ².value
+            @test δ²!(ws, eqn, μq, γ²) ≈ δ²valueγn
+            @test δ²!(ws, eqn, μq, δ²) ≈ δ².value
             @test γ²!(ws, μeq, q, γ²) ≈ γ².value
             @test γ²!(ws, μeq, q, δ²) ≈ γ²valueδ
             @test γ²!(ws, μeqn, q, γ²) ≈ γ².value
@@ -409,23 +420,23 @@ _sparse(D::Diagonal) = D
             Pγ, Pδ = _inv(QQh + γ².value * I), _inv(QQh + γ²valueδ * I)
             Pγn, Pδn = _inv(QQhn + γ².value * I), _inv(QQhn + γ²valueδn * I)
 
-            qrhsγ, qrhsδ = μ * _trn(T * Q' * Pγ), μ * _trn(T * Q' * Pδ)
-            qrhsγn, qrhsδn = μ * _trn(T * Q' * Pγn), μ * _trn(T * Q' * Pδn)
-            @test qrhs!(ws, eq, q, γ²) ≈ qrhsγ
-            @test qrhs!(ws, eq, q, δ²) ≈ qrhsδ
-            @test qrhs!(ws, eqn, q, γ²) ≈ qrhsγn
-            @test qrhs!(ws, eqn, q, δ²) ≈ qrhsδn
-            @test qrhs!(ws, μeq, q, γ²) ≈ qrhsγ
-            @test qrhs!(ws, μeq, q, δ²) ≈ qrhsδ
-            @test qrhs!(ws, μeqn, q, γ²) ≈ qrhsγn
-            @test qrhs!(ws, μeqn, q, δ²) ≈ qrhsδn
+            q_μrhsγ, q_μrhsδ = _trn(T * Q' * Pγ), _trn(T * Q' * Pδ)
+            q_μrhsγn, q_μrhsδn = _trn(T * Q' * Pγn), _trn(T * Q' * Pδn)
+            @test q_μrhs!(ws, eq, μq, γ²) ≈ q_μrhsγ
+            @test q_μrhs!(ws, eq, μq, δ²) ≈ q_μrhsδ
+            @test q_μrhs!(ws, eqn, μq, γ²) ≈ q_μrhsγn
+            @test q_μrhs!(ws, eqn, μq, δ²) ≈ q_μrhsδn
+            @test q_μrhs!(ws, μeq, q, γ²) ≈ μ * q_μrhsγ
+            @test q_μrhs!(ws, μeq, q, δ²) ≈ μ * q_μrhsδ
+            @test q_μrhs!(ws, μeqn, q, γ²) ≈ μ * q_μrhsγn
+            @test q_μrhs!(ws, μeqn, q, δ²) ≈ μ * q_μrhsδn
 
             kγ, kδ = _trn(Pγ), _trn(Pδ)
             kγn, kδn = _trn(Pγn), _trn(Pδn)
-            @test k!(ws, eq, q, γ²) ≈ kγ
-            @test k!(ws, eq, q, δ²) ≈ kδ
-            @test k!(ws, eqn, q, γ²) ≈ kγn
-            @test k!(ws, eqn, q, δ²) ≈ kδn
+            @test k!(ws, eq, μq, γ²) ≈ kγ
+            @test k!(ws, eq, μq, δ²) ≈ kδ
+            @test k!(ws, eqn, μq, γ²) ≈ kγn
+            @test k!(ws, eqn, μq, δ²) ≈ kδn
             @test k!(ws, μeq, q, γ²) ≈ kγ
             @test k!(ws, μeq, q, δ²) ≈ kδ
             @test k!(ws, μeqn, q, γ²) ≈ kγn
@@ -435,10 +446,10 @@ _sparse(D::Diagonal) = D
 
             Eγ, Eδ = _trn(LiRi * Q' * Pγ), _trn(LiRi * Q' * Pδ)
             Eγn, Eδn = _trn(LiRi * Q' * Pγn), _trn(LiRi * Q' * Pδn)
-            @test E!(ws, eq, q, γ²) ≈ Eγ
-            @test E!(ws, eq, q, δ²) ≈ Eδ
-            @test E!(ws, eqn, q, γ²) ≈ Eγn
-            @test E!(ws, eqn, q, δ²) ≈ Eδn
+            @test E!(ws, eq, μq, γ²) ≈ Eγ
+            @test E!(ws, eq, μq, δ²) ≈ Eδ
+            @test E!(ws, eqn, μq, γ²) ≈ Eγn
+            @test E!(ws, eqn, μq, δ²) ≈ Eδn
             @test E!(ws, μeq, q, γ²) ≈ Eγ
             @test E!(ws, μeq, q, δ²) ≈ Eδ
             @test E!(ws, μeqn, q, γ²) ≈ Eγn
@@ -461,25 +472,26 @@ _sparse(D::Diagonal) = D
             tol = eps(F)^convert(F, 3 // 4)
             sol = eqsolve!(ws, problem)
             @test sol.problem === problem
-            if problem isa LocalQProblem
+            if problem isa LocalRegularizerProblem
                 @test sol.reg === problem.reg
-            elseif problem isa LocalQRegularizerProblem
+            elseif problem isa LocalTraceProblem
                 @test sol.k === problem.k
             end
-            @test sol.q ≈ qrhs!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
-            @test sol.γ² ≈ γ²!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
-            @test sol.δ² ≈ δ²!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
-            @test sol.k ≈ k!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
-            @test sol.E ≈ E!(ws, problem.eq, sol.q, sol.reg) rtol=tol atol=tol
+            μq = problem.μ * sol.q
+            @test sol.q ≈ problem.μ * q_μrhs!(ws, problem.eq, μq, sol.reg) rtol=tol atol=tol
+            @test sol.γ² ≈ γ²!(ws, problem.eq, μq, sol.reg) rtol=tol atol=tol
+            @test sol.δ² ≈ δ²!(ws, problem.eq, μq, sol.reg) rtol=tol atol=tol
+            @test sol.k ≈ k!(ws, problem.eq, μq, sol.reg) rtol=tol atol=tol
+            @test sol.E ≈ E!(ws, problem.eq, μq, sol.reg) rtol=tol atol=tol
         end
 
         Adata, Ddata = ComplexF64[1 0.1im; 0 -1], Diagonal([0.75, 0.25 * cis(pi / 3)])
         z_, μ_, γ²value_, δ²value_ = complex(0.8), 0.5, 100.0, 100.0
-        k_, q0_ = 0.01, DEFAULTS.q0
+        k_, q_ = 0.01, DEFAULTS.q0
         @testset "$label" for (label, (A, D)) in arraytypes(Adata, Ddata)
             @testset "$F" for (
-                F, (z, μ, γ²value, δ²value, k, q0)
-            ) in floattypes(z_, μ_, γ²value_, δ²value_, k_, q0_)
+                F, (z, μ, γ²value, δ²value, k, q)
+            ) in floattypes(z_, μ_, γ²value_, δ²value_, k_, q_)
                 γ², δ² = Regularizer(:γ, γ²value), Regularizer(:δ, δ²value)
                 @testset "$args" for (args, ensemble) in (
                     ("(I, I, I, I)", MatrixEnsemble{F}(I, I, I, I)),
@@ -489,17 +501,17 @@ _sparse(D::Diagonal) = D
                     ("(I, I, I, D)", MatrixEnsemble{F}(I, I, I, D)),
                 )
                     ws = Workspace(ensemble)
-                    eq = LocalResolventEquation(ensemble, z, μ, false)
-                    eqn = LocalResolventEquation(ensemble, z, μ, true)
+                    eq = LocalResolventEquation(ensemble, z, false)
+                    eqn = LocalResolventEquation(ensemble, z, true)
 
-                    eqsolve_tests!(F, ws, LocalQProblem(eq, γ², q0))
-                    eqsolve_tests!(F, ws, LocalQProblem(eq, δ², q0))
-                    eqsolve_tests!(F, ws, LocalQProblem(eqn, γ², q0))
-                    eqsolve_tests!(F, ws, LocalQProblem(eqn, δ², q0))
-                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eq, k, q0, γ²))
-                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eq, k, q0, δ²))
-                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eqn, k, q0, γ²))
-                    eqsolve_tests!(F, ws, LocalQRegularizerProblem(eqn, k, q0, δ²))
+                    eqsolve_tests!(F, ws, LocalRegularizerProblem(eq, γ², q, μ))
+                    eqsolve_tests!(F, ws, LocalRegularizerProblem(eq, δ², q, μ))
+                    eqsolve_tests!(F, ws, LocalRegularizerProblem(eqn, γ², q, μ))
+                    eqsolve_tests!(F, ws, LocalRegularizerProblem(eqn, δ², q, μ))
+                    eqsolve_tests!(F, ws, LocalTraceProblem(eq, k, q, γ², μ))
+                    eqsolve_tests!(F, ws, LocalTraceProblem(eq, k, q, δ², μ))
+                    eqsolve_tests!(F, ws, LocalTraceProblem(eqn, k, q, γ², μ))
+                    eqsolve_tests!(F, ws, LocalTraceProblem(eqn, k, q, δ², μ))
                 end
             end
         end

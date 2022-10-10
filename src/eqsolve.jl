@@ -7,11 +7,13 @@ Solve an averaged resolvent equation at a point in the complex plane
 
 Returns a `LocalResolventSolution`
 """
-function eqsolve!(ws::Workspace{F}, problem::LocalQProblem{F}, verbosity=0) where {F}
-    fq = let ws=ws, eq=problem.eq, reg=problem.reg
+function eqsolve!(
+    ws::Workspace{F}, problem::LocalRegularizerProblem{F}, verbosity=0
+) where {F}
+    fq = let μ=problem.μ, ws=ws, eq=problem.eq, reg=problem.reg
         function fq(qv)
             q = complex(qv...)
-            dq = qrhs!(ws, eq, q, reg) - q
+            dq = μ * q_μrhs!(ws, eq, μ * q, reg) - q
             return SVector(real(dq), imag(dq))
         end
     end
@@ -19,18 +21,17 @@ function eqsolve!(ws::Workspace{F}, problem::LocalQProblem{F}, verbosity=0) wher
     qv, niters = newton(fq, q0v)
     # print_niters(niters, verbosity)
     q, reg = complex(qv...), problem.reg
-    k = k!(ws, problem.eq, q, reg)
+    k = k!(ws, problem.eq, problem.μ * q, reg)
     return _local_resolvent_solution!(ws, problem, q, reg, k)
 end
 
-function eqsolve!(
-    ws::Workspace{F}, problem::LocalQRegularizerProblem{F}, verbosity=0
-) where {F}
-    fqreg = let kind=problem.reg0.kind, ws=ws, eq=problem.eq, klhs=problem.k
+function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}, verbosity=0) where {F}
+    fqreg = let kind=problem.reg0.kind, μ=problem.μ, ws=ws, eq=problem.eq, klhs=problem.k
         function fqreg(qregv)
             q, reg = complex(qregv[1], qregv[2]), Regularizer(kind, qregv[3])
-            dq = qrhs!(ws, eq, q, reg) - q
-            dk = k!(ws, eq, q, reg) - klhs
+            μq = μ * q
+            dq = μ * q_μrhs!(ws, eq, μq, reg) - q
+            dk = k!(ws, eq, μq, reg) - klhs
             return SVector(real(dq), imag(dq), dk)
         end
     end
@@ -42,9 +43,10 @@ function eqsolve!(
 end
 
 function _local_resolvent_solution!(ws, problem, q, reg, k)
-    γ² = γ²!(ws, problem.eq, q, reg)
-    δ² = δ²!(ws, problem.eq, q, reg)
-    E = E!(ws, problem.eq, q, reg)
+    μq = problem.μ * q
+    γ² = γ²!(ws, problem.eq, μq, reg)
+    δ² = δ²!(ws, problem.eq, μq, reg)
+    E = E!(ws, problem.eq, μq, reg)
     return LocalResolventSolution(problem, q, reg, γ², δ², k, E)
 end
 
