@@ -386,25 +386,9 @@ _sparse(D::Diagonal) = D
             QQh = Q * Q'
             QQhn = (QQh + Q' * Q) / 2
             s²min, s²minn = eigmin(_hermitian(QQh)), eigmin(_hermitian(QQhn))
-            γ²valueδ = δ².value - s²min
-            δ²valueγ = γ².value + s²min
-            γ²valueδn = δ².value - s²minn
-            δ²valueγn = γ².value + s²minn
-            Pγ = _inv(QQh + γ².value * I)
-            Pδ = _inv(QQh + γ²valueδ * I)
-            Pγn = _inv(QQhn + γ².value * I)
-            Pδn = _inv(QQhn + γ²valueδn * I)
-            qrhsγ, qrhsδ = μ * _trn(T * Q' * Pγ), μ * _trn(T * Q' * Pδ)
-            qrhsγn, qrhsδn = μ * _trn(T * Q' * Pγn), μ * _trn(T * Q' * Pδn)
-            @test qrhs!(ws, eq, q, γ²) ≈ qrhsγ
-            @test qrhs!(ws, eq, q, δ²) ≈ qrhsδ
-            @test qrhs!(ws, eqn, q, γ²) ≈ qrhsγn
-            @test qrhs!(ws, eqn, q, δ²) ≈ qrhsδn
-            @test qrhs!(ws, μeq, q, γ²) ≈ qrhsγ
-            @test qrhs!(ws, μeq, q, δ²) ≈ qrhsδ
-            @test qrhs!(ws, μeqn, q, γ²) ≈ qrhsγn
-            @test qrhs!(ws, μeqn, q, δ²) ≈ qrhsδn
 
+            γ²valueδ, δ²valueγ= δ².value - s²min, γ².value + s²min
+            γ²valueδn, δ²valueγn = δ².value - s²minn, γ².value + s²minn
             @test γ²!(ws, eq, q, γ²) ≈ γ².value
             @test γ²!(ws, eq, q, δ²) ≈ γ²valueδ
             @test γ²!(ws, eqn, q, γ²) ≈ γ².value
@@ -422,7 +406,33 @@ _sparse(D::Diagonal) = D
             @test δ²!(ws, μeqn, q, γ²) ≈ δ²valueγn
             @test δ²!(ws, μeqn, q, δ²) ≈ δ².value
 
+            Pγ, Pδ = _inv(QQh + γ².value * I), _inv(QQh + γ²valueδ * I)
+            Pγn, Pδn = _inv(QQhn + γ².value * I), _inv(QQhn + γ²valueδn * I)
+
+            qrhsγ, qrhsδ = μ * _trn(T * Q' * Pγ), μ * _trn(T * Q' * Pδ)
+            qrhsγn, qrhsδn = μ * _trn(T * Q' * Pγn), μ * _trn(T * Q' * Pδn)
+            @test qrhs!(ws, eq, q, γ²) ≈ qrhsγ
+            @test qrhs!(ws, eq, q, δ²) ≈ qrhsδ
+            @test qrhs!(ws, eqn, q, γ²) ≈ qrhsγn
+            @test qrhs!(ws, eqn, q, δ²) ≈ qrhsδn
+            @test qrhs!(ws, μeq, q, γ²) ≈ qrhsγ
+            @test qrhs!(ws, μeq, q, δ²) ≈ qrhsδ
+            @test qrhs!(ws, μeqn, q, γ²) ≈ qrhsγn
+            @test qrhs!(ws, μeqn, q, δ²) ≈ qrhsδn
+
+            kγ, kδ = _trn(Pγ), _trn(Pδ)
+            kγn, kδn = _trn(Pγn), _trn(Pδn)
+            @test k!(ws, eq, q, γ²) ≈ kγ
+            @test k!(ws, eq, q, δ²) ≈ kδ
+            @test k!(ws, eqn, q, γ²) ≈ kγn
+            @test k!(ws, eqn, q, δ²) ≈ kδn
+            @test k!(ws, μeq, q, γ²) ≈ kγ
+            @test k!(ws, μeq, q, δ²) ≈ kδ
+            @test k!(ws, μeqn, q, γ²) ≈ kγn
+            @test k!(ws, μeqn, q, δ²) ≈ kδn
+
             LiRi = _inv(R * L)
+
             Eγ, Eδ = _trn(LiRi * Q' * Pγ), _trn(LiRi * Q' * Pδ)
             Eγn, Eδn = _trn(LiRi * Q' * Pγn), _trn(LiRi * Q' * Pδn)
             @test E!(ws, eq, q, γ²) ≈ Eγ
