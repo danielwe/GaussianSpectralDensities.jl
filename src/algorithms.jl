@@ -1,5 +1,5 @@
-abstract type AbstractAlgorithm{F<:Real} end
-abstract type AbstractSchedule{F} <: AbstractAlgorithm{F} end
+abstract type AbstractAlgorithm end
+abstract type AbstractSchedule{F} <: AbstractAlgorithm end
 
 ## Traits
 ## ======
@@ -8,30 +8,13 @@ Base.length(alg::AbstractSchedule) = length(alg.schedule)
 
 """
     DirectSolve()
-    DirectSolve(q0, reg0)
-    DirectSolve{F}(q0, reg0) where {F<:Real}
 
 Solve the average resolvent equation directly for the given objective
 
 This solution strategy can converge to the wrong branch when ``T ≠ 0``. A scheduling
 algorithm is recommended to mitigate this.
-
-`q0` sets the initial value for ``q = \\tr TQ^†(QQ^† + γ²I)⁻¹`` in the nonlinear solver.
-`reg0` sets the initial value for one of the regularizers ``γ²,δ²``, see
-[`Regularizer`](@ref).
-
-Default values: `DEFAULTS.q0, DEFAULTS.reg0`.
 """
-struct DirectSolve{F} <: AbstractAlgorithm{F}
-    q0::Complex{F}
-    reg0::Regularizer{F}
-end
-
-DirectSolve() = DirectSolve(DEFAULTS.q0, DEFAULTS.reg0)
-
-## Conversions
-## ===========
-Base.convert(::Type{P}, alg::Q) where {P<:DirectSolve,Q<:DirectSolve} = P(alg.q0, alg.reg0)
+struct DirectSolve <: AbstractAlgorithm end
 
 """
     RegularizerSchedule()
@@ -39,29 +22,29 @@ Base.convert(::Type{P}, alg::Q) where {P<:DirectSolve,Q<:DirectSolve} = P(alg.q0
     RegularizerSchedule(schedule::AbstractVector{<:Regularizer}, γ²min)
     RegularizerSchedule{F}(schedule::AbstractVector{<:Regularizer}, γ²min) where {F<:Real}
 
-Solve the average resolvent equation along a schedule for a regularizer
+Solve the average resolvent equation by annealing the regularization
 
-The intended way to use this algorithm is to start from a large value to ensure convergence
-to the correct branch of the equation, and decay gradually from there to stay on this branch
-while approaching the final objective.
+The intended way to use this algorithm is to start from a large regularizer to ensure
+convergence to the correct solution branch, and let it decay such as to gradually approach
+the true solution along this branch.
 
 If `kind` is provided, `schedule` should be a vector of numerical values, otherwise it
 should be a vector of `Regularizer`s. See [`Regularizer`](@ref) for the available kinds of
 regularizers.
 
-The last step of the algorithm is to solve directly for the actual objective. This either
-happens at the end of the prescribed schedule or when the objective is reached or exceeded
-during the course of the schedule, whichever comes first.
+The final step of the algorithm is a direct solve of the averaged resolvent problem. This
+either happens at the end of the prescribed schedule or when intersecting the target during
+the annealing, whichever comes first.
 
 `γ²min` is a lower bound on the value of ``γ²``. If the algorithm reaches a point where
 `γ^2 < γ²min` before reaching the objective, it is aborted and the equations are deemed
 unsolvable. This is of course redundant when `kind=:γ`, but can be very useful when
-`kind=:δ`. Strictly speaking, the equations are derived assuming ``γ² ≥ 0``, suggesting
-`γ²min = 0`, but in practice it is useful to allow analytic continuation to small negative
-values to support interpolation between grid points in regions where ``γ²`` vanishes
-rapidly. At the same time, it's often best to abort before reaching too large negative
-values, where the solver usually gets slow and unstable as the solution branch is
-annihilated in a bifurcation.
+`kind=:δ`. Strictly speaking, the averaged resolvent equations are derived assuming ``γ²
+≥ 0``, suggesting `γ²min = 0`, but in practice it is useful to allow analytic continuation
+to negative values such that the averaged resolvent can be interpolated between grid points
+in regions where ``γ²`` vanishes rapidly. However, it's best to abort before reaching too
+large negative values, as the annealing may encounter a bifurcation that annihilates the
+solution branch, rendering the solver slow and unstable and interpolation meaningless.
 
 Default values:
 - `DEFAULTS.regschedule`, an exponentially decaying sequence of ``δ``-regularizers
@@ -103,32 +86,33 @@ function Base.convert(
 end
 
 """
-    SymmetrySchedule(initialalg)
-    SymmetrySchedule(initialalg, steps::Integer, γ²min)
-    SymmetrySchedule(initialalg, schedule::AbstractVector{<:Real}, γ²min)
-    SymmetrySchedule{F}(initialalg, schedule::AbstractVector{<:Real}, γ²min) where {F<:Real}
+    SymmetrySchedule()
+    SymmetrySchedule(steps::Integer, args...)
+    SymmetrySchedule(schedule::AbstractVector{<:Real}, γ²min, initialalg=DirectSolve())
+    SymmetrySchedule{F}(schedule, γ²min, initialalg) where {F<:Real}
 
-Solve the average resolvent equation along a schedule for the degree of symmetry
+Solve the average resolvent equation by annealing the degree of symmetry in the ensemble
 
 What we're scheduling here is a prefactor ``μ ∈ [0, 1]`` such that the symmetry parameter
-``T`` is replaced by ``μT``. The idea is that the equations behaved better for ``μ = 0``,
-i.e, the asymmetric problem, so we solve that first before turning on the symmetry
-gradually.
+``T`` is replaced by ``μT``. The idea is that the equations behave better for ``μ = 0``,
+i.e, the asymmetric problem, so we solve that first before gradually turning on the
+symmetry.
 
-There is no guarantee that the desired solution branch at ``μ = 1`` is analytically
+There is no guarantee that the correct solution branch at ``μ = 1`` is analytically
 connected to the solution at ``μ = 0``, so this may not always be a viable solution
 strategy. For example, the topology of the spectral support may change as a function of
-``μ``. This is unlike `RegularizerSchedule`, where the surviving branch in the limit of
-large regularizer is the desired one by definition, so a scheduling a regularizer is usually
-the preferred solution strategy.
+``μ``. This is different from `RegularizerSchedule`, where the surviving branch in the limit
+of large regularizer is the correct branch by definition. Hence, annealing the
+regularization is usually the preferred solution strategy.
 
-If `schedule` is an integer, the schedule is set to `range(0, 1, schedule)`. Otherwise,
-a custom schedule can be supplied, for example if you want to reduce the step size in an
-unstable region. An error is thrown if the schedule does not increase monotonically from
-0 to 1.
+The schedule can be specified as an integer `steps`, which will set the schedule to
+`range(0, 1, steps)`. Alternatively, a custom schedule can be provided directly in the form
+of an `AbstractVector{<:Real}`; this can be useful if, for example, you want to take smaller
+steps in an unstable region. An error is thrown if the schedule does not increase
+monotonically from 0 to 1.
 
-`initialalg` holds the algorithm that will be used to find the solution at ``μ = 0``.
-A `DirectSolve` usually suffices here, but you can also use a `RegularizerSchedule`.
+`initialalg` holds the algorithm that will be used to find the solution at ``μ = 0``. The
+default `DirectSolve` usually suffices here, but you can also use a `RegularizerSchedule`.
 
 The meaning of `γ²min` is the same as in [`RegularizerSchedule`](@ref).
 
@@ -137,34 +121,36 @@ Default values:
 - `DEFAULTS.γ²min`
 """
 struct SymmetrySchedule{
-    F,A<:Union{DirectSolve{F},RegularizerSchedule{F}},U<:AbstractVector{F}
+    F,A<:Union{DirectSolve,<:RegularizerSchedule{F}},U<:AbstractVector{F}
 } <: AbstractSchedule{F}
-    initialalg::A
     schedule::U
     γ²min::F
+    initialalg::A
 
-    function SymmetrySchedule{F}(initialalg, schedule, γ²min) where {F}
+    function SymmetrySchedule{F}(schedule, γ²min, initialalg) where {F}
         if (first(schedule) != 0) || (last(schedule) != 1) || !_monotonic(schedule)
             msg = "symmetry schedule must increase monotonically from 0 to 1"
             throw(ArgumentError(msg))
         end
-        initialalg = adapt(F, initialalg)
         schedule = adapt(F, schedule)
-        return new{F,typeof(initialalg),typeof(schedule)}(initialalg, schedule, γ²min)
+        if !(initialalg isa DirectSolve)
+            initialalg = adapt(F, initialalg)
+        end
+        return new{F,typeof(initialalg),typeof(schedule)}(schedule, γ²min, initialalg)
     end
 end
 
-function SymmetrySchedule(initialalg::AbstractAlgorithm{F}, schedule, γ²min) where {F}
-    return SymmetrySchedule{F}(initialalg, schedule, γ²min)
+function SymmetrySchedule(
+    schedule::AbstractVector{F}, γ²min, initialalg=DirectSolve()
+) where {F}
+    return SymmetrySchedule{F}(schedule, γ²min, initialalg)
 end
 
-function SymmetrySchedule(initialalg::AbstractAlgorithm{F}, steps::Integer, γ²min) where {F}
-    return SymmetrySchedule{F}(initialalg, range(zero(F), one(F), steps), γ²min)
+function SymmetrySchedule(steps::Integer, γ²min::F, args...) where {F}
+    return SymmetrySchedule(range(zero(F), one(F), steps), γ²min, args...)
 end
 
-function SymmetrySchedule(initialalg)
-    return SymmetrySchedule(initialalg, DEFAULTS.μschedule, DEFAULTS.γ²min)
-end
+SymmetrySchedule() = SymmetrySchedule(DEFAULTS.μschedule, DEFAULTS.γ²min)
 
 ## Traits, comparisons, conversions
 ## ================================
@@ -178,7 +164,7 @@ function Base.convert(
     ::Type{P}, alg::Q
 ) where {F,P<:SymmetrySchedule{F},Q<:SymmetrySchedule}
     (alg isa P) && return alg
-    return SymmetrySchedule{F}(alg.initialalg, alg.schedule, alg.γ²min)
+    return SymmetrySchedule{F}(alg.schedule, alg.γ²min, alg.initialalg)
 end
 
 ## Helpers

@@ -518,34 +518,11 @@ _sparse(D::Diagonal) = D
     end
     @testset "algorithms" begin
         @testset "DirectSolve" begin
-            reg0kind, reg0value = :δ, 0.0
-            q0, reg0 = complex(eps()), Regularizer(reg0kind, reg0value)
-            dsolve = DirectSolve(q0, reg0)
+            dsolve = DirectSolve()
 
             # Traits
-            @test dsolve isa DirectSolve{Float64}
+            @test dsolve isa DirectSolve
             @test length(dsolve) == 0
-
-            # Defaults
-            @test DirectSolve() === DirectSolve(DEFAULTS.q0, DEFAULTS.reg0)
-
-            @testset "$F" for (F, (q0F, reg0valueF)) in floattypes(q0, reg0value)
-                reg0F = Regularizer(reg0kind, reg0valueF)
-                dsolveF = DirectSolve(q0F, reg0F)
-
-                # Floattype inferring constructor
-                @test dsolveF isa DirectSolve{F}
-
-                # Floattype enforcing constructor
-                @test DirectSolve{F}(q0, reg0) isa DirectSolve{F}
-                @test DirectSolve{Float64}(q0F, reg0F) isa DirectSolve{Float64}
-
-                # Floattype conversions
-                @test convert(DirectSolve{F}, dsolve) === dsolveF
-                @test convert(DirectSolve{Float64}, dsolveF) === dsolve
-                @test adapt(F, dsolve) === dsolveF
-                @test adapt(Float64, dsolveF) === dsolve
-            end
         end
         @testset "RegularizerSchedule" begin
             regkind, regvalues, γ²min = :δ, 2.0.^(2:-1:-2), 0.0
@@ -582,35 +559,41 @@ _sparse(D::Diagonal) = D
             end
         end
         @testset "SymmetrySchedule" begin
-            ialg, steps, γ²min = RegularizerSchedule(), 3, 0.0
+            steps, γ²min, ialg = 3, 0.0, RegularizerSchedule()
             μschedule = range(0.0, 1.0, steps)
-            schedule = SymmetrySchedule(ialg, μschedule, γ²min)
+            schedule = SymmetrySchedule(μschedule, γ²min, ialg)
 
             # Traits
             @test schedule isa SymmetrySchedule{Float64,<:RegularizerSchedule{Float64}}
             @test length(schedule) == length(ialg) + length(μschedule)
 
+            # All the signatures
+            @test SymmetrySchedule(steps, γ²min, ialg) === schedule
+
+            # Defaults
+            @test SymmetrySchedule() === SymmetrySchedule(DEFAULTS.μschedule, DEFAULTS.γ²min)
+
             @testset "$F" for (F, (γ²minF,)) in floattypes(γ²min)
-                ialgF = adapt(F, ialg)
-                μscheduleF = adapt(F, μschedule)
-                scheduleF = SymmetrySchedule(ialgF, μscheduleF, γ²minF)
+                μscheduleF, ialgF = adapt.(F, (μschedule, ialg))
+                scheduleF = SymmetrySchedule(μscheduleF, γ²minF, ialgF)
 
                 # Floattype inferring constructor
                 @test scheduleF isa SymmetrySchedule{F,<:RegularizerSchedule{F}}
-                # - All the signatures
-                @test SymmetrySchedule(ialgF, steps, γ²minF) == scheduleF
                 # - Defaults
-                @test SymmetrySchedule(ialgF) == SymmetrySchedule{F}(
-                    ialgF, DEFAULTS.μschedule, DEFAULTS.γ²min
+                @test SymmetrySchedule(μscheduleF, γ²min) === SymmetrySchedule{F}(
+                    μschedule, γ²min, DirectSolve()
+                )
+                @test SymmetrySchedule(steps, γ²minF) === SymmetrySchedule{F}(
+                    μschedule, γ²min, DirectSolve()
                 )
 
                 # Capture any roundtrip truncation loss---that's not what we want to test
                 ialg64 = adapt(Float64, ialgF)
-                schedule64 = SymmetrySchedule(ialg64, μschedule, γ²min)
+                schedule64 = SymmetrySchedule(μschedule, γ²min, ialg64)
 
                 # Floattype enforcing constructor
-                @test SymmetrySchedule{F}(ialg, μschedule, γ²min) == scheduleF
-                @test SymmetrySchedule{Float64}(ialgF, μscheduleF, γ²minF) == schedule64
+                @test SymmetrySchedule{F}(μschedule, γ²min, ialg) == scheduleF
+                @test SymmetrySchedule{Float64}(μscheduleF, γ²minF, ialgF) == schedule64
 
                 # Floattype conversions
                 @test convert(SymmetrySchedule{F}, schedule) == scheduleF
@@ -620,10 +603,16 @@ _sparse(D::Diagonal) = D
             end
 
             # Sanity checks
-            @test_throws ArgumentError SymmetrySchedule(ialg, [0.2, 0.6, 1.0], γ²min)  # Doesn't start at 0
-            @test_throws ArgumentError SymmetrySchedule(ialg, [0.0, 0.4, 0.8], γ²min)  # Doesn't end at 1
-            @test_throws ArgumentError SymmetrySchedule(ialg, [0.0, 0.67, 0.33, 1.0], γ²min)  # Not monotonic
+            @test_throws ArgumentError SymmetrySchedule([0.2, 0.6, 1.0], γ²min, ialg)  # Doesn't start at 0
+            @test_throws ArgumentError SymmetrySchedule(range(0.2, 1.0, 3), γ²min, ialg)
+            @test_throws ArgumentError SymmetrySchedule([0.0, 0.4, 0.8], γ²min, ialg)  # Doesn't end at 1
+            @test_throws ArgumentError SymmetrySchedule(range(0.0, 0.8, 3), γ²min, ialg)
+            @test_throws ArgumentError SymmetrySchedule([0.0, 0.67, 0.33, 1.0], γ²min, ialg)  # Not monotonic
+            @test_throws ArgumentError SymmetrySchedule(range(1.0, 0.0, 3), γ²min, ialg)
         end
+    end
+    @testset "solve" begin
+
     end
     @testset "linalg" begin
         _isequal(C1, C2) = isequal(C1, C2)
