@@ -4,6 +4,8 @@ using GaussianSpectralDensities: Regularizer, LocalResolventEquation
 using GaussianSpectralDensities: LocalRegularizerProblem, LocalTraceProblem
 using GaussianSpectralDensities: Workspace, q_μrhs!, γ²!, δ²!, k!, E!
 using GaussianSpectralDensities: LocalResolventSolution, eqsolve!
+using GaussianSpectralDensities: initiallength
+using GaussianSpectralDensities: LocalResolventSolver, init, LocalSolution
 using GaussianSpectralDensities: psdmul, psdmul!!, decompose, decompose!!, ldiv!!
 using GaussianSpectralDensities: invert, invert!!, eigmin!!
 using GaussianSpectralDensities: newton, finite_difference_jacobian, NewtonException
@@ -342,28 +344,6 @@ _sparse(D::Diagonal) = D
         @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, 0.5im)
         @test_throws ArgumentError LocalTraceProblem(eq, k, q, reg, 0.5im)
     end
-    #=
-    @testset "ResolventProblem" begin
-        ro = RegularizerObjective()
-        @testset "$label" for (label, z) in [
-            ("z scalar", 1.0),
-            ("z matrix", [0.0 1.0]),
-            ("z matrix with missing", [0.0 1.0; missing missing]),
-        ]
-            @testset "$F" for F in FLOATTYPES
-                ensembleF = MatrixEnsemble{F}(I, I, I, I)
-
-                # Floattype inferring constructor
-                @test ResolventProblem(ensembleF, z) isa ResolventProblem{F}
-                @test ResolventProblem(ensembleF, z, ro) isa ResolventProblem{F}
-                p = ResolventProblem(ensembleF, z; normalizeQ=true)
-                @test p isa ResolventProblem{F}
-                p = ResolventProblem(ensembleF, z, ro; normalizeQ=true)
-                @test p isa ResolventProblem{F}
-            end
-        end
-    end
-    =#
     @testset "Workspace" begin
         function workspace_tests(F, M, L, R, T)
             _inv(A) = inv(A)
@@ -523,6 +503,7 @@ _sparse(D::Diagonal) = D
             # Traits
             @test dsolve isa DirectSolve
             @test length(dsolve) == 0
+            @test initiallength(dsolve) == 0
 
             @testset "$F" for F in FLOATTYPES
                 @test adapt(F, dsolve) === dsolve
@@ -536,6 +517,7 @@ _sparse(D::Diagonal) = D
             # Traits
             @test schedule isa RegularizerSchedule{Float64}
             @test length(schedule) == length(regvalues)
+            @test initiallength(schedule) == 0
 
             # Defaults
             @test RegularizerSchedule() === RegularizerSchedule(
@@ -569,7 +551,8 @@ _sparse(D::Diagonal) = D
 
             # Traits
             @test schedule isa SymmetrySchedule{Float64,<:RegularizerSchedule{Float64}}
-            @test length(schedule) == length(ialg) + length(μschedule)
+            @test length(schedule) == length(μschedule)
+            @test initiallength(schedule) == length(ialg)
 
             # All the signatures
             @test SymmetrySchedule(steps, γ²min, ialg) === schedule
@@ -615,8 +598,103 @@ _sparse(D::Diagonal) = D
             @test_throws ArgumentError SymmetrySchedule(range(1.0, 0.0, 3), γ²min, ialg)
         end
     end
-    @testset "solve" begin
+    @testset "solvers/fullsolution" begin
+        ensemble, z, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, false
+        k, regkind, regvalue, q, μ, E = 1.0, :δ, 0.5, complex(eps()), 1.0, 0.5 - im
+        reg = Regularizer(regkind, regvalue)
+        s²min = 0.5
 
+        eq = LocalResolventEquation(ensemble, z, normalizeQ)
+        regproblem = LocalRegularizerProblem(eq, reg, q, μ)
+        kproblem = LocalTraceProblem(eq, k, q, reg, μ)
+
+        regkind, regvalues, γ²min = :δ, 2.0.^(2:-1:-2), 0.0
+        regschedule = RegularizerSchedule(Regularizer.(regkind, regvalues), γ²min)
+
+        steps, γ²min, ialg = 3, 0.0, RegularizerSchedule()
+        symmetryschedule = SymmetrySchedule(range(0.0, 1.0, steps), γ²min, ialg)
+
+        compare_solvers(s1, s2) = (typeof(s1) === typeof(s2))
+
+        @testset "$label" for (label, alg) in [
+            ("DirectSolve", DirectSolve()),
+            ("RegularizerSchedule", regschedule),
+            ("SymmetrySchedule", symmetryschedule),
+        ]
+            regsolver = LocalResolventSolver(regproblem, alg)
+            ksolver = LocalResolventSolver(kproblem, alg)
+
+            @test compare_solvers(regsolver, init(regproblem, alg))
+            @test compare_solvers(ksolver, init(kproblem, alg))
+
+            regsolution = LocalSolution(
+                regsolver.problem,
+                regsolver.algorithm,
+                regsolver.initialtrace,
+                regsolver.trace,
+                q,
+                reg,
+                γ²(reg, s²min),
+                δ²(reg, s²min),
+                k,
+                E,
+            )
+            ksolution = LocalSolution(
+                ksolver.problem,
+                ksolver.algorithm,
+                ksolver.initialtrace,
+                ksolver.trace,
+                q,
+                reg,
+                γ²(reg, s²min),
+                δ²(reg, s²min),
+                k,
+                E,
+            )
+
+            @test regsolution isa LocalSolution{Float64}
+            @test ksolution isa LocalSolution{Float64}
+
+            @testset "$F" for (F, (qF, s²minF, kF, EF)) in floattypes(q, s²min, k, E)
+                regsolverF = LocalResolventSolver{F}(regproblem, alg)
+                ksolverF = LocalResolventSolver{F}(kproblem, alg)
+                @test compare_solvers(
+                    regsolverF, LocalResolventSolver(adapt(F, regproblem), alg),
+                )
+                @test compare_solvers(
+                    ksolverF, LocalResolventSolver(adapt(F, kproblem), alg),
+                )
+
+                regF = adapt(F, reg)
+                regsolutionF = LocalSolution(
+                    regsolverF.problem,
+                    regsolverF.algorithm,
+                    regsolverF.initialtrace,
+                    regsolverF.trace,
+                    qF,
+                    regF,
+                    γ²(regF, s²minF),
+                    δ²(regF, s²minF),
+                    kF,
+                    EF,
+                )
+                ksolutionF = LocalSolution(
+                    ksolverF.problem,
+                    ksolverF.algorithm,
+                    ksolverF.initialtrace,
+                    ksolverF.trace,
+                    qF,
+                    regF,
+                    γ²(regF, s²minF),
+                    δ²(regF, s²minF),
+                    kF,
+                    EF,
+                )
+
+                @test regsolutionF isa LocalSolution{F}
+                @test ksolutionF isa LocalSolution{F}
+            end
+        end
     end
     @testset "linalg" begin
         _isequal(C1, C2) = isequal(C1, C2)

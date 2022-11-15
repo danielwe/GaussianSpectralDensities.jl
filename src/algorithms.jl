@@ -8,17 +8,22 @@ algorithm is recommended to mitigate this.
 """
 struct DirectSolve end
 
+## Traits, conversions
+## ===================
 Base.length(::DirectSolve) = 0
+initiallength(::DirectSolve) = 0
 adapt(::Type{F}, alg::DirectSolve) where {F} = alg
 
+# Type tree
+# =========
 abstract type AbstractSchedule{F} end
+
+## Union rather than supertype to make DirectSolve <: AbstractAlgorithm{F} for any F
+const AbstractAlgorithm{F} = Union{DirectSolve,<:AbstractSchedule{F}}
 
 ## Traits
 ## ======
 Base.length(alg::AbstractSchedule) = length(alg.schedule)
-
-## Union rather than supertype to make DirectSolve <: AbstractAlgorithm{F} for any F
-const AbstractAlgorithm{F} = Union{DirectSolve,<:AbstractSchedule{F}}
 
 """
     RegularizerSchedule()
@@ -76,8 +81,11 @@ end
 
 RegularizerSchedule() = RegularizerSchedule(DEFAULTS.regschedule, DEFAULTS.γ²min)
 
-## Comparisons, conversions
-## ========================
+
+## Traits, comparisons, conversions
+## ================================
+initiallength(::RegularizerSchedule) = 0
+
 function Base.:(==)(a::A, b::A) where {A<:RegularizerSchedule}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
 end
@@ -156,7 +164,7 @@ SymmetrySchedule() = SymmetrySchedule(DEFAULTS.μschedule, DEFAULTS.γ²min)
 
 ## Traits, comparisons, conversions
 ## ================================
-Base.length(alg::SymmetrySchedule) = length(alg.initialalg) + length(alg.schedule)
+initiallength(alg::SymmetrySchedule) = length(alg.initialalg)
 
 function Base.:(==)(a::A, b::A) where {A<:SymmetrySchedule}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))

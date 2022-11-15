@@ -1,15 +1,17 @@
 module GaussianSpectralDensities
 
-# using CommonSolve
+using Reexport
+
 using Adapt
 using ArnoldiMethod
+@reexport import CommonSolve: init, solve!, solve
 using LinearAlgebra
 using LinearMaps
 using MappedArrays
 using StaticArrays
 using SparseArrays
 using SuiteSparse
-# using StructArrays
+using StructArrays
 # using Random
 # using ThreadPools
 # using Printf
@@ -54,6 +56,7 @@ include("workspace.jl")
 include("solutions.jl")
 include("eqsolve.jl")
 include("algorithms.jl")
+include("localsolve.jl")
 include("linalg.jl")
 include("newton.jl")
 # include("solve.jl")

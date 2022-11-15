@@ -39,7 +39,7 @@ function Base.convert(
     return LocalResolventEquation{F}(eq.ensemble, eq.z, eq.normalizeQ)
 end
 
-abstract type AbstractLocalResolventProblem{F<:AbstractFloat} end
+abstract type AbstractLocalResolventProblem{F<:AbstractFloat,E<:LocalResolventEquation{F}} end
 
 """
     LocalRegularizerProblem(eq::LocalResolventEquation, reg, q0, μ=1) where {F}
@@ -51,7 +51,7 @@ Specify the problem of finding ``q`` given a regularizer in the averaged resolve
 parameter is inserted by hand into the equations to facilitate a solution strategy whereby
 the symmetry is annealed.
 """
-struct LocalRegularizerProblem{F,E<:LocalResolventEquation{F}} <: AbstractLocalResolventProblem{F}
+struct LocalRegularizerProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     eq::E
     reg::Regularizer{F}
     q0::Complex{F}
@@ -88,9 +88,7 @@ Here, ``k`` is the target value of the normalized trace ``k = \\tr[(QQ^† + γ�
 `eq.ensemble.T`. This parameter is inserted by hand into the equations to facilitate
 a solution strategy whereby the symmetry is annealed.
 """
-struct LocalTraceProblem{
-    F,E<:LocalResolventEquation{F}
-} <: AbstractLocalResolventProblem{F}
+struct LocalTraceProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     eq::E
     k::F
     q0::Complex{F}
