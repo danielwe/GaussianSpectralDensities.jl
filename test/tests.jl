@@ -523,6 +523,10 @@ _sparse(D::Diagonal) = D
             # Traits
             @test dsolve isa DirectSolve
             @test length(dsolve) == 0
+
+            @testset "$F" for F in FLOATTYPES
+                @test adapt(F, dsolve) === dsolve
+            end
         end
         @testset "RegularizerSchedule" begin
             regkind, regvalues, γ²min = :δ, 2.0.^(2:-1:-2), 0.0

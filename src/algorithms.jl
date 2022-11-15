@@ -1,11 +1,3 @@
-abstract type AbstractAlgorithm end
-abstract type AbstractSchedule{F} <: AbstractAlgorithm end
-
-## Traits
-## ======
-Base.length(alg::AbstractAlgorithm) = 0
-Base.length(alg::AbstractSchedule) = length(alg.schedule)
-
 """
     DirectSolve()
 
@@ -14,7 +6,19 @@ Solve the average resolvent equation directly for the given objective
 This solution strategy can converge to the wrong branch when ``T ≠ 0``. A scheduling
 algorithm is recommended to mitigate this.
 """
-struct DirectSolve <: AbstractAlgorithm end
+struct DirectSolve end
+
+Base.length(::DirectSolve) = 0
+adapt(::Type{F}, alg::DirectSolve) where {F} = alg
+
+abstract type AbstractSchedule{F} end
+
+## Traits
+## ======
+Base.length(alg::AbstractSchedule) = length(alg.schedule)
+
+## Union rather than supertype to make DirectSolve <: AbstractAlgorithm{F} for any F
+const AbstractAlgorithm{F} = Union{DirectSolve,<:AbstractSchedule{F}}
 
 """
     RegularizerSchedule()
@@ -133,9 +137,7 @@ struct SymmetrySchedule{
             throw(ArgumentError(msg))
         end
         schedule = adapt(F, schedule)
-        if !(initialalg isa DirectSolve)
-            initialalg = adapt(F, initialalg)
-        end
+        initialalg = adapt(F, initialalg)
         return new{F,typeof(initialalg),typeof(schedule)}(schedule, γ²min, initialalg)
     end
 end
