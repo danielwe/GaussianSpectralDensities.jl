@@ -7,6 +7,7 @@ This solution strategy can converge to the wrong branch when ``T ≠ 0``. A sche
 algorithm is recommended to mitigate this.
 """
 struct DirectSolve end
+struct DirectSolveState end
 
 ## Traits, conversions
 ## ===================
@@ -16,10 +17,12 @@ adapt(::Type{F}, alg::DirectSolve) where {F} = alg
 
 # Type tree
 # =========
-abstract type AbstractSchedule{F} end
+abstract type AbstractSchedule{F<:AbstractFloat} end
+abstract type AbstractScheduleState{F<:AbstractFloat} end
 
 ## Union rather than supertype to make DirectSolve <: AbstractAlgorithm{F} for any F
 const AbstractAlgorithm{F} = Union{DirectSolve,<:AbstractSchedule{F}}
+const AbstractAlgorithmState{F} = Union{DirectSolveState,<:AbstractScheduleState{F}}
 
 ## Traits
 ## ======
@@ -69,6 +72,13 @@ struct RegularizerSchedule{F,U<:AbstractVector{Regularizer{F}}} <: AbstractSched
         end
         return new{F,typeof(schedule)}(schedule, γ²min)
     end
+end
+
+struct RegularizerScheduleState{F,S<:LocalResolventSolution{F}} <: AbstractScheduleState{F}
+    index::Int
+    currentsolution::S
+    final::Bool
+    done::Bool
 end
 
 function RegularizerSchedule(schedule::AbstractVector{Regularizer{F}}, γ²min) where {F}
@@ -150,6 +160,21 @@ struct SymmetrySchedule{
     end
 end
 
+struct SymmetryScheduleState{
+    F,
+    S<:LocalResolventSolution{F},
+    IP<:LocalRegularizerProblem{F},
+    IS<:AbstractAlgorithmState{F},
+} <: AbstractScheduleState{F}
+    initial::Bool
+    initialproblem::IP
+    initialstate::IS
+    index::Int
+    currentsolution::S
+    final::Bool
+    done::Bool
+end
+
 function SymmetrySchedule(
     schedule::AbstractVector{F}, γ²min, initialalg=DirectSolve()
 ) where {F}
@@ -184,6 +209,55 @@ function _monotonic(x)
     tail = @view(x[(begin + 1):end])
     return (first(x) < first(tail)) && _monotonic(tail)
 end
+
+
+## Implementation
+## ==============
+step!(ws, problem, ::DirectSolve) = (eqsolve!(ws, problem), DirectSolveState())
+step!(ws, problem, ::DirectSolve, ::DirectSolveState) = nothing
+
+function step!(ws, problem, alg::RegularizerSchedule, state=problem)
+    _done(state) && return nothing
+    index, problem = _stepproblem(state, alg)
+    stepsolution = eqsolve!(ws, problem)
+    # TODO: handle final and done
+    return stepsolution, RegularizerScheduleState(
+        index, stepsolution, final(problem, stepsolution), done(problem, stepsolution)
+    )
+end
+
+function _stepproblem(problem::AbstractLocalResolventProblem, alg::RegularizerSchedule)
+    # TODO: use asymptotic q0 either here or as default value in LocalRegularizerProblem
+    i = firstindex(alg.schedule)
+    return i, LocalRegularizerProblem(problem.eq, alg.schedule[i], problem.q0, problem.μ)
+end
+
+function _stepproblem(state::RegularizerScheduleState, alg::RegularizerSchedule)
+    current = state.currentsolution
+    (; eq, μ) = current.problem
+    i = state.index + 1
+    return i, LocalRegularizerProblem(eq, alg.schedule[i], current.q, μ)
+end
+
+_done(::Any) = false
+_done(state::DirectSolveState) = true
+_done(state::AbstractScheduleState) = state.done
+
+done(problem::LocalTraceProblem, stepsolution) = (stepsolution.k == problem.k)
+
+function done(problem::LocalRegularizerProblem, stepsolution)
+    (problem.reg.kind === Regularizers.γ) && return stepsolution.γ² == problem.reg.value
+    (problem.reg.kind === Regularizers.δ) && return stepsolution.δ² == problem.reg.value
+end
+
+final(problem::LocalTraceProblem, stepsolution) = (stepsolution.k >= problem.k)
+
+function final(problem::LocalRegularizerProblem, stepsolution)
+    (problem.reg.kind === Regularizers.γ) && return stepsolution.γ² <= problem.reg.value
+    (problem.reg.kind === Regularizers.δ) && return stepsolution.δ² <= problem.reg.value
+end
+
+abort(alg::AbstractSchedule, stepsolution) = (stepsolution.γ² < alg.γ²min)
 
 #=
 ## initial values

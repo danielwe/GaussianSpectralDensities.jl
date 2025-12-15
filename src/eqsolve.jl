@@ -1,3 +1,5 @@
+const ConvergenceException = Union{NewtonException,SingularException,LAPACKException}
+
 """
     eqsolve!(
         ws::Workspace{F}, problem::AbstractLocalResolventProblem{F}, verbosity=0
@@ -18,11 +20,22 @@ function eqsolve!(
         end
     end
     q0v = SVector(real(problem.q0), imag(problem.q0))
-    qv, niters = newton(fq, q0v)
+    local qv, niters, success
+    try
+        qv, niters = newton(fq, q0v)
+        success = true
+    catch e
+        if e isa ConvergenceException
+            qv, niters = problem.q0, -1
+            success = false
+        else
+            rethrow()
+        end
+    end
     # print_niters(niters, verbosity)
     q, reg = complex(qv...), problem.reg
     k = k!(ws, problem.eq, problem.μ * q, reg)
-    return _local_resolvent_solution!(ws, problem, q, reg, k)
+    return _local_resolvent_solution!(ws, problem, success, q, reg, k)
 end
 
 function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}, verbosity=0) where {F}
@@ -36,18 +49,29 @@ function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}, verbosity=0) 
         end
     end
     qreg0v = SVector(real(problem.q0), imag(problem.q0), problem.reg0.value)
-    qregv, niters = newton(fqreg, qreg0v)
+    local qregv, niters, success
+    try
+        qregv, niters = newton(fqreg, qreg0v)
+        success = true
+    catch e
+        if e isa ConvergenceException
+            qregv, niters = qreg0v, -1
+            success = false
+        else
+            rethrow()
+        end
+    end
     # print_niters(niters, verbosity)
     q, reg = complex(qregv[1], qregv[2]), Regularizer(problem.reg0.kind, qregv[3])
-    return _local_resolvent_solution!(ws, problem, q, reg, problem.k)
+    return _local_resolvent_solution!(ws, problem, success, q, reg, problem.k)
 end
 
-function _local_resolvent_solution!(ws, problem, q, reg, k)
+function _local_resolvent_solution!(ws, problem, success, q, reg, k)
     μq = problem.μ * q
     γ² = γ²!(ws, problem.eq, μq, reg)
     δ² = δ²!(ws, problem.eq, μq, reg)
     E = E!(ws, problem.eq, μq, reg)
-    return LocalResolventSolution(problem, q, reg, γ², δ², k, E)
+    return LocalResolventSolution(problem, success, q, reg, γ², δ², k, E)
 end
 
 ## Attic

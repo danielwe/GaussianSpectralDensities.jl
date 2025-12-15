@@ -1,5 +1,3 @@
-# const ConvergenceException = Union{NewtonException,SingularException,LAPACKException}
-
 struct LocalSolution{
     F,
     P<:AbstractLocalResolventProblem{F},
@@ -11,6 +9,7 @@ struct LocalSolution{
     algorithm::A
     initialtrace::IT
     trace::T
+    success::Bool
     q::Complex{F}
     reg::Regularizer{F}
     γ²::F
@@ -18,43 +17,6 @@ struct LocalSolution{
     k::F
     E::Complex{F}
 end
-
-# abstract type AbstractLocalResolventSolver end
-#
-# mutable struct LocalResolventDirectSolver{
-#     F,
-#     P<:AbstractLocalResolventProblem{F},
-#     W<:Workspace{F},
-#     S<:LocalResolventSolution{F,<:AbstractLocalResolventProblem},
-# } <: AbstractLocalResolventSolver
-#     problem::P
-#     ws::W
-#     done::Bool
-#     solution::S
-#
-#     function LocalResolventDirectSolver{F}(problem)
-#         problem = adapt(F, problem)
-#         ws = Workspace(problem.eq.ensemble)
-#         # Partial initialization
-#         return new{F,typeof.((problem, ws))...,_solutiontype(problem)}(problem, ws, false)
-#     end
-# end
-#
-# function LocalResolventDirectSolver(problem::AbstractLocalResolventProblem{F}) where {F}
-#     return LocalResolventDirectSolver{F}(problem)
-# end
-#
-# function init(problem::AbstractLocalResolventProblem, ::DirectSolve)
-#     return LocalResolventDirectSolver(problem)
-# end
-#
-# function solve!(solver::LocalResolventDirectSolver)
-#     if !solver.done
-#         solver.solution = eqsolve!(solver.ws, solver.problem)
-#         solver.done = true
-#     end
-#     return solver.solution
-# end
 
 mutable struct LocalResolventSolver{
     F,
@@ -71,8 +33,9 @@ mutable struct LocalResolventSolver{
     initialtrace::IT
     trace::T
     step::Int
+    initial::Bool
     final::Bool
-    done::Bool
+   Warning: do not implement these methods if the underlying storage is not actually strided, as it may lead to incorrect results or segmentation faults. done::Bool
     solution::S
 
     function LocalResolventSolver{F}(problem, algorithm) where {F}
@@ -85,7 +48,7 @@ mutable struct LocalResolventSolver{
         trace = StructArray{_stepsoltype(problem, algorithm)}(undef, length(algorithm))
         soltype = _fullsoltype(problem, algorithm, itrace, trace)
         return new{F,typeof.((algorithm, problem, ws, itrace, trace))...,soltype}(
-            algorithm, problem, ws, itrace, trace, 0, false, false  # solution uninitialized TODO: replace with blank solution
+            algorithm, problem, ws, itrace, trace, 0, true, false, false  # solution uninitialized TODO: replace with blank solution
         )
     end
 end
@@ -94,6 +57,22 @@ function LocalResolventSolver(
     problem::AbstractLocalResolventProblem{F}, algorithm
 ) where {F}
     return LocalResolventSolver{F}(problem, algorithm)
+end
+
+function _makesolution(solver, solution)
+    return LocalSolution(
+        solver.problem,
+        solver.algorithm,
+        solver.initialtrace,
+        solver.trace,
+        solution.success,
+        solution.q,
+        solution.reg,
+        solution.γ²,
+        solution.δ²,
+        solution.k,
+        solution.E,
+    )
 end
 
 function _fullsoltype(::Type{P}, ::Type{A}, ::Type{IT}, ::Type{T}) where {
@@ -150,66 +129,131 @@ function init(problem::AbstractLocalResolventProblem, algorithm::AbstractAlgorit
     return LocalResolventSolver(problem, algorithm)
 end
 
-# function step!(solver::LocalResolventSolver{<:Any,<:AbstractSchedule})
-#     _stepcommon!(solver)
-#     newindex = solver.currentindex + 1
-#     newproblem = _intermediateproblem(
-#         solver.problem, solver.algorithm, newindex, solver.currentsolution
-#     )
-#     if (solver.algorithm isa SymmetrySchedule) && (solver.currentindex == 0)
-#         # use algorithm.initialalg
-#     end
-#     solver.currentsolution = newsolution = eqsolve!(solver.ws, newproblem)
-#     push!(solver.trace, newsolution)
-#     solver.currentindex = newindex
-#     if invalid(solver)  # failure condition observed (nans and stuff)
-#         solver.solution = blank
-#         solver.failed = true
-#         solver.done = true
-#     elseif done(solver)  # solution found
-#         solver.solution = newsolution
-#         solver.done = true
-#     elseif final(solver)  # solution intersected, DirectSolve next
-#         solver.currentsolution = closest_of_previous_or_current  # see select() and score()
-#         solver.final = true
-#     elseif abort(solver)  # termination condition observed without having intersected the solution
-#         solver.solution = blank
-#         solver.failed = true
-#         solver.done = true
-#     end
-#     return nothing
-# end
+function step!(solver::LocalResolventSolver)
+    ## Step header
 
-# function step!(solver::LocalResolventSolver{<:Any,<:DirectSolve})
-#     _stepcommon!(solver)
-#     @assert solver.done "DirectSolve solver not correctly initialized"
-#     return nothing
-# end
-#
-# function _stepcommon!(solver)
-#     solver.done && error("solver already finished")
-#     if solver.final
-#         _stepfinal!(solver)
-#     end
-#     return nothing
-# end
-#
-# function _stepfinal!(solver)
-#     finalproblem = _reinit(solver.problem, solver.currentsolution)
-#     solver.solution = eqsolve!(solver.ws, finalproblem)
-#     solver.done = true
-#     return nothing
-# end
+    solver.done && return nothing
+    solver.initial && return _initialstep!(solver)  # Take care of all the hard things here?
+    solver.final && return _finalstep!(solver)  # Take care of all the hard things here?
 
-# function _reinit(problem::LocalTraceProblem, currentsolution, μ=problem.μ)
-#     return LocalTraceProblem(
-#         problem.eq, problem.k, currentsolution.q, currentsolution.reg, μ
-#     )
-# end
-#
-# function _reinit(problem::LocalRegularizerProblem, currentsolution, μ=problem.μ)
-#     return LocalRegularizerProblem(problem.eq, problem.reg, currentsolution.q, μ)
-# end
+    current = solver.trace[solver.step]
+    solver.step += 1
+    stepproblem = _stepproblem(current, solver.algorithm, solver.step)
+
+    ## Perform step
+
+    solver.trace[solver.step] = eqsolve!(solver.ws, stepproblem)
+
+    ## Step footer
+
+    _stepfooter!(solver)
+    return nothing
+end
+
+function _step!(ws, current, algorithm::RegularizerSchedule, step)
+    stepproblem = _stepproblem(current, algorithm, step)
+    return eqsolve!(ws, stepproblem)
+end
+
+function _step!(ws, current, algorithm::SymmetrySchedule, step)
+    stepproblem = _stepproblem(current, algorithm, step)
+    return eqsolve!(ws, stepproblem)
+end
+
+function _initialstep!(solver::LocalResolventSolver{<:Any,DirectSolve})
+    solver.step += 1
+    solver.solution = _makesolution(solver, eqsolve!(solver.ws, solver.problem))
+    solver.done = true
+    return nothing
+end
+
+function _initialstep!(solver::LocalResolventSolver{<:Any,<:RegularizerSchedule})
+    solver.step += 1
+    stepproblem = _stepproblem(solver.problem, solver.algorithm, solver.step)
+    solver.trace[solver.step] = eqsolve!(solver.ws, stepproblem)
+    solver.initial = false
+    _stepfooter!(solver)
+    return nothing
+end
+
+function _initialstep!(solver::LocalResolventSolver{<:Any,<:SymmetrySchedule})
+    if solver.step == 0
+        current = solver.problem
+    else
+        current = solver.initialtrace[solver.step]
+    end
+    solver.step += 1
+    stepproblem = _stepproblem(solver.problem, solver.algorithm.initialalg, solver.step)
+    solver.initialtrace[solver.step] = eqsolve!(solver.ws, stepproblem)
+    _stepfooter!(solver, true)
+    return nothing
+end
+
+function _finalstep!(solver)
+    current = solver.trace[solver.step]
+    solver.step += 1
+    stepproblem = _reinit(solver.problem, current)
+    solver.solution = _makesolution(solver, eqsolve!(solver.ws, stepproblem))
+    solver.done = true
+    return nothing
+end
+
+function _stepfooter!(solver, initial=false)
+    if invalid(solver)  # failure condition observed (nans and stuff)
+        solver.solution = failed_solution
+        solver.done = true
+    elseif done(solver)  # solution found
+        solver.solution = _makesolution(solver)
+        solver.done = true
+    elseif final(solver)  # solution intersected, DirectSolve next
+        solver.final = true
+    elseif abort(solver)  # termination condition observed without having intersected the solution
+        solver.solution = failed_solution
+        solver.done = true
+    end
+end
+
+function _stepproblem(problem::LocalRegularizerProblem, alg::SymmetrySchedule, step)
+    return LocalRegularizerProblem(
+        problem.eq, problem.reg, problem.q0, alg.schedule[step]
+    )
+end
+
+function _stepproblem(problem::LocalTraceProblem, alg::SymmetrySchedule, step)
+    return LocalTraceProblem(
+        problem.eq, problem.k, problem.q0, problem.reg0, alg.schedule[step]
+    )
+end
+
+function _stepproblem(
+    current::LocalResolventSolution{<:Any,<:LocalRegularizerProblem},
+    alg::SymmetrySchedule,
+    step,
+)
+    return LocalRegularizerProblem(
+        current.problem.eq, current.reg, current.q, alg.schedule[step]
+    )
+end
+
+function _stepproblem(
+    current::LocalResolventSolution{<:Any,<:LocalTraceProblem},
+    alg::SymmetrySchedule,
+    step,
+)
+    return LocalTraceProblem(
+        current.problem.eq, current.k, current.q, current.reg, alg.schedule[step]
+    )
+end
+
+function _reinit(problem::LocalTraceProblem, currentsolution, μ=problem.μ)
+    return LocalTraceProblem(
+        problem.eq, problem.k, currentsolution.q, currentsolution.reg, μ
+    )
+end
+
+function _reinit(problem::LocalRegularizerProblem, currentsolution, μ=problem.μ)
+    return LocalRegularizerProblem(problem.eq, problem.reg, currentsolution.q, μ)
+end
 
 # function solve!(solver, z, q₀, δ₀²; kwargs...)
 #     eager_algorithm = DirectSolve(q₀, δ₀²)
