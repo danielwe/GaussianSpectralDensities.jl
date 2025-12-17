@@ -35,7 +35,9 @@ mutable struct LocalResolventSolver{
     step::Int
     initial::Bool
     final::Bool
-   Warning: do not implement these methods if the underlying storage is not actually strided, as it may lead to incorrect results or segmentation faults. done::Bool
+    # XXX: what does this refer to? Was uncommented
+    # Warning: do not implement these methods if the underlying storage is not actually strided, as it may lead to incorrect results or segmentation faults.
+    done::Bool
     solution::S
 
     function LocalResolventSolver{F}(problem, algorithm) where {F}

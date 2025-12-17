@@ -1,9 +1,11 @@
 module GaussianSpectralDensities
 
 using Reexport
+using TestItems
 
 using Adapt
 using ArnoldiMethod
+using ArnoldiMethod: LM
 @reexport import CommonSolve: init, solve!, solve
 using LinearAlgebra
 using LinearMaps
@@ -72,7 +74,7 @@ Base.@kwdef mutable struct Defaults
     regobjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
     q0::ComplexF64 = sqrt(eps(Float32))
     reg0::Regularizer{Float64} = Regularizer(:δ, 1.0)
-    regschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0.^(4:-0.5:-4))
+    regschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0 .^ (4:-0.5:-4))
     μschedule::typeof(0.0:1.0) = range(0, 1, 11)
     γ²min::Float64 = -Inf
     margin::Float64 = 0.1

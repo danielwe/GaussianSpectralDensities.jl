@@ -1,9 +1,8 @@
-using Aqua
-using GaussianSpectralDensities
-using Test
+using TestItemRunner
 
-@testset "Aqua" begin
-    Aqua.test_all(GaussianSpectralDensities)
-end
+# using Aqua
+# @testset "Aqua" begin
+#     Aqua.test_all(GaussianSpectralDensities)
+# end
 
-include("tests.jl")
+@run_package_tests
