@@ -26,9 +26,9 @@ using LinearAlgebra: I
 =#
 
 export MatrixEnsemble
+export TraceObjective, RegularizerObjective
 
 # export init, solve!, solve
-# export TraceObjective, RegularizerObjective
 # export DirectSolve, RegularizerSchedule, SymmetrySchedule
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 # export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
@@ -43,7 +43,7 @@ using .Internals
 # include("matrix_utils.jl")
 include("ensemble.jl")
 include("regularizers.jl")
-# include("objectives.jl")
+include("objectives.jl")
 # include("problems.jl")
 # include("workspace.jl")
 # include("solutions.jl")
@@ -58,21 +58,19 @@ include("regularizers.jl")
 # include("automesh.jl")
 # include("printing.jl")
 
-# Base.@kwdef mutable struct Defaults
-#     verbosity::Int = 0
-#     store_trace::Bool = false
-#     kobjective::Float64 = 1.0
-#     regobjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
-#     q0::ComplexF64 = sqrt(eps(Float32))
-#     reg0::Regularizer{Float64} = Regularizer(:δ, 1.0)
-#     regschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0 .^ (4:-0.5:-4))
-#     μschedule::typeof(0.0:1.0) = range(0, 1, 11)
-#     γ²min::Float64 = -Inf
-#     margin::Float64 = 0.1
-# end
-#
-# const DEFAULTS = Defaults()
-#
+module Defaults
+using ..GaussianSpectralDensities: Regularizer
+
+const trace_target = 1.0
+const regularizer_target = Regularizer(0.0, :shift)
+# const q_init = sqrt(eps(Float32))
+# const regularizer_init = Regularizer(1.0, :gap)
+# const regschedule = Regularizer.(2.0 .^ (4:-0.5:-4), :gap)
+# const μschedule = range(0, 1, 11)
+# const shiftmin = -Inf
+# const margin = 0.1
+end
+
 # adapt(::Type{F}, x::U) where {F,U} = convert(@eval($(U.name.name){$F}), x)
 
 # score(value, reference) = inv(abs(value - reference))
