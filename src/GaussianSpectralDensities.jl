@@ -1,12 +1,11 @@
 module GaussianSpectralDensities
 
-using Reexport
 using TestItems
 
 using Adapt
 using ArnoldiMethod
 using ArnoldiMethod: LM
-@reexport import CommonSolve: init, solve!, solve
+using CommonSolve: CommonSolve, init, solve!, solve
 using LinearAlgebra
 using LinearMaps
 using MappedArrays
@@ -24,6 +23,7 @@ using StructArrays
   of plots it makes sense to write recipes for, however.
 =#
 
+export init, solve!, solve
 export MatrixEnsemble
 export TraceObjective, RegularizerObjective
 export DirectSolve, RegularizerSchedule, SymmetrySchedule
@@ -34,20 +34,8 @@ export DirectSolve, RegularizerSchedule, SymmetrySchedule
 
 # const MissingOr{T} = Union{Missing, T}
 
-const DiagonalOrUniform{F} = Union{<:Diagonal{F},UniformScaling{F}}
-
-"""
-    AnySArray
-    AnySMatrix
-
-Union of plain and wrapped `SArray`s
-"""
-const AnySArray{T,N} = Union{
-    <:SArray{<:Any,T,N},
-    <:WrappedArray{T,N,<:SArray,<:SArray},  # Last parameter should be SArray{<:Any,T,N} after Adapt.jl#51
-    <:Hermitian{T,<:SArray{<:Any,T,N}},  # Adapt.jl#51
-}
-const AnySMatrix{T} = AnySArray{T,2}
+include("internals.jl")
+using .Internals
 
 # include("matrix_utils.jl")
 include("ensemble.jl")

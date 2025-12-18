@@ -13,13 +13,13 @@ using LinearAlgebra: checksquare, BlasReal
 CUDA.allowscalar(false)
 
 const GeneralCuMatrix{T} = Union{
-    CuMatrix{T}, Adjoint{T, <:CuMatrix}, Transpose{T, <:CuMatrix}
+    CuMatrix{T},Adjoint{T,<:CuMatrix},Transpose{T,<:CuMatrix}
 }
-const AnyCuMatrix = Union{GeneralCuMatrix, SelfAdjoint{<:Real, <:CuMatrix}}
+const AnyCuMatrix = Union{GeneralCuMatrix,SelfAdjoint{<:Real,<:CuMatrix}}
 
-abstract type AbstractCuMatrixEnsemble{R, U, V, W} <: AbstractMatrixEnsemble{R, U, V, W} end
+abstract type AbstractCuMatrixEnsemble{R,U,V,W} <: AbstractMatrixEnsemble{R,U,V,W} end
 
-struct CuMatrixEnsemble{R, U, V, W} <: AbstractCuMatrixEnsemble{R, U, V, W}
+struct CuMatrixEnsemble{R,U,V,W} <: AbstractCuMatrixEnsemble{R,U,V,W}
     M::U
     L::V
     R::W
@@ -31,7 +31,7 @@ struct CuMatrixEnsemble{R, U, V, W} <: AbstractCuMatrixEnsemble{R, U, V, W}
         N = length(ens.T)
         d_L⁻¹R⁻¹ = _unified_cuarray(Complex{R}, (N, N))
         d_L⁻¹MR⁻¹ = _unified_cuarray(Complex{R}, (N, N))
-        d_T = _unified_cuarray(R, (N, ))
+        d_T = _unified_cuarray(R, (N,))
         copyto!(d_L⁻¹R⁻¹, _dense(ens.L⁻¹R⁻¹))
         copyto!(d_L⁻¹MR⁻¹, _dense(ens.L⁻¹MR⁻¹))
         copyto!(d_T, ens.T)
@@ -39,7 +39,7 @@ struct CuMatrixEnsemble{R, U, V, W} <: AbstractCuMatrixEnsemble{R, U, V, W}
         Mem.advise(d_L⁻¹MR⁻¹.storage.buffer, Mem.ADVISE_SET_READ_MOSTLY)
         Mem.advise(d_T.storage.buffer, Mem.ADVISE_SET_READ_MOSTLY)
         synchronize()
-        return new{R, typeof(ens.M), typeof(ens.L), typeof(ens.R)}(
+        return new{R,typeof(ens.M),typeof(ens.L),typeof(ens.R)}(
             ens.M, ens.L, ens.R, d_L⁻¹R⁻¹, d_L⁻¹MR⁻¹, d_T
         )
     end
@@ -49,30 +49,30 @@ function CuMatrixEnsemble(M, L, R, T)
     return CuMatrixEnsemble(MatrixEnsemble(M, L, R, T))
 end
 
-function _unified_cuarray(::Type{T}, dims::NTuple{N}) where {T, N}
+function _unified_cuarray(::Type{T}, dims::NTuple{N}) where {T,N}
     buf = Mem.alloc(Mem.Unified, prod(dims) * sizeof(T))
-    array = unsafe_wrap(CuArray{T, N}, convert(CuPtr{T}, buf), dims)
+    array = unsafe_wrap(CuArray{T,N}, convert(CuPtr{T}, buf), dims)
     finalizer(_ -> Mem.free(buf), array)
     return array
 end
 
-_dense(A::Union{Array, UniformScaling}) = A
+_dense(A::Union{Array,UniformScaling}) = A
 _dense(A) = Array(A)
 
-struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
-    status::WorkspaceStatus{R, CuMatrixEnsemble{R, U, V, W}}
+struct CuWorkspace{R,U,V,W} <: AbstractWorkspace{R}
+    status::WorkspaceStatus{R,CuMatrixEnsemble{R,U,V,W}}
     G₀⁻¹_diag::CuVector{Complex{R}}
     Q::CuMatrix{Complex{R}}
-    QQᴴ::Hermitian{Complex{R}, CuMatrix{Complex{R}}}
+    QQᴴ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
     P⁻¹f::CuMatrix{Complex{R}}
-    P::Hermitian{Complex{R}, CuMatrix{Complex{R}}}
+    P::Hermitian{Complex{R},CuMatrix{Complex{R}}}
     PQ::CuMatrix{Complex{R}}
-    QᴴPQ::Hermitian{Complex{R}, CuMatrix{Complex{R}}}
+    QᴴPQ::Hermitian{Complex{R},CuMatrix{Complex{R}}}
     QP::CuMatrix{Complex{R}}
     QPQ::CuMatrix{Complex{R}}  # Also used for PL⁻¹R⁻¹
     s²min::Base.RefValue{R}
 
-    function CuWorkspace(ensemble::CuMatrixEnsemble{R, U, V, W}) where {R, U, V, W}
+    function CuWorkspace(ensemble::CuMatrixEnsemble{R,U,V,W}) where {R,U,V,W}
         status = WorkspaceStatus(ensemble)
         N = length(ensemble.T)
         G₀⁻¹_diag = CuVector{Complex{R}}(undef, N)
@@ -85,7 +85,7 @@ struct CuWorkspace{R, U, V, W} <: AbstractWorkspace{R}
         QP = CuMatrix{Complex{R}}(undef, N, N)
         QPQ = CuMatrix{Complex{R}}(undef, N, N)
         synchronize()
-        return new{R, U, V, W}(
+        return new{R,U,V,W}(
             status, G₀⁻¹_diag, Q, QQᴴ, P⁻¹f, P, PQ, QᴴPQ, QP, QPQ, Ref(R(NaN))
         )
     end
@@ -93,8 +93,8 @@ end
 
 workspace(ensemble::CuMatrixEnsemble) = CuWorkspace(ensemble)
 
-function solve(
-    problem::SpectralProblem{R, <:AbstractCuMatrixEnsemble, <:AbstractMatrix},
+function CommonSolve.solve(
+    problem::SpectralProblem{R,<:AbstractCuMatrixEnsemble,<:AbstractMatrix},
     algorithm;
     chunks_per_thread=1,
     threads_per_device=1,
@@ -141,7 +141,7 @@ NTHREADS_LINEAR() = 64
     end
 
     @boundscheck (@assert size(A) == size(B) == size(C))
-    @cuda blocks=NBLOCKS() threads=NTHREADS() zA⁻B_kernel!(C, z, A, B)
+    @cuda blocks = NBLOCKS() threads = NTHREADS() zA⁻B_kernel!(C, z, A, B)
     return nothing
 end
 
@@ -159,7 +159,7 @@ end
         N = length(d)
         @assert size(A) == (N, N)
     end
-    @cuda blocks=NBLOCKS_LINEAR() threads=NTHREADS_LINEAR() copy_diag_kernel!(d, A)
+    @cuda blocks = NBLOCKS_LINEAR() threads = NTHREADS_LINEAR() copy_diag_kernel!(d, A)
     return nothing
 end
 
@@ -177,7 +177,7 @@ end
         N = length(v1)
         @assert length(v2) == N && size(A) == (N, N)
     end
-    @cuda blocks=NBLOCKS_LINEAR() threads=NTHREADS_LINEAR() set_diag_muladd_kernel!(
+    @cuda blocks = NBLOCKS_LINEAR() threads = NTHREADS_LINEAR() set_diag_muladd_kernel!(
         A, λ, v1, v2
     )
     return nothing
@@ -194,13 +194,13 @@ end
     end
 
     @boundscheck (@assert size(A, 1) == size(A, 2))
-    @cuda blocks=NBLOCKS_LINEAR() threads=NTHREADS_LINEAR() add_to_diag_kernel!(A, λ)
+    @cuda blocks = NBLOCKS_LINEAR() threads = NTHREADS_LINEAR() add_to_diag_kernel!(A, λ)
     return nothing
 end
 
 @inline function trTAᴴB(
-    T::CuVector{R}, A::GeneralCuMatrix{U}, B::SelfAdjoint{<:Real, <:CuMatrix}
-) where {R, U}
+    T::CuVector{R}, A::GeneralCuMatrix{U}, B::SelfAdjoint{<:Real,<:CuMatrix}
+) where {R,U}
     function trTAᴴB_kernel!(out::CuDeviceVector{S}, T, A, uplo, B) where {S}
         ti, bi = threadIdx().x, blockIdx().x
         nt, nb = blockDim().x, gridDim().x
@@ -246,7 +246,7 @@ end
     S = promote_type(R, U, eltype(B))
     out = CuVector{S}(undef, blocks)
     shmem = threads * sizeof(S)
-    @cuda blocks=blocks threads=threads shmem=shmem trTAᴴB_kernel!(
+    @cuda blocks = blocks threads = threads shmem = shmem trTAᴴB_kernel!(
         out, T, A, B.uplo, B.data
     )
     s = _sum(out)
@@ -422,26 +422,26 @@ end
     out = CuVector{S}(undef, blocks)
     shmem = threads * sizeof(S)
     if (A isa SelfAdjoint) && (B isa SelfAdjoint)
-        @cuda blocks=blocks threads=threads shmem=shmem trTAᴴTB_ABSA_kernel!(
+        @cuda blocks = blocks threads = threads shmem = shmem trTAᴴTB_ABSA_kernel!(
             out, T, A.uplo, A.data, B.uplo, B.data
         )
     elseif A isa SelfAdjoint
-        @cuda blocks=blocks threads=threads shmem=shmem trTAᴴTB_ASA_kernel!(
+        @cuda blocks = blocks threads = threads shmem = shmem trTAᴴTB_ASA_kernel!(
             out, T, A.uplo, A.data, B
         )
     elseif B isa SelfAdjoint
-        @cuda blocks=blocks threads=threads shmem=shmem trTAᴴTB_BSA_kernel!(
+        @cuda blocks = blocks threads = threads shmem = shmem trTAᴴTB_BSA_kernel!(
             out, T, A, B.uplo, B.data
         )
     else
-        @cuda blocks=blocks threads=threads shmem=shmem trTAᴴTB_kernel!(out, T, A, B)
+        @cuda blocks = blocks threads = threads shmem = shmem trTAᴴTB_kernel!(out, T, A, B)
     end
     s = _sum(out)
     unsafe_free!(out)
     return s
 end
 
-@inline function trT²A(T::CuVector{R}, A::SelfAdjoint{<:Real, <:CuMatrix}) where {R}
+@inline function trT²A(T::CuVector{R}, A::SelfAdjoint{<:Real,<:CuMatrix}) where {R}
     function trT²A_kernel!(out::CuDeviceVector{S}, T, A) where {S}
         ti, bi, nt = threadIdx().x, blockIdx().x, blockDim().x
         gi = (bi - 1) * nt + ti
@@ -466,7 +466,7 @@ end
     S = promote_type(R, real(eltype(A)))
     out = CuVector{S}(undef, blocks)
     shmem = threads * sizeof(S)
-    @cuda blocks=blocks threads=threads shmem=shmem trT²A_kernel!(out, T, A.data)
+    @cuda blocks = blocks threads = threads shmem = shmem trT²A_kernel!(out, T, A.data)
     s = _sum(out)
     unsafe_free!(out)
     return s
@@ -515,16 +515,16 @@ end
     shmem = threads * sizeof(T)
     out = CuVector{T}(undef, blocks)
     if A isa SelfAdjoint
-        @cuda blocks=blocks threads=threads shmem=shmem _tr_SA_kernel!(out, A.data)
+        @cuda blocks = blocks threads = threads shmem = shmem _tr_SA_kernel!(out, A.data)
     else
-        @cuda blocks=blocks threads=threads shmem=shmem _tr_kernel!(out, A)
+        @cuda blocks = blocks threads = threads shmem = shmem _tr_kernel!(out, A)
     end
     s = _sum(out)
     unsafe_free!(out)
     return s
 end
 
-@inline function _dot(a::CuVector{T}, b::CuVector{U}) where {T, U}
+@inline function _dot(a::CuVector{T}, b::CuVector{U}) where {T,U}
     function _dot_kernel!(out::CuDeviceVector{S}, a, b) where {S}
         ti, bi, nt = threadIdx().x, blockIdx().x, blockDim().x
         gi = (bi - 1) * nt + ti
@@ -546,7 +546,7 @@ end
     S = promote_type(T, U)
     out = CuVector{S}(undef, blocks)
     shmem = threads * sizeof(S)
-    @cuda blocks=blocks threads=threads shmem=shmem _dot_kernel!(out, a, b)
+    @cuda blocks = blocks threads = threads shmem = shmem _dot_kernel!(out, a, b)
     s = _sum(out)
     unsafe_free!(out)
     return s
@@ -578,7 +578,7 @@ function _sum(a::CuArray{T}) where {T}
     end
     out = CuVector{T}(undef, 1)
     shmem = threads * sizeof(T)
-    @cuda threads=threads shmem=shmem _sum_kernel!(out, a)
+    @cuda threads = threads shmem = shmem _sum_kernel!(out, a)
     synchronize()
     s = @allowscalar out[1]
     unsafe_free!(out)
@@ -590,7 +590,7 @@ function reduce_sum(arr::CuDeviceVector, ti, n)
         n >>= 1
         sync_threads()
         if ti <= n
-            arr[ti] += arr[ti + n]
+            arr[ti] += arr[ti+n]
         end
     end
     return nothing
@@ -598,40 +598,40 @@ end
 
 # A pull request or two to CUDA.jl is in order
 for (jname, bname, fname, elty, relty) in ((:syevdx!, :cusolverDnSsyevdx_bufferSize, :cusolverDnSsyevdx, :Float32, :Float32),
-                                           (:syevdx!, :cusolverDnDsyevdx_bufferSize, :cusolverDnDsyevdx, :Float64, :Float64),
-                                           (:heevdx!, :cusolverDnCheevdx_bufferSize, :cusolverDnCheevdx, :ComplexF32, :Float32),
-                                           (:heevdx!, :cusolverDnZheevdx_bufferSize, :cusolverDnZheevdx, :ComplexF64, :Float64))
+    (:syevdx!, :cusolverDnDsyevdx_bufferSize, :cusolverDnDsyevdx, :Float64, :Float64),
+    (:heevdx!, :cusolverDnCheevdx_bufferSize, :cusolverDnCheevdx, :ComplexF32, :Float32),
+    (:heevdx!, :cusolverDnZheevdx_bufferSize, :cusolverDnZheevdx, :ComplexF64, :Float64))
     @eval begin
         function $jname(jobz::Char,
-                        range::Char,
-                        uplo::Char,
-                        A::StridedCuMatrix{$elty},
-                        vl::AbstractFloat,
-                        vu::AbstractFloat,
-                        il::Integer,
-                        iu::Integer)
-            n       = checksquare(A)
+            range::Char,
+            uplo::Char,
+            A::StridedCuMatrix{$elty},
+            vl::AbstractFloat,
+            vu::AbstractFloat,
+            il::Integer,
+            iu::Integer)
+            n = checksquare(A)
             if range == 'I' && !(1 <= il <= iu <= n)
                 throw(ArgumentError("illegal choice of eigenvalue indices (il = $il, iu = $iu), which must be between 1 and n = $n"))
             end
             if range == 'V' && vl >= vu
                 throw(ArgumentError("lower boundary, $vl, must be less than upper boundary, $vu"))
             end
-            lda     = max(1, stride(A, 2))
-            h_meig  = Ref{Cint}()
-            W       = CuArray{$relty}(undef, n)
+            lda = max(1, stride(A, 2))
+            h_meig = Ref{Cint}()
+            W = CuArray{$relty}(undef, n)
 
             function bufferSize()
                 out = Ref{Cint}(0)
                 $bname(dense_handle(), jobz, range, uplo, n, A, lda, vl, vu, il, iu, h_meig,
-                       W, out)
+                    W, out)
                 return out[]
             end
 
             devinfo = CuArray{Cint}(undef, 1)
             with_workspace($elty, bufferSize) do buffer
                 $fname(dense_handle(), jobz, range, uplo, n, A, lda, vl, vu, il, iu, h_meig,
-                       W, buffer, length(buffer), devinfo)
+                    W, buffer, length(buffer), devinfo)
             end
 
             info = @allowscalar devinfo[1]
@@ -663,42 +663,42 @@ function Base.convert(::Type{cusolverEigRange_t}, range::Char)
 end
 
 function LinearAlgebra.eigvals!(
-    A::RealSymmetric{T, <:CuMatrix}, irange::UnitRange
+    A::RealSymmetric{T,<:CuMatrix}, irange::UnitRange
 ) where {T<:BlasReal}
     return syevdx!('N', 'I', A.uplo, A.data, zero(T), zero(T), irange.start, irange.stop)[1]
 end
 
 function LinearAlgebra.eigvals!(
-    A::Hermitian{Complex{T}, <:CuMatrix}, irange::UnitRange
+    A::Hermitian{Complex{T},<:CuMatrix}, irange::UnitRange
 ) where {T<:BlasReal}
     return heevdx!('N', 'I', A.uplo, A.data, zero(T), zero(T), irange.start, irange.stop)[1]
 end
 
-function eigmin!(A::SelfAdjoint{<:BlasReal, <:CuMatrix})
+function eigmin!(A::SelfAdjoint{<:BlasReal,<:CuMatrix})
     ev = eigvals!(A, 1:1)
     return @allowscalar ev[1]
 end
 
 function LinearAlgebra.mul!(
-    C::CuMatrix{T}, A::CuMatrix{T}, B::RealSymmetric{T, <:CuMatrix}
+    C::CuMatrix{T}, A::CuMatrix{T}, B::RealSymmetric{T,<:CuMatrix}
 ) where {T<:BlasReal}
     return CUBLAS.symm!('R', B.uplo, one(T), B.data, A, zero(T), C)
 end
 
 function LinearAlgebra.mul!(
-    C::CuMatrix{T}, A::RealSymmetric{T, <:CuMatrix}, B::CuMatrix{T}
+    C::CuMatrix{T}, A::RealSymmetric{T,<:CuMatrix}, B::CuMatrix{T}
 ) where {T<:BlasReal}
     return CUBLAS.symm!('L', A.uplo, one(T), A.data, B, zero(T), C)
 end
 
 function LinearAlgebra.mul!(
-    C::CuMatrix{Complex{T}}, A::CuMatrix{Complex{T}}, B::Hermitian{Complex{T}, <:CuMatrix}
+    C::CuMatrix{Complex{T}}, A::CuMatrix{Complex{T}}, B::Hermitian{Complex{T},<:CuMatrix}
 ) where {T<:BlasReal}
     return CUBLAS.hemm!('R', B.uplo, one(T), B.data, A, zero(T), C)
 end
 
 function LinearAlgebra.mul!(
-    C::CuMatrix{Complex{T}}, A::Hermitian{Complex{T}, <:CuMatrix}, B::CuMatrix{Complex{T}}
+    C::CuMatrix{Complex{T}}, A::Hermitian{Complex{T},<:CuMatrix}, B::CuMatrix{Complex{T}}
 ) where {T<:BlasReal}
     return CUBLAS.hemm!('L', A.uplo, one(T), A.data, B, zero(T), C)
 end

@@ -127,7 +127,7 @@ _istepprobtype(args...) = _istepprobtype(typeof.(args)...)
 
 _istepsoltype(args...) = _soltype(_istepprobtype(args...))
 
-function init(problem::AbstractLocalResolventProblem, algorithm::AbstractAlgorithm)
+function CommonSolve.init(problem::AbstractLocalResolventProblem, algorithm::AbstractAlgorithm)
     return LocalResolventSolver(problem, algorithm)
 end
 

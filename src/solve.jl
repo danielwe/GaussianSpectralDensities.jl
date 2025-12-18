@@ -14,12 +14,12 @@ struct SpectralSolver{
         algorithm::Algorithm,
         workspaces::Vector{W};
         chunks_per_thread=1,
-    ) where {R, W<:AbstractWorkspace{R}}
+    ) where {R,W<:AbstractWorkspace{R}}
         algorithm = _adapt(R, algorithm)
         for ws in workspaces
             set_ensemble!(ws, problem.ensemble)
         end
-        return new{R, typeof(problem), typeof(algorithm), eltype(workspaces)}(
+        return new{R,typeof(problem),typeof(algorithm),eltype(workspaces)}(
             problem, algorithm, workspaces, chunks_per_thread
         )
     end
@@ -32,7 +32,7 @@ function SpectralSolver(
     chunks_per_thread=1,
 ) where {R}
     workspaces = [workspace(problem.ensemble) for _ in 1:nthreads]
-    return new{R, typeof(problem), typeof(algorithm), eltype(workspaces)}(
+    return new{R,typeof(problem),typeof(algorithm),eltype(workspaces)}(
         problem, algorithm, workspaces, chunks_per_thread
     )
 end
@@ -51,7 +51,7 @@ function set_ensemble!(solver::SpectralSolver, ensemble)
     end
 end
 
-function solve!(solver::SpectralSolver{R}) where {R}
+function CommonSolve.solve!(solver::SpectralSolver{R}) where {R}
     algorithm = _adapt(R, algorithm)
     nbthreads = max(1, Threads.nthreads() - 1)
     solvers = [SpectralSolver(problem, algorithm) for _ in 1:nbthreads]
@@ -78,10 +78,10 @@ function chunk_indices(size, n)
     col_offset = excess_width > 0 ? (chunk_width - excess_width) ÷ 2 : 0
     return [
         [max(istart, 1), min(istart + chunk_height - 1, nrows)]
-        for istart in (1 - row_offset):chunk_height:nrows
+        for istart in (1-row_offset):chunk_height:nrows
     ], [
         [max(jstart, 1), min(jstart + chunk_width - 1, ncols)]
-        for jstart in (1 - col_offset):chunk_width:ncols
+        for jstart in (1-col_offset):chunk_width:ncols
     ]
 end
 
@@ -93,51 +93,51 @@ function product_ranges(indices)
     return [(i[1]:i[2], j[1]:j[2]) for j in indices[2] for i in indices[1]]
 end
 
-function solve(problem, algorithm, args...; kwargs...)
+function CommonSolve.solve(problem, algorithm, args...; kwargs...)
     solver = SpectralSolver(problem, algorithm)
     return solve!(solver, problem.z, args...; kwargs...)
 end
 
-function solve!(solver, z::AbstractMatrix, solution::AbstractMatrix; kwargs...)
+function CommonSolve.solve!(solver, z::AbstractMatrix, solution::AbstractMatrix; kwargs...)
     m, n = size(z)
     imid, jmid = cld(m, 2), cld(n, 2)
     solution[imid, jmid] = solve_or_print_info!(solver, z[imid, jmid]; kwargs...)
-    for i in (imid + 1) : m
-        q_, δ_² = solution[i - 1, jmid].q, solution[i - 1, jmid].δ²
+    for i in (imid+1):m
+        q_, δ_² = solution[i-1, jmid].q, solution[i-1, jmid].δ²
         solution[i, jmid] = solve_or_print_info!(solver, z[i, jmid], q_, δ_²; kwargs...)
     end
-    for i in (imid - 1) : -1 : 1
-        q_, δ_² = solution[i + 1, jmid].q, solution[i + 1, jmid].δ²
+    for i in (imid-1):-1:1
+        q_, δ_² = solution[i+1, jmid].q, solution[i+1, jmid].δ²
         solution[i, jmid] = solve_or_print_info!(solver, z[i, jmid], q_, δ_²; kwargs...)
     end
-    for j in (jmid + 1) : n
-        q_, δ_² = solution[imid, j - 1].q, solution[imid, j - 1].δ²
+    for j in (jmid+1):n
+        q_, δ_² = solution[imid, j-1].q, solution[imid, j-1].δ²
         solution[imid, j] = solve_or_print_info!(solver, z[imid, j], q_, δ_²; kwargs...)
-        for i in (imid + 1) : m
-            qa_, δa_² = solution[i - 1, j].q, solution[i - 1, j].δ²
-            qb_, δb_² = solution[i, j - 1].q, solution[i, j - 1].δ²
+        for i in (imid+1):m
+            qa_, δa_² = solution[i-1, j].q, solution[i-1, j].δ²
+            qb_, δb_² = solution[i, j-1].q, solution[i, j-1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
             solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
-        for i in (imid - 1) : -1 : 1
-            qa_, δa_² = solution[i + 1, j].q, solution[i + 1, j].δ²
-            qb_, δb_² = solution[i, j - 1].q, solution[i, j - 1].δ²
+        for i in (imid-1):-1:1
+            qa_, δa_² = solution[i+1, j].q, solution[i+1, j].δ²
+            qb_, δb_² = solution[i, j-1].q, solution[i, j-1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
             solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
     end
-    for j in (jmid - 1) : -1 : 1
-        q_, δ_² = solution[imid, j + 1].q, solution[imid, j + 1].δ²
+    for j in (jmid-1):-1:1
+        q_, δ_² = solution[imid, j+1].q, solution[imid, j+1].δ²
         solution[imid, j] = solve_or_print_info!(solver, z[imid, j], q_, δ_²; kwargs...)
-        for i in (imid + 1) : m
-            qa_, δa_² = solution[i - 1, j].q, solution[i - 1, j].δ²
-            qb_, δb_² = solution[i, j + 1].q, solution[i, j + 1].δ²
+        for i in (imid+1):m
+            qa_, δa_² = solution[i-1, j].q, solution[i-1, j].δ²
+            qb_, δb_² = solution[i, j+1].q, solution[i, j+1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
             solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
-        for i in (imid - 1) : -1 : 1
-            qa_, δa_² = solution[i + 1, j].q, solution[i + 1, j].δ²
-            qb_, δb_² = solution[i, j + 1].q, solution[i, j + 1].δ²
+        for i in (imid-1):-1:1
+            qa_, δa_² = solution[i+1, j].q, solution[i+1, j].δ²
+            qb_, δb_² = solution[i, j+1].q, solution[i, j+1].δ²
             q_, δ_² = select(qa_, qb_, δa_², δb_²)
             solution[i, j] = solve_or_print_info!(solver, z[i, j], q_, δ_²; kwargs...)
         end
