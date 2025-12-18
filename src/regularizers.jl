@@ -1,74 +1,67 @@
-@enumx Regularizers γ δ
+@enumx RegularizerType::UInt8 shift gap
 
-function Base.convert(::Type{Regularizers.T}, r::Symbol)
+function Base.convert(::Type{RegularizerType.T}, type::Symbol)
     try
-        return @eval Regularizers $r
+        return @eval RegularizerType $type
     catch
-        throw(ArgumentError("$(repr(r)) is not a valid kind of Regularizer"))
+        throw(ArgumentError("$(repr(type)) is not a valid Regularizer type"))
     end
 end
 
 """
-    Regularizer(kind, value)
-    Regularizer{F}(kind, value) where {F<:Real}
+    Regularizer(value, type)
+    Regularizer{F}(value, type) where {F<:Real}
 
 Represent the regularizer in the averaged resolvent equations
 
-The available kinds of regularizers are:
+The available types of regularizers are:
 
-- `:γ`: the simple additive regularizer in the denominator ``[QQ^† + γ²I]⁻¹``
-- `:δ`: refers to the smallest eigenvalue of the entire denominator, that is,
-    `δ^2 == γ^2 + eigmin(Q * Q')`
-
-The value of the regularizer is the value of `γ²` or `δ²`, respectively
+- `:shift`: specifies the additive regularizer ``γ²`` in the denominator ``QQ† + γ²I``
+- `:gap`: specifies the spectral gap of the denominator, that is, `eigmin(QQ†) + γ²`
 """
 struct Regularizer{F<:Real}
-    kind::Regularizers.T
     value::F
+    type::RegularizerType.T
 end
 
-Regularizer(kind, value::F) where {F} = Regularizer{F}(kind, value)
+Regularizer(value::F, type) where {F} = Regularizer{F}(value, type)
 
-Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.kind, reg.value)
+Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
 
 ## Conversions
 ## ===========
 Base.convert(::Type{P}, r::Q) where {P<:Regularizer,Q<:Regularizer} = P(r)
 
 """
-    γ²(reg::Regularizer, s²min::Number)
-    γ²(reg::Regularizer, () -> s²min)
+    shift(reg::Regularizer, nullgap::Number)
+    shift(reg::Regularizer, () -> nullgap)
 
-Return the value of ``γ²`` given a regularizer and a value for `s²min = eigmin(Q * Q')`
+Return the value of the shift ``γ²`` given a Regularizer and the unregularized spectral gap `nullgap = eigmin(QQ†)`
 
-The minimum eigenvalue `s²min` can either be given as a numerical value, or as a callable
-returning the value. That way, any heavy computation involved in determining `s²min` can be
-deferred and only invoked if needed, that is, if the `kind` of `reg` is `:δ`.
+`nullgap` can be given either as a numerical value or as a callable returning the value. The
+latter is useful for deferring any heavy computation to only be invoked if needed, that is,
+if the regularizer type of `reg` is `:gap`.
 """
-function γ²(reg::Regularizer, s²min)
-    (reg.kind === Regularizers.γ) && return reg.value
-    if (reg.kind === Regularizers.δ)
-        (s²min isa Number) && return reg.value - s²min
-        return reg.value - s²min()
-    end
+function shift(reg::Regularizer, nullgap)
+    (reg.type === RegularizerType.shift) && return reg.value
+    (nullgap isa Number) && return reg.value - nullgap
+    return reg.value - nullgap()
 end
 
 """
-    δ²(reg::Regularizer, s²min::Number)
-    δ²(reg::Regularizer, () -> s²min)
+    gap(reg::Regularizer, nullgap::Number)
+    gap(reg::Regularizer, () -> nullgap)
 
-Return the value of ``δ²`` given a regularizer and a value for `s²min = eigmin(Q * Q')`
+Return the value of the gap `eigmin(QQ†) + γ²` given a Regularizer and the unregularized spectral gap `nullgap = eigmin(QQ†)`
 
-The minimum eigenvalue `s²min` can either be given as a numerical value, or as a callable
-returning the value. That way, any heavy computation involved in determining `s²min` can be
-deferred and only invoked if needed, that is, if the `kind` of `reg` is `:γ`.
+`nullgap` can be given either as a numerical value or as a callable returning the value. The
+latter is useful for deferring any heavy computation to only be invoked if needed, that is,
+if the regularizer type of `reg` is `:shift`.
 """
-function δ²(reg::Regularizer, s²min)
-    (reg.kind === Regularizers.δ) && return reg.value
-    if (reg.kind === Regularizers.γ)
-        (s²min isa Number) && return reg.value + s²min
-        return reg.value + s²min()
-    end
+function gap(reg::Regularizer, nullgap)
+    (reg.type === RegularizerType.gap) && return reg.value
+    (nullgap isa Number) && return reg.value + nullgap
+    return reg.value + nullgap()
 end
 
 #=
@@ -77,54 +70,54 @@ end
 
 function score(solution, r::Regularizer)
     for reg in instances(Regularizers.T)
-        (r.kind === reg) && return score(getproperty(solution, reg), r.value)
+        (r.type === reg) && return score(getproperty(solution, reg), r.value)
     end
 end
 =#
 
 @testitem "Regularizer" begin
-    using GaussianSpectralDensities: Regularizer, γ², δ²
+    using GaussianSpectralDensities: Regularizer, shift, gap
 
-    γ²value, δ²value = 0.0, 0.5
-    s²min = δ²value - γ²value
-    γreg, δreg = Regularizer(:γ, γ²value), Regularizer(:δ, δ²value)
+    shift64, gap64 = 0.0, 0.5
+    nullgap64 = gap64 - shift64
+    reg_shift64, reg_gap64 = Regularizer(shift64, :shift), Regularizer(gap64, :gap)
 
     # Traits
-    @test γreg isa Regularizer{Float64}
-    @test δreg isa Regularizer{Float64}
+    @test reg_shift64 isa Regularizer{Float64}
+    @test reg_gap64 isa Regularizer{Float64}
 
     @testset "$F" for F in [Float32, Float64]
-        γ²valueF, δ²valueF, s²minF = F.((γ²value, δ²value, s²min))
-        γregF, δregF = Regularizer(:γ, γ²valueF), Regularizer(:δ, δ²valueF)
+        shiftF, gapF, nullgapF = F.((shift64, gap64, nullgap64))
+        reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
 
         # Floattype inferring constructor
-        @test γregF isa Regularizer{F}
-        @test δregF isa Regularizer{F}
+        @test reg_shiftF isa Regularizer{F}
+        @test reg_gapF isa Regularizer{F}
 
         # Floattype enforcing constructor
-        @test Regularizer{F}(:γ, γ²value) === γregF
-        @test Regularizer{F}(:δ, δ²value) === δregF
-        @test Regularizer{Float64}(:γ, γ²valueF) === γreg
-        @test Regularizer{Float64}(:δ, δ²valueF) === δreg
+        @test Regularizer{F}(shift64, :shift) === reg_shiftF
+        @test Regularizer{F}(gap64, :gap) === reg_gapF
+        @test Regularizer{Float64}(shiftF, :shift) === reg_shift64
+        @test Regularizer{Float64}(gapF, :gap) === reg_gap64
 
         # Floattype conversions
-        @test convert(Regularizer{F}, γreg) === γregF
-        @test convert(Regularizer{F}, δreg) === δregF
-        @test convert(Regularizer{Float64}, γregF) === γreg
-        @test convert(Regularizer{Float64}, δregF) === δreg
-        @test Regularizer{F}(γreg) === γregF
-        @test Regularizer{F}(δreg) === δregF
-        @test Regularizer{Float64}(γregF) === γreg
-        @test Regularizer{Float64}(δregF) === δreg
+        @test convert(Regularizer{F}, reg_shift64) === reg_shiftF
+        @test convert(Regularizer{F}, reg_gap64) === reg_gapF
+        @test convert(Regularizer{Float64}, reg_shiftF) === reg_shift64
+        @test convert(Regularizer{Float64}, reg_gapF) === reg_gap64
+        @test Regularizer{F}(reg_shift64) === reg_shiftF
+        @test Regularizer{F}(reg_gap64) === reg_gapF
+        @test Regularizer{Float64}(reg_shiftF) === reg_shift64
+        @test Regularizer{Float64}(reg_gapF) === reg_gap64
 
         # Interface
-        @test γ²(γregF, s²minF) === γ²valueF
-        @test γ²(γregF, () -> s²minF) === γ²valueF
-        @test δ²(γregF, s²minF) === δ²valueF
-        @test δ²(γregF, () -> s²minF) === δ²valueF
-        @test γ²(δregF, s²minF) === γ²valueF
-        @test γ²(δregF, () -> s²minF) === γ²valueF
-        @test δ²(δregF, s²minF) === δ²valueF
-        @test δ²(δregF, () -> s²minF) === δ²valueF
+        @test shift(reg_shiftF, nullgapF) === shiftF
+        @test shift(reg_shiftF, () -> nullgapF) === shiftF
+        @test gap(reg_shiftF, nullgapF) === gapF
+        @test gap(reg_shiftF, () -> nullgapF) === gapF
+        @test shift(reg_gapF, nullgapF) === shiftF
+        @test shift(reg_gapF, () -> nullgapF) === shiftF
+        @test gap(reg_gapF, nullgapF) === gapF
+        @test gap(reg_gapF, () -> nullgapF) === gapF
     end
 end
