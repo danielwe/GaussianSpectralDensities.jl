@@ -81,7 +81,7 @@ end
 ## Tests
 ## =====
 @testitem "MatrixEnsemble with UniformScaling" begin
-    using LinearAlgebra
+    using LinearAlgebra: I
 
     @testset "UniformScaling" begin
         ensemble = MatrixEnsemble(I, I, I, I)
@@ -106,9 +106,9 @@ end
 end
 
 @testitem "MatrixEnsemble with various array types" begin
-    using LinearAlgebra
-    using SparseArrays
-    using StaticArrays
+    using LinearAlgebra: I, Diagonal
+    using SparseArrays: sparse
+    using StaticArrays: SMatrix, SVector
 
     function isapprox(a::E, b::E) where {E<:MatrixEnsemble}
         return all(p -> getproperty(a, p) ≈ getproperty(b, p), propertynames(a))
@@ -180,7 +180,7 @@ end
 end
 
 @testitem "MatrixEnsemble errors" begin
-    using LinearAlgebra
+    using LinearAlgebra: I, Diagonal
 
     Adata = ComplexF64[1.0 -1.0; 1.0 1.0]
     Ddata = Diagonal(ComplexF64[0.75, 0.25*cispi(1 // 3)])

@@ -2,17 +2,19 @@ module GaussianSpectralDensities
 
 using TestItems
 
-using Adapt
-using ArnoldiMethod
-using ArnoldiMethod: LM
-using CommonSolve: CommonSolve, init, solve!, solve
-using LinearAlgebra
-using LinearMaps
-using MappedArrays
-using StaticArrays
-using SparseArrays
-using SuiteSparse
-using StructArrays
+using EnumX: @enumx
+using LinearAlgebra: I
+
+# using Adapt
+# using ArnoldiMethod
+# using ArnoldiMethod: LM
+# using CommonSolve: CommonSolve, init, solve!, solve
+# using LinearMaps
+# using MappedArrays
+# using StaticArrays
+# using SparseArrays
+# using SuiteSparse
+# using StructArrays
 # using Random
 # using ThreadPools
 # using Printf
@@ -23,10 +25,11 @@ using StructArrays
   of plots it makes sense to write recipes for, however.
 =#
 
-export init, solve!, solve
 export MatrixEnsemble
-export TraceObjective, RegularizerObjective
-export DirectSolve, RegularizerSchedule, SymmetrySchedule
+
+# export init, solve!, solve
+# export TraceObjective, RegularizerObjective
+# export DirectSolve, RegularizerSchedule, SymmetrySchedule
 # export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
 # export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
 # export spectral_density
@@ -40,37 +43,37 @@ using .Internals
 # include("matrix_utils.jl")
 include("ensemble.jl")
 include("regularizers.jl")
-include("objectives.jl")
-include("problems.jl")
-include("workspace.jl")
-include("solutions.jl")
-include("newton.jl")
-include("eqsolve.jl")
-include("algorithms.jl")
-include("localsolve.jl")
-include("linalg.jl")
+# include("objectives.jl")
+# include("problems.jl")
+# include("workspace.jl")
+# include("solutions.jl")
+# include("newton.jl")
+# include("eqsolve.jl")
+# include("algorithms.jl")
+# include("localsolve.jl")
+# include("linalg.jl")
 # include("solve.jl")
 # include("density.jl")
 # include("sampling.jl")
 # include("automesh.jl")
 # include("printing.jl")
 
-Base.@kwdef mutable struct Defaults
-    verbosity::Int = 0
-    store_trace::Bool = false
-    kobjective::Float64 = 1.0
-    regobjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
-    q0::ComplexF64 = sqrt(eps(Float32))
-    reg0::Regularizer{Float64} = Regularizer(:δ, 1.0)
-    regschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0 .^ (4:-0.5:-4))
-    μschedule::typeof(0.0:1.0) = range(0, 1, 11)
-    γ²min::Float64 = -Inf
-    margin::Float64 = 0.1
-end
-
-const DEFAULTS = Defaults()
-
-adapt(::Type{F}, x::U) where {F,U} = convert(@eval($(U.name.name){$F}), x)
+# Base.@kwdef mutable struct Defaults
+#     verbosity::Int = 0
+#     store_trace::Bool = false
+#     kobjective::Float64 = 1.0
+#     regobjective::Regularizer{Float64} = Regularizer(:γ, 0.0)
+#     q0::ComplexF64 = sqrt(eps(Float32))
+#     reg0::Regularizer{Float64} = Regularizer(:δ, 1.0)
+#     regschedule::Vector{Regularizer{Float64}} = Regularizer.(:δ, 2.0 .^ (4:-0.5:-4))
+#     μschedule::typeof(0.0:1.0) = range(0, 1, 11)
+#     γ²min::Float64 = -Inf
+#     margin::Float64 = 0.1
+# end
+#
+# const DEFAULTS = Defaults()
+#
+# adapt(::Type{F}, x::U) where {F,U} = convert(@eval($(U.name.name){$F}), x)
 
 # score(value, reference) = inv(abs(value - reference))
 

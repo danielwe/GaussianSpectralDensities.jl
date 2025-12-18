@@ -1,20 +1,12 @@
-module Regularizers
-    # Like EnumX.jl but manual so LanguageServer.jl can understand, plus making instances
-    # behave like symbols in certain contexts
-    @enum T γ δ
+@enumx Regularizers γ δ
 
-    function Base.convert(::Type{T}, r::Symbol)
-        reg = @eval $r
-        (reg isa T) || throw(ArgumentError("$reg is not a $T"))  # catch convert(T, :T)
-        return reg
+function Base.convert(::Type{Regularizers.T}, r::Symbol)
+    try
+        return @eval Regularizers $r
+    catch
+        throw(ArgumentError("$(repr(r)) is not a valid kind of Regularizer"))
     end
-
-    Base.:(==)(reg::T, r::Symbol) = (Symbol(reg) == r)
-    Base.:(==)(r::Symbol, reg::T) = (reg == r)
-
-    # Base.getproperty(value, reg::T) = getproperty(value, Symbol(reg))  # experimental
 end
-
 
 """
     Regularizer(kind, value)
@@ -36,6 +28,12 @@ struct Regularizer{F<:Real}
 end
 
 Regularizer(kind, value::F) where {F} = Regularizer{F}(kind, value)
+
+Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.kind, reg.value)
+
+## Conversions
+## ===========
+Base.convert(::Type{P}, r::Q) where {P<:Regularizer,Q<:Regularizer} = P(r)
 
 """
     γ²(reg::Regularizer, s²min::Number)
@@ -73,10 +71,6 @@ function δ²(reg::Regularizer, s²min)
     end
 end
 
-## Conversions
-## ===========
-Base.convert(::Type{P}, r::Q) where {P<:Regularizer,Q<:Regularizer} = P(r.kind, r.value)
-
 #=
 ## solution score
 ## ==============
@@ -87,3 +81,50 @@ function score(solution, r::Regularizer)
     end
 end
 =#
+
+@testitem "Regularizer" begin
+    using GaussianSpectralDensities: Regularizer, γ², δ²
+
+    γ²value, δ²value = 0.0, 0.5
+    s²min = δ²value - γ²value
+    γreg, δreg = Regularizer(:γ, γ²value), Regularizer(:δ, δ²value)
+
+    # Traits
+    @test γreg isa Regularizer{Float64}
+    @test δreg isa Regularizer{Float64}
+
+    @testset "$F" for F in [Float32, Float64]
+        γ²valueF, δ²valueF, s²minF = F.((γ²value, δ²value, s²min))
+        γregF, δregF = Regularizer(:γ, γ²valueF), Regularizer(:δ, δ²valueF)
+
+        # Floattype inferring constructor
+        @test γregF isa Regularizer{F}
+        @test δregF isa Regularizer{F}
+
+        # Floattype enforcing constructor
+        @test Regularizer{F}(:γ, γ²value) === γregF
+        @test Regularizer{F}(:δ, δ²value) === δregF
+        @test Regularizer{Float64}(:γ, γ²valueF) === γreg
+        @test Regularizer{Float64}(:δ, δ²valueF) === δreg
+
+        # Floattype conversions
+        @test convert(Regularizer{F}, γreg) === γregF
+        @test convert(Regularizer{F}, δreg) === δregF
+        @test convert(Regularizer{Float64}, γregF) === γreg
+        @test convert(Regularizer{Float64}, δregF) === δreg
+        @test Regularizer{F}(γreg) === γregF
+        @test Regularizer{F}(δreg) === δregF
+        @test Regularizer{Float64}(γregF) === γreg
+        @test Regularizer{Float64}(δregF) === δreg
+
+        # Interface
+        @test γ²(γregF, s²minF) === γ²valueF
+        @test γ²(γregF, () -> s²minF) === γ²valueF
+        @test δ²(γregF, s²minF) === δ²valueF
+        @test δ²(γregF, () -> s²minF) === δ²valueF
+        @test γ²(δregF, s²minF) === γ²valueF
+        @test γ²(δregF, () -> s²minF) === γ²valueF
+        @test δ²(δregF, s²minF) === δ²valueF
+        @test δ²(δregF, () -> s²minF) === δ²valueF
+    end
+end

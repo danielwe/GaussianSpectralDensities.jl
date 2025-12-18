@@ -1,6 +1,9 @@
 module Internals
 
-using Adapt, LinearAlgebra, StaticArrays, SparseArrays
+using Adapt: WrappedArray
+using LinearAlgebra: AbstractMatrix, Diagonal, Hermitian, UniformScaling
+using StaticArrays: SArray, SMatrix, SVector, @SVector
+using SparseArrays: SparseMatrixCSC
 
 export RealOrComplex
 export AbstractMatrixOrUniform, DiagonalOrUniform, AnySArray, AnySMatrix
