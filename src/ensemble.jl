@@ -2,6 +2,7 @@
 """
     MatrixEnsemble(M, L, R, T)
     MatrixEnsemble{F}(M, L, R, T) where {F<:AbstractFloat}
+    MatrixEnsemble{F}(e::MatrixEnsemble) where {F<:AbstractFloat}
 
 Ensemble of square matrices on the form ``M + LJR`` where ``J`` is Girko ``T``-distributed
 

@@ -11,6 +11,7 @@ end
 """
     Regularizer(value, type)
     Regularizer{F}(value, type) where {F<:Real}
+    Regularizer{F}(reg::Regularizer) where {F<:Real}
 
 Represent the regularizer in the averaged resolvent equations
 

@@ -3,6 +3,7 @@ abstract type AbstractObjective{F<:Real} end
 """
     TraceObjective(value=Defaults.trace_target)
     TraceObjective{F}(value) where {F<:Real}
+    TraceObjective{F}(trace_obj::TraceObjective) where {F<:Real}
 
 Set a target value for ``k = \\tr [QQ^† + γ²I]⁻¹`` when solving averaged resolvent equations
 """
@@ -22,6 +23,7 @@ Base.convert(::Type{P}, o::Q) where {P<:TraceObjective,Q<:TraceObjective} = P(o)
     RegularizerObjective(value, type)
     RegularizerObjective(regularizer::Regularizer=Defaults.regularizer_target)
     RegularizerObjective{F}(regularizer::Regularizer) where {F<:Real}
+    RegularizerObjective{F}(reg_obj::RegularizerObjective) where {F<:Real}
 
 Set a target value for a regularizer when solving averaged resolvent equations
 
