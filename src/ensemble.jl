@@ -52,8 +52,8 @@ struct MatrixEnsemble{
         RC = any(eltype(A) <: Complex for A in (M, L, R, T)) ? Complex{F} : F
         Mrc, Lrc, Rrc = converteltype.(RC, (M, L, mapdiag(phase, T) * R))
         Tf = converteltype(F, mapdiag(abs, T))
-        LiMRi = sizedmatrix(converteltype(RC, Internals.rdiv(Internals.ldiv(Lrc, Mrc), Rrc)), Tf)
-        LiRi = sizedmatrix(converteltype(RC, Internals.ldiv(Rrc * Lrc, I)), LiMRi)
+        LiMRi = sizedmatrix(converteltype(RC, MathHelpers.rdiv(MathHelpers.ldiv(Lrc, Mrc), Rrc)), Tf)
+        LiRi = sizedmatrix(converteltype(RC, MathHelpers.ldiv(Rrc * Lrc, I)), LiMRi)
         return new{F,RC,typeof.((Mrc, Lrc, Rrc, Tf, LiMRi))...}(Mrc, Lrc, Rrc, Tf, LiRi, LiMRi)
     end
 end

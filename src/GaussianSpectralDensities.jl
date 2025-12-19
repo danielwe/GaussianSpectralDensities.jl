@@ -37,8 +37,8 @@ export TraceObjective, RegularizerObjective
 
 # const MissingOr{T} = Union{Missing, T}
 
-include("internals.jl")
-using .Internals
+include("mathhelpers.jl")
+using .MathHelpers
 
 # include("matrix_utils.jl")
 include("ensemble.jl")
@@ -51,7 +51,6 @@ include("problems.jl")
 # include("eqsolve.jl")
 # include("algorithms.jl")
 # include("localsolve.jl")
-# include("linalg.jl")
 # include("solve.jl")
 # include("density.jl")
 # include("sampling.jl")
