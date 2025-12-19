@@ -37,6 +37,18 @@ export TraceObjective, RegularizerObjective
 
 # const MissingOr{T} = Union{Missing, T}
 
+module Defaults
+const trace_target = 1.0
+const regularizer_target_value = 0.0
+const regularizer_target_type = :shift
+# const q_init = sqrt(eps(Float32))
+# const regularizer_init = Regularizer(1.0, :gap)
+# const regschedule = Regularizer.(2.0 .^ (4:-0.5:-4), :gap)
+# const μschedule = range(0, 1, 11)
+# const shiftmin = -Inf
+# const margin = 0.1
+end
+
 include("mathhelpers.jl")
 using .MathHelpers
 
@@ -56,19 +68,6 @@ include("problems.jl")
 # include("sampling.jl")
 # include("automesh.jl")
 # include("printing.jl")
-
-module Defaults
-using ..GaussianSpectralDensities: Regularizer
-
-const trace_target = 1.0
-const regularizer_target = Regularizer(0.0, :shift)
-# const q_init = sqrt(eps(Float32))
-# const regularizer_init = Regularizer(1.0, :gap)
-# const regschedule = Regularizer.(2.0 .^ (4:-0.5:-4), :gap)
-# const μschedule = range(0, 1, 11)
-# const shiftmin = -Inf
-# const margin = 0.1
-end
 
 # adapt(::Type{F}, x::U) where {F,U} = convert(@eval($(U.name.name){$F}), x)
 

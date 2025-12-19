@@ -20,8 +20,9 @@ TraceObjective{F}(o::TraceObjective) where {F} = TraceObjective{F}(o.value)
 Base.convert(::Type{P}, o::Q) where {P<:TraceObjective,Q<:TraceObjective} = P(o)
 
 """
-    RegularizerObjective(value, type)
-    RegularizerObjective(regularizer::Regularizer=Defaults.regularizer_target)
+    RegularizerObjective(
+        value=Defaults.regularizer_target_value, type=Defaults.regularizer_target_type
+    )
     RegularizerObjective{F}(regularizer::Regularizer) where {F<:Real}
     RegularizerObjective{F}(reg_obj::RegularizerObjective) where {F<:Real}
 
@@ -34,8 +35,11 @@ struct RegularizerObjective{F} <: AbstractObjective{F}
     value::Regularizer{F}
 end
 
-RegularizerObjective(value, type) = RegularizerObjective(Regularizer(value, type))
-RegularizerObjective() = RegularizerObjective(Defaults.regularizer_target)
+function RegularizerObjective(
+    value=Defaults.regularizer_target_value, type=Defaults.regularizer_target_type
+)
+    return RegularizerObjective(Regularizer(value, type))
+end
 
 RegularizerObjective{F}(o::RegularizerObjective) where {F} = RegularizerObjective{F}(o.value)
 
@@ -84,25 +88,29 @@ end
 @testitem "RegularizerObjective" begin
     using GaussianSpectralDensities: Defaults, Regularizer
 
-    regularizer_value64, regularizer_type = 0.5, :gap
-    regularizer_target64 = Regularizer(regularizer_value64, regularizer_type)
+    regularizer_target_value64, regularizer_target_type = 0.5, :gap
+    regularizer_target64 = Regularizer(regularizer_target_value64, regularizer_target_type)
     regularizer_objective64 = RegularizerObjective(regularizer_target64)
 
     # Traits
     @test regularizer_objective64 isa RegularizerObjective{Float64}
 
     # Defaults
-    @test RegularizerObjective() === RegularizerObjective(Defaults.regularizer_target)
+    @test RegularizerObjective() === RegularizerObjective(
+        Defaults.regularizer_target_value, Defaults.regularizer_target_type
+    )
 
     @testset "$F" for F in [Float32, Float64]
-        regularizer_valueF = F(regularizer_value64)
-        regularizer_targetF = Regularizer(regularizer_valueF, regularizer_type)
+        regularizer_target_valueF = F(regularizer_target_value64)
+        regularizer_targetF = Regularizer(regularizer_target_valueF, regularizer_target_type)
         regularizer_objectiveF = RegularizerObjective(regularizer_targetF)
 
         # Floattype inferring constructor
         @test regularizer_objectiveF isa RegularizerObjective{F}
         # - All the signatures
-        @test RegularizerObjective(regularizer_valueF, regularizer_type) === regularizer_objectiveF
+        @test RegularizerObjective(
+            regularizer_target_valueF, regularizer_target_type
+        ) === regularizer_objectiveF
 
         # Floattype enforcing constructor
         @test RegularizerObjective{F}(regularizer_target64) === regularizer_objectiveF
