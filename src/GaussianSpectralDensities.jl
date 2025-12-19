@@ -44,7 +44,7 @@ using .Internals
 include("ensemble.jl")
 include("regularizers.jl")
 include("objectives.jl")
-# include("problems.jl")
+include("problems.jl")
 # include("workspace.jl")
 # include("solutions.jl")
 # include("newton.jl")
