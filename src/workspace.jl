@@ -1,6 +1,6 @@
 module Workspaces
 
-using EnumX
+using EnumX: @enumx
 using LinearAlgebra: Diagonal, Factorization, Hermitian
 
 using ..GaussianSpectralDensities: MatrixEnsemble, Regularizer, shift, gap
