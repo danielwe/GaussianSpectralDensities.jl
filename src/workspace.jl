@@ -1,4 +1,46 @@
+module Workspaces
+
+using EnumX
+using LinearAlgebra: Diagonal, Factorization, Hermitian
+
+using ..GaussianSpectralDensities: MatrixEnsemble, Regularizer, shift, gap
+using ..MathHelpers: AnySArray, decompose, decompose!!, eigmin!!, hsdot_normalized, invert,
+    invert!!, ldiv!!, muladd!!, muladd_diag!!, neg, psdmul, psdmul!!, tr_normalized
+
+using ..Defaults: Defaults
+
+using TestItems: @testitem
+
+export Workspace
+
+# Abstract supertype that can also be subtyped by GPU workspaces later
 abstract type AbstractWorkspace{F<:AbstractFloat} end
+
+# What are the computational dependencies between the auxiliary matrices?
+#                                 ↙ P
+# G0_inv <- Q <- QQh <- P_inv_fact
+#                                 ↖ P_L_inv_R_inv
+# So the possible dirty states are
+# - ALL_DIRTY
+# - G0_inv                                        CLEAN
+# - G0_inv & Q                                    CLEAN
+# - G0_inv & Q & QQh                              CLEAN
+# - G0_inv & Q & QQh & P_inv_fact                 CLEAN
+# - G0_inv & Q & QQh & P_inv_fact & P             CLEAN
+# - G0_inv & Q & QQh & P_inv_fact & P_L_inv_R_inv CLEAN
+# - ALL_CLEAN
+#
+# We use an enum to keep track of this so we only recalculate what is necessary
+@enumx Clean::UInt8 begin
+    none = 0
+    G0_inv = 1
+    Q = 2
+    QQh = 3
+    P_inv_fact = 4
+    P = 5
+    P_L_inv_R_inv = 6
+    all = 7
+end
 
 """
     Workspace(ensemble::MatrixEnsemble)
@@ -8,448 +50,398 @@ Workspace holding intermediate arrays used to compute the average resolvent from
 mutable struct Workspace{
     F,
     TE<:MatrixEnsemble{F},
-    TG0i<:AbstractMatrix{Complex{F}},
+    TG0_inv<:AbstractMatrix{Complex{F}},
     TQ<:AbstractMatrix{Complex{F}},
     TQQh<:Union{<:Diagonal{F},<:Hermitian{Complex{F}}},
-    TPifact<:Union{<:Diagonal{F},<:Factorization{<:Complex}},  # factorizations can promote
+    TP_inv_fact<:Union{<:Diagonal{F},<:Factorization{<:Complex}},  # factorizations can promote
     TP<:Union{<:Diagonal{F},<:Hermitian{<:Complex}},
-    TPLiRi<:AbstractMatrix{<:Number},
+    TP_L_inv_R_inv<:AbstractMatrix{<:Number},
 } <: AbstractWorkspace{F}
     ensemble::TE
     z::Complex{F}
-    μq::Complex{F}
-    normalizeQ::Bool
+    q::Complex{F}
     reg::Regularizer{F}
-    G0i::TG0i
+    G0_inv::TG0_inv
     Q::TQ
     QQh::TQQh
-    Pifact::TPifact
+    P_inv_fact::TP_inv_fact
     P::TP
-    PLiRi::TPLiRi
-    s²min::F
-    state::UInt8
+    P_L_inv_R_inv::TP_L_inv_R_inv
+    nullgap::F
+    clean::Clean.T
+    normalizeQ::Bool
     # PQ::TQ
     # QP::TQ
-    # PLiRi_or_QPQ::Matrix{Complex{F}}
+    # PL_inv_R_inv_or_QPQ::Matrix{Complex{F}}
     # QhPQ::Hermitian{Complex{F},Matrix{Complex{F}}}
 
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
-        μq = convert(Complex{F}, DEFAULTS.q0)
-        reg = convert(Regularizer{F}, first(DEFAULTS.regschedule))
-        G0i = muladd(z, ensemble.LiRi, _neg(ensemble.LiMRi))
-        Q = muladd(-μq, ensemble.T, G0i)
+        q = convert(Complex{F}, Defaults.q_init)
+        reg = Regularizer{F}(
+            first(Defaults.regularizer_schedule_values), Defaults.regularizer_schedule_type
+        )
+        G0_inv = muladd(z, ensemble.L_inv_R_inv, neg(ensemble.L_inv_M_R_inv))
+        Q = muladd(-q, ensemble.T, G0_inv)
         QQh = psdmul(Q)
-        Pifact = decompose(QQh)
-        s²min = eigmin!!(Pifact, QQh)
-        Pifact = decompose!!(Pifact, QQh; shift=γ²(reg, s²min))
-        P = invert(Pifact)
-        PLiRi = Pifact \ ensemble.LiRi
-        return new{F,E,typeof.((G0i,Q,QQh,Pifact,P,PLiRi))...}(
+        P_inv_fact = decompose(QQh)
+        nullgap = eigmin!!(P_inv_fact, QQh)
+        P_inv_fact = decompose!!(P_inv_fact, QQh; shift=shift(reg, nullgap))
+        P = invert(P_inv_fact)
+        P_L_inv_R_inv = P_inv_fact \ ensemble.L_inv_R_inv
+        return new{F,E,typeof.((G0_inv, Q, QQh, P_inv_fact, P, P_L_inv_R_inv))...}(
             ensemble,
             z,
-            μq,
-            false,
+            q,
             reg,
-            G0i,
+            G0_inv,
             Q,
             QQh,
-            Pifact,
+            P_inv_fact,
             P,
-            PLiRi,
-            s²min,
-            ALLVALID,
+            P_L_inv_R_inv,
+            nullgap,
+            Clean.all,
+            false,
             # PQ,
             # QhPQ,
-            # QPQ_PLiRi,
+            # QPQ_PL_inv_R_inv,
             # QP,
         )
     end
 end
 
-const G0iCURRENT = 0b00000001  # Also covers off-diagonal parts of Q
-const QCURRENT = 0b00000010
-const QQhCURRENT = 0b00000100  # Also covers s²min
-const PifactCURRENT = 0b00001000
-const PCURRENT = 0b00010000
-const PLiRiCURRENT = 0b00100000
-
-const G0iVALID = G0iCURRENT
-const QVALID = QCURRENT | G0iVALID
-const QQhVALID =  QQhCURRENT |QVALID
-const PifactVALID =  PifactCURRENT |QQhVALID
-const PVALID =  PCURRENT | PifactVALID
-const PLiRiVALID =  PLiRiCURRENT | PifactVALID
-const ALLVALID = PVALID | PLiRiVALID
-
-_clearstate(ws) = (ws.state = 0b00000000)
-_clearstateexcept(ws, flags) = (ws.state &= flags)
-_addstate(ws, flags) = (ws.state |= flags)
-_statecontains(ws, flags) = ((ws.state & flags) == flags)
-
-## Matrix getters
+## Auxiliary matrix getters
 ## ==============
 """
-    _G0i!(ws, eq)
+    G0_inv!(ws, eq)
 
-Calculate the bare inverse resolvent `G0i(z) = L \\ (z * I - M) / R`
+Calculate the bare inverse resolvent `G0_inv(z) = L \\ (z * I - M) / R`
 """
-function _G0i!(ws, eq)
-    _setG0iparams!(ws, eq)
-    _updateG0i!(ws)
-    return ws.G0i
+function G0_inv!(ws, eq)
+    set_G0_inv_params(ws, eq)
+    update_G0_inv(ws)
+    return ws.G0_inv
 end
 
-function _setG0iparams!(ws, eq)
+function set_G0_inv_params(ws, eq)
     if ws.ensemble !== eq.ensemble
         if size(ws.ensemble) != size(eq.ensemble)
             throw(ArgumentError("new ensemble size does not match workspace"))
         end
-        _clearstate(ws)
         ws.ensemble = eq.ensemble
+        ws.clean = Clean.none
     end
     if ws.z != eq.z
-        _clearstate(ws)
         ws.z = eq.z
+        ws.clean = Clean.none
     end
     return nothing
 end
 
-function _updateG0i!(ws)
-    _statecontains(ws, G0iVALID) && return nothing
-    ws.G0i = _muladd!!(ws.G0i, ws.z, ws.ensemble.LiRi, _neg(ws.ensemble.LiMRi))
+function update_G0_inv(ws)
+    (ws.clean >= Clean.G0_inv) && return nothing
+    ws.G0_inv = muladd!!(ws.G0_inv, ws.z, ws.ensemble.L_inv_R_inv, neg(ws.ensemble.L_inv_M_R_inv))
     if !(ws.Q isa Diagonal)
-        ws.Q = _copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
+        ws.Q = copy!!(ws.Q, ws.G0_inv)  # set off-diagonal elements of Q
     end
-    _addstate(ws, G0iCURRENT)
-    @assert _statecontains(ws, G0iVALID)
+    ws.clean = Clean.G0_inv
     return nothing
 end
 
 """
-    _Q!(ws, eq, μq)
+    Q!(ws, eq, q)
 
-Calculate `Q(z, μq) = G0i(z) - μq * T`
+Calculate `Q(z, q) = G0_inv(z) - q * T`
 """
-function _Q!(ws, eq, μq)
-    _setQparams!(ws, eq, μq)
-    _updateQ!(ws)
+function Q!(ws, eq, q)
+    set_Q_params(ws, eq, q)
+    update_Q(ws)
     return ws.Q
 end
 
-function _setQparams!(ws, eq, μq)
-    _setG0iparams!(ws, eq)
-    μq = μq
-    (ws.μq == μq) && return nothing
-    _clearstateexcept(ws, G0iVALID)
-    ws.μq = μq
+function set_Q_params(ws, eq, q)
+    set_G0_inv_params(ws, eq)
+    (ws.q == q) && return nothing
+    ws.q = q
+    ws.clean = min(ws.clean, Clean.G0_inv)
     return nothing
 end
 
-function _updateQ!(ws)
-    _statecontains(ws, QVALID) && return nothing
-    _updateG0i!(ws)
-    ws.Q = _muladd_diag!!(ws.Q, -ws.μq, ws.ensemble.T, ws.G0i)
-    _addstate(ws, QCURRENT)
-    @assert _statecontains(ws, QVALID)
+function update_Q(ws)
+    (ws.clean >= Clean.Q) && return nothing
+    update_G0_inv(ws)
+    ws.Q = muladd_diag!!(ws.Q, -ws.q, ws.ensemble.T, ws.G0_inv)
+    ws.clean = Clean.Q
     return nothing
 end
 
 """
-    _QQh!(ws, eq, μq)
+    QQh!(ws, eq, q)
 
-Calculate `Q(z, μq) * Q'(z, μq)`
+Calculate `Q(z, q) * Q'(z, q)`
 
 If `eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
 `ResolventProblem` documentation for further explanation.
 """
-function _QQh!(ws, eq, μq)
-    _setQQhparams!(ws, eq, μq)
-    _updateQQh!(ws)
+function QQh!(ws, eq, q)
+    set_QQh_params(ws, eq, q)
+    update_QQh(ws)
     return ws.QQh
 end
 
-function _setQQhparams!(ws, eq, μq)
-    _setQparams!(ws, eq, μq)
+function set_QQh_params(ws, eq, q)
+    set_Q_params(ws, eq, q)
     (ws.normalizeQ == eq.normalizeQ) && return nothing
-    _clearstateexcept(ws, QVALID)
     ws.normalizeQ = eq.normalizeQ
+    ws.clean = min(ws.clean, Clean.Q)
     return nothing
 end
 
-function _updateQQh!(ws)
-    _statecontains(ws, QQhVALID) && return nothing
-    _updateQ!(ws)
+function update_QQh(ws)
+    (ws.clean >= Clean.QQh) && return nothing
+    update_Q(ws)
     ws.QQh = psdmul!!(ws.QQh, ws.Q)
     if (!(ws.Q isa Diagonal)) && ws.normalizeQ
         half = one(real(eltype(ws.QQh))) / 2
         ws.QQh = psdmul!!(ws.QQh, ws.Q', half, half)
     end
-    ws.s²min = eigmin!!(ws.Pifact, ws.QQh)
-    _addstate(ws, QQhCURRENT)
-    @assert _statecontains(ws, QQhVALID)
+    ws.nullgap = eigmin!!(ws.P_inv_fact, ws.QQh)
+    ws.clean = Clean.QQh
     return nothing
 end
 
 """
-    _Pifact!(ws, eq, μq, reg)
+    P_inv_fact!(ws, eq, q, reg)
 
 Factorize `P⁻¹ = Q * Q' + γ² * I`
 """
-function _Pifact!(ws, eq, μq, reg)
-    _setPifactparams!(ws, eq, μq, reg)
-    _updatePifact!(ws)
-    return ws.Pifact
+function P_inv_fact!(ws, eq, q, reg)
+    set_P_inv_fact_params(ws, eq, q, reg)
+    update_P_inv_fact(ws)
+    return ws.P_inv_fact
 end
 
-function _setPifactparams!(ws, eq, μq, reg)
-    _setQQhparams!(ws, eq, μq)
+function set_P_inv_fact_params(ws, eq, q, reg)
+    set_QQh_params(ws, eq, q)
     (ws.reg == reg) && return nothing
-    _clearstateexcept(ws, QQhVALID)
     ws.reg = reg
+    ws.clean = min(ws.clean, Clean.QQh)
     return nothing
 end
 
-function _updatePifact!(ws)
-    _statecontains(ws, PifactVALID) && return nothing
-    _updateQQh!(ws)
-    ws.Pifact = decompose!!(ws.Pifact, ws.QQh; shift=γ²(ws.reg, ws.s²min))
-    _addstate(ws, PifactCURRENT)
-    @assert _statecontains(ws, PifactVALID)
+function update_P_inv_fact(ws)
+    (ws.clean >= Clean.P_inv_fact) && return nothing
+    update_QQh(ws)
+    ws.P_inv_fact = decompose!!(ws.P_inv_fact, ws.QQh; shift=shift(ws.reg, ws.nullgap))
+    ws.clean = Clean.P_inv_fact
     return nothing
 end
 
 """
-    _P!(ws, eq, μq, reg)
+    P!(ws, eq, q, reg)
 
-Calculate `P(z, μq, γ²) = inv(Q * Q' + γ² * I)`
+Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
 
 The value of `γ²` is provided through `reg::Regularizer`, which can hold either the value of
 `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
-function _P!(ws, eq, μq, reg)
-    _setPparams!(ws, eq, μq, reg)
-    _updateP!(ws)
+function P!(ws, eq, q, reg)
+    set_P_params(ws, eq, q, reg)
+    update_P(ws)
     return ws.P
 end
 
-_setPparams!(ws, eq, μq, reg) = _setPifactparams!(ws, eq, μq, reg)
+set_P_params(ws, eq, q, reg) = set_P_inv_fact_params(ws, eq, q, reg)
 
-function _updateP!(ws)
-    _statecontains(ws, PVALID) && return nothing
-    _updatePifact!(ws)
-    ws.P = invert!!(ws.P, ws.Pifact)
-    _addstate(ws, PCURRENT)
-    @assert _statecontains(ws, PVALID)
+function update_P(ws)
+    # There has to be a better way. Ideally these two (but only these two) would be
+    # represented by a bitfield
+    ((ws.clean >= Clean.P) && (ws.clean != Clean.P_L_inv_R_inv)) && return nothing
+    update_P_inv_fact(ws)
+    ws.P = invert!!(ws.P, ws.P_inv_fact)
+    if ws.clean == Clean.P_L_inv_R_inv
+        ws.clean = Clean.all
+    else
+        ws.clean = Clean.P
+    end
     return nothing
 end
 
 """
-    _PLiRi!(ws, eq, μq, reg)
+    P_L_inv_R_inv!(ws, eq, q, reg)
 
 Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 
 The arguments are the same as for `_P!`.
 """
-function _PLiRi!(ws, eq, μq, reg)
-    _setPLiRiparams!(ws, eq, μq, reg)
-    _updatePLiRi!(ws)
-    return ws.PLiRi
+function P_L_inv_R_inv!(ws, eq, q, reg)
+    set_P_L_inv_R_inv_params(ws, eq, q, reg)
+    update_P_L_inv_R_inv(ws)
+    return ws.P_L_inv_R_inv
 end
 
-_setPLiRiparams!(ws, eq, μq, reg) = _setPifactparams!(ws, eq, μq, reg)
+set_P_L_inv_R_inv_params(ws, eq, q, reg) = set_P_inv_fact_params(ws, eq, q, reg)
 
-function _updatePLiRi!(ws)
-    _statecontains(ws, PLiRiVALID) && return nothing
-    _updatePifact!(ws)
-    ws.PLiRi = ldiv!!(ws.Pifact, _copy!!(ws.PLiRi, ws.ensemble.LiRi))
-    _addstate(ws, PLiRiCURRENT)
-    @assert _statecontains(ws, PLiRiVALID)
+function update_P_L_inv_R_inv(ws)
+    (ws.clean >= Clean.P_L_inv_R_inv) && return nothing
+    update_P_inv_fact(ws)
+    ws.P_L_inv_R_inv = ldiv!!(ws.P_inv_fact, copy!!(ws.P_L_inv_R_inv, ws.ensemble.L_inv_R_inv))
+    if ws.clean == Clean.P
+        ws.clean = Clean.all
+    else
+        ws.clean = Clean.P_L_inv_R_inv
+    end
     return nothing
 end
 
 ## Scalar getters
 ## ==============
 """
-    q_μrhs!(ws, eq, μq, reg)
+    q_rhs!(ws, eq, q, reg)
 
-Calculate the RHS of the self-consistency relation for ``q / μ``: `tr(T * Q'P) / size(P, 2)`
+Calculate the RHS of the self-consistency relation for ``q``: `tr(T * Q'P) / size(P, 2)`
 
-The arguments are the same as for `_P!`
+The arguments are the same as for `P!`
 """
-function q_μrhs!(ws, eq, μq, reg)
-    return _hsn(eq.ensemble.T, _Q!(ws, eq, μq), _P!(ws, eq, μq, reg))
+function q_rhs!(ws, eq, q, reg)
+    return hsdot_normalized(eq.ensemble.T, Q!(ws, eq, q), P!(ws, eq, q, reg))
 end
 
 """
-    γ²!(ws, eq, μq, reg)
+    shift!(ws, eq, q, reg)
 
-Calculate the regularizer ``γ²``
+Calculate the regularizer shift ``γ²``
 
-The arguments are the same as for `_P!`
+The arguments are the same as for `P!`
 """
-function γ²!(ws, eq, μq, reg)
-    s²min = let ws=ws, eq=eq, μq=μq
-        s²min() = _s²min(ws, eq, μq)
-    end
-    return γ²(reg, s²min)
+shift!(ws, eq, q, reg) = shift(reg, nullgap(ws, eq, q))
+
+"""
+    gap!(ws, eq, q, reg)
+
+Calculate the regularizer gap `δ² = eigmin(QQ†)`
+
+The arguments are the same as for `P!`
+"""
+gap!(ws, eq, q, reg) = gap(reg, nullgap(ws, eq, q))
+
+function nullgap(ws, eq, q)
+    QQh!(ws, eq, q)
+    return ws.nullgap
 end
 
 """
-    δ²!(ws, eq, μq, reg)
+    k!(ws, eq, q, reg)
 
-Calculate the regularizer ``δ²``
+Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 2)`
 
-The arguments are the same as for `_P!`
+The arguments are the same as for `P!`
 """
-function δ²!(ws, eq, μq, reg)
-    s²min = let ws=ws, eq=eq, μq=μq
-        s²min() = _s²min(ws, eq, μq)
-    end
-    return δ²(reg, s²min)
-end
-
-function _s²min(ws, eq, μq)
-    _QQh!(ws, eq, μq)
-    return ws.s²min
-end
+k!(ws, eq, q, reg) = tr_normalized(P!(ws, eq, q, reg))
 
 """
-    k!(ws, eq, μq, reg)
+    E!(ws, eq, q, reg)
 
-Calculate the normalized trace of `P(z, μq, γ²)`, i.e., `tr(P) / size(P, 2)`
+Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, q) * P(z, q, γ²)`
 
-The arguments are the same as for `_P!`
+The arguments are the same as for `P!`
 """
-k!(ws, eq, μq, reg) = _trn(_P!(ws, eq, μq, reg))
+E!(ws, eq, q, reg) = hsdot_normalized(Q!(ws, eq, q), P_L_inv_R_inv!(ws, eq, q, reg))
 
+## Array copy helper
+## =================
 """
-    E!(ws, eq, μq, regularizer)
-
-Calculate the normalized resolvent trace, i.e., trace of `(RL)⁻¹ * Q'(z, μq) * P(z, μq, γ²)`
-
-The arguments are the same as for `_P!`
-"""
-E!(ws, eq, μq, reg) = _hsn(_Q!(ws, eq, μq), _PLiRi!(ws, eq, μq, reg))
-
-## Array arithmetic helpers
-## ========================
-"""
-    _copy!!(dest, src)
+    copy!!(dest, src)
 
 Overwrite `dest` with the contents of `src` and return `dest`
 """
-_copy!!(dest, src) = copyto!(dest, src)
+copy!!(dest, src) = copyto!(dest, src)
 
 """
-    _copy!!(::AnySArray, src)
+    copy!!(::AnySArray, src)
 
-Return a copy of `src` 
+Return a copy of `src`
 """
-_copy!!(::AnySArray, src) = deepcopy(src)
+copy!!(::AnySArray, src) = deepcopy(src)
 
-"""
-    _diagview(A)
+## Tests
+## =====
+@testitem "Workspace" begin
+    using GaussianSpectralDensities: LocalResolventEquation, Regularizer
+    using GaussianSpectralDensities.Workspaces
+    using LinearAlgebra: I, Diagonal, Hermitian, eigmin, tr
+    using SparseArrays: sparse
+    using StaticArrays: SMatrix, SVector
 
-Return a view of the diagonal of the matrix ``A``
-"""
-_diagview(A) = view(A, diagind(A))
-_diagview(A::Diagonal) = A.diag
-_diagview(A::Union{<:Bidiagonal,<:SymTridiagonal}) = A.dv
-_diagview(A::Tridiagonal) = A.d
-_diagview(A::UniformScaling) = A.λ
+    A64data = ComplexF64[1 -1; 1 1]
+    D64data = ComplexF64[0.75, 0.25*cispi(1 // 3)]
 
-"""
-   _neg(A)
+    z64 = -(2.0 + im) / 4
+    q64 = (1.0 - im) / 2
 
-Return a non-allocating representation of `-A`
+    shift64 = 0.25
+    gap64 = 0.5
 
-Uses `-` for static arrays and `MappedArrays` otherwise, and preserves structured matrix
-types.
-"""
-_neg(A) = mappedarray(-, A)
-_neg(A::SArray) = -A
-_neg(A::Diagonal) = Diagonal(_neg(A.diag))
-_neg(A::Bidiagonal) = Bidiagonal(_neg(A.dv), _neg(A.ev), Symbol(A.uplo))
-_neg(A::SymTridiagonal) = SymTridiagonal(_neg(A.dv), _neg(A.ev))
-_neg(A::Tridiagonal) = Tridiagonal(_neg(A.dl), _neg(A.d), _neg(A.du))
+    # These are just used for comparison, so we don't fuss about eltypes and array types
+    Dabs = Diagonal([0.75, 0.25])
+    Dphase = Diagonal([1.0, cispi(1 // 3)])
 
-"""
-    _muladd!!(C, λ::Number, A, B)
+    # Ground truth; only for comparison, so we don't fuss about eltypes
+    R_actual = Dphase
+    L_inv_R_inv = conj.(Dphase)
+    T_actual = Dabs
+    G0_inv = (z64 * I - A64data) / R_actual
+    Q = G0_inv - q64 * T_actual
 
-Overwrite ``C`` with ``λA + B` and return ``C``
-"""
-function _muladd!!(C, λ::Number, A, B)
-    C .= muladd.(λ, A, B)
-    return C
-end
+    @testset "normalizeQ = $normalizeQ" for normalizeQ in [false, true]
+        # Ground truth; only for comparison, so we don't fuss about eltypes
+        QQh = normalizeQ ? ((Q * Q') + (Q' * Q)) / 2 : Q * Q'
+        nullgap = eigmin(Hermitian(QQh))
+        Pshift, Pgap = inv(QQh + shift64 * I), inv(QQh + (gap64 - nullgap) * I)
+        q_rhs_shift, q_rhs_gap = tr(T_actual * Q' * Pshift) / 2, tr(T_actual * Q' * Pgap) / 2
+        kshift, kgap = tr(Pshift) / 2, tr(Pgap) / 2
+        Eshift, Egap = tr(L_inv_R_inv * Q' * Pshift) / 2, tr(L_inv_R_inv * Q' * Pgap) / 2
 
-"""
-    _muladd!!(::AnySArray, λ, A, B)
+        @testset "$F" for F in [Float32, Float64]
+            AFdata = convert.(Complex{F}, A64data)
+            DFdata = convert.(Complex{F}, D64data)
 
-Return ``λA + B``
-"""
-_muladd!!(::AnySArray, λ::Number, A, B) = muladd(λ, A, B)
+            zF, qF = Complex{F}.((z64, q64))
+            shiftF, gapF = F.((shift64, gap64))
+            reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
 
-"""
-    _muladd_diag!!(C, λ::Number, A, B)
+            @testset "$label" for (label, AF, DF) in [
+                ("Array", AFdata, Diagonal(DFdata)),
+                ("SArray", SMatrix{2,2}(AFdata), Diagonal(SVector{2}(DFdata))),
+                ("SparseMatrixCSC", sparse(AFdata), Diagonal(DFdata)),
+            ]
+                ensembleF = MatrixEnsemble(AF, I, I, DF)
 
-Overwrite the diagonal of ``C`` with `λ * diag(A) + diag(B)`, and return ``C``
-"""
-function _muladd_diag!!(C, λ::Number, A, B)
-    _diagview(C) .= muladd.(λ, _diagview(A), _diagview(B))
-    return C
-end
+                eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
 
-"""
-    _muladd_diag!!(C::AnySMatrix, λ::Number, A::Union{Diagonal,UniformScaling}, B)
+                wsF = Workspace(ensembleF)
 
-Return ``λA + B``
+                @test wsF isa Workspace{F}
 
-This is intended as an out-of-place equivalent of the in-place ``_muladd_diag!!``
-implementation. This only makes sense when ``C`` and ``B`` only differ on the diagonal,
-which is the case of interest in this package.
-"""
-_muladd_diag!!(::AnySMatrix, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
+                @test Workspaces.shift!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value
+                @test Workspaces.shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - nullgap
 
-## Traces and trace inner products
-## ===============================
-"""
-    _trn(A)
+                @test Workspaces.gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + nullgap
+                @test Workspaces.gap!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value
 
-Compute the normalized trace `tr(A) / size(A, 2)`
-"""
-_trn(A) = tr(A) / size(A, 2)
+                @test Workspaces.q_rhs!(wsF, eqF, qF, reg_shiftF) ≈ q_rhs_shift
+                @test Workspaces.q_rhs!(wsF, eqF, qF, reg_gapF) ≈ q_rhs_gap
 
-"""
-    _hsn(A, B)
+                @test Workspaces.k!(wsF, eqF, qF, reg_shiftF) ≈ kshift
+                @test Workspaces.k!(wsF, eqF, qF, reg_gapF) ≈ kgap
 
-Compute the normalized Hilbert-Schmidt inner product `tr(A'B) / size(B, 2)`
-"""
-_hsn(A, B) = dot(A, B) / size(B, 2)
-
-"""
-    _hsn(T::Diagonal, A, B)
-    _hsn(T::UniformScaling, A, B)
-
-Compute the normalized trace `tr(T * A'B) / size(B, 2)`
-
-For positive definite `T` this can be seen as a generalized Hilbert-Schmidt inner product
-"""
-function _hsn(T::Diagonal, A, B)
-    @boundscheck begin
-        if (axes(A) != axes(B)) || (axes(T.diag, 1) != axes(A, 2))
-            throw(ArgumentError("matrix axes don't match"))
+                @test Workspaces.E!(wsF, eqF, qF, reg_shiftF) ≈ Eshift
+                @test Workspaces.E!(wsF, eqF, qF, reg_gapF) ≈ Egap
+            end
         end
     end
-    out = zero(promote_type(eltype(T), eltype(A), eltype(B)))
-    @inbounds for j in axes(A, 2)
-        out += T.diag[j] * dot(view(A, :, j), view(B, :, j))
-    end
-    return out / length(T.diag)
 end
-
-_hsn(T::UniformScaling, A, B) = T.λ * _hsn(A, B)
 
 ## Attic---may be scavenged for further functionality
 ## ==================================================
@@ -553,3 +545,5 @@ function q∞!(problem, γ∞², ws)
     return q / (γ∞² * length(T))
 end
 =#
+
+end

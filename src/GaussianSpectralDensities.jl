@@ -60,7 +60,9 @@ include("ensemble.jl")
 include("regularizers.jl")
 include("objectives.jl")
 include("problems.jl")
-# include("workspace.jl")
+include("workspace.jl")
+using .Workspaces
+
 # include("solutions.jl")
 # include("newton.jl")
 # include("eqsolve.jl")

@@ -2,9 +2,11 @@ module MathHelpers
 
 using Adapt: WrappedArray
 using ArnoldiMethod: LM, partialschur
-using LinearAlgebra: I, Cholesky, Diagonal, Hermitian, PosDefException, UniformScaling,
-    LAPACK, cholesky, diagind, eigmin, ldiv!, ldlt, ldlt!, mul!
+using LinearAlgebra: I, Bidiagonal, Cholesky, Diagonal, Hermitian, PosDefException,
+    SymTridiagonal, Tridiagonal, UniformScaling, LAPACK, cholesky, diagind, dot, eigmin,
+    ldiv!, ldlt, ldlt!, mul!, tr
 using LinearMaps: LinearMap
+using MappedArrays: mappedarray
 using SparseArrays: SparseMatrixCSC, spdiagm
 using StaticArrays: SArray, SMatrix, SVector, StaticMatrix, @SVector
 using SuiteSparse: SuiteSparse
@@ -25,6 +27,10 @@ export mapdiag, alldiag, inunitdisc, phase, converteltype, sizedmatrix
         :invert,
         :invert!!,
         :ldiv!!,
+        :muladd!!,
+        :muladd_diag!!,
+        :tr_normalized,
+        :hsdot_normalized,
         :psdmul,
         :psdmul!!,
     ))
@@ -87,6 +93,116 @@ rdiv(A, R) = A / R
 rdiv(A::UniformScaling, R::AnySMatrix) = SMatrix{size(R, 2),size(R, 2)}(A) / R  # should file issue
 rdiv(A::UniformScaling, R::Diagonal{<:Any,<:SArray}) = sizedmatrix(A, R') / R
 rdiv(A::UniformScaling, R::SparseMatrixCSC) = sizedmatrix(A, R') / R
+
+## Array unary operations
+## ======================
+"""
+   neg(A)
+
+Return a non-allocating representation of `-A`
+
+Uses `-` for static arrays and `MappedArrays` otherwise, and preserves structured matrix
+types.
+"""
+neg(A) = mappedarray(-, A)
+neg(A::SArray) = -A
+neg(A::Diagonal) = Diagonal(neg(A.diag))
+neg(A::Bidiagonal) = Bidiagonal(neg(A.dv), neg(A.ev), Symbol(A.uplo))
+neg(A::SymTridiagonal) = SymTridiagonal(neg(A.dv), neg(A.ev))
+neg(A::Tridiagonal) = Tridiagonal(neg(A.dl), neg(A.d), neg(A.du))
+
+## Array muladd
+## ============
+"""
+    muladd!!(C, λ::Number, A, B)
+
+Overwrite ``C`` with ``λA + B` and return ``C``
+"""
+function muladd!!(C, λ::Number, A, B)
+    C .= muladd.(λ, A, B)
+    return C
+end
+
+"""
+    muladd!!(::AnySArray, λ, A, B)
+
+Return ``λA + B``
+"""
+muladd!!(::AnySArray, λ::Number, A, B) = muladd(λ, A, B)
+
+"""
+    muladd_diag!!(C, λ::Number, A, B)
+
+Overwrite the diagonal of ``C`` with `λ * diag(A) + diag(B)`, and return ``C``
+"""
+function muladd_diag!!(C, λ::Number, A, B)
+    diagview(C) .= muladd.(λ, diagview(A), diagview(B))
+    return C
+end
+
+"""
+    muladd_diag!!(C::AnySMatrix, λ::Number, A::Union{Diagonal,UniformScaling}, B)
+
+Return ``λA + B``
+
+This is intended as an out-of-place equivalent of the in-place ``_muladd_diag!!``
+implementation. This only makes sense when ``C`` and ``B`` only differ on the diagonal,
+which is the case of interest in this package.
+"""
+muladd_diag!!(::AnySMatrix, λ::Number, A::DiagonalOrUniform, B) = muladd(λ, A, B)
+
+# Array muladd helpers
+# --------------------
+"""
+    diagview(A)
+
+Return a view of the diagonal of the matrix ``A``
+"""
+diagview(A) = view(A, diagind(A))
+diagview(A::Diagonal) = A.diag
+diagview(A::Bidiagonal) = A.dv
+diagview(A::SymTridiagonal) = A.dv
+diagview(A::Tridiagonal) = A.d
+diagview(A::UniformScaling) = A.λ
+
+## Traces and trace inner products
+## ===============================
+"""
+    tr_normalized(A)
+
+Compute the normalized trace `tr(A) / size(A, 2)`
+"""
+tr_normalized(A) = tr(A) / size(A, 2)
+
+"""
+    hsdot_normalized(A, B)
+
+Compute the normalized Hilbert-Schmidt inner product `tr(A'B) / size(B, 2)`
+"""
+hsdot_normalized(A, B) = dot(A, B) / size(B, 2)
+
+"""
+    hsdot_normalized(T::Diagonal, A, B)
+    hsdot_normalized(T::UniformScaling, A, B)
+
+Compute the normalized trace `tr(T * A'B) / size(B, 2)`
+
+For positive definite `T` this can be seen as a generalized Hilbert-Schmidt inner product
+"""
+function hsdot_normalized(T::Diagonal, A, B)
+    @boundscheck begin
+        if (axes(A) != axes(B)) || (axes(T.diag, 1) != axes(A, 2))
+            throw(ArgumentError("matrix axes don't match"))
+        end
+    end
+    out = zero(promote_type(eltype(T), eltype(A), eltype(B)))
+    @inbounds for j in axes(A, 2)
+        out += T.diag[j] * dot(view(A, :, j), view(B, :, j))
+    end
+    return out / length(T.diag)
+end
+
+hsdot_normalized(T::UniformScaling, A, B) = T.λ * hsdot_normalized(A, B)
 
 ## Positive semidefinite matrix multiplication
 ## ===========================================
@@ -363,9 +479,9 @@ function eigmin!!(F, A::Hermitian)
     return inv(real(first(schur.eigenvalues)))
 end
 
-eigmin!!(F, A::Diagonal{<:Real}) = minimum(A.diag)
-eigmin!!(F, A::Diagonal{<:Real,<:SArray}) = minimum(A.diag)  # Ambiguity resolution
-eigmin!!(F, A::AnySMatrix) = eigmin(A)
+eigmin!!(_, A::Diagonal{<:Real}) = minimum(A.diag)
+eigmin!!(_, A::Diagonal{<:Real,<:SArray}) = minimum(A.diag)  # Ambiguity resolution
+eigmin!!(_, A::AnySMatrix) = eigmin(A)
 
 _eigmin_reltol(::Type{T}) where {T} = (eps(real(T))^(3 // 4)) * (oneunit(real(T))^(1 // 4))
 _eigmin_reltol(x) = _eigmin_reltol(eltype(x))
