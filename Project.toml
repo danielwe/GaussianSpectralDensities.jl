@@ -1,7 +1,7 @@
 name = "GaussianSpectralDensities"
 uuid = "d24dbb70-b498-4c6e-be6a-7c28347cbb8b"
-authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 version = "0.1.0"
+authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 
 [deps]
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
@@ -13,21 +13,34 @@ LinearMaps = "7a12625a-238d-50fd-b39a-03d52299707e"
 MappedArrays = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
-Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
-SuiteSparse = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
-ThreadPools = "b189fb0b-2eb5-4ed4-bc0c-d34c51242431"
 
 [compat]
-julia = "1"
+Adapt = "4.4"
+Aqua = "0.8.14"
+ArnoldiMethod = "0.4"
+CommonSolve = "0.2.6"
+EnumX = "1"
+LinearAlgebra = "1.10"
+LinearMaps = "3.11"
+MappedArrays = "0.4.3"
+Printf = "1.10"
+Random = "1.10"
+SparseArrays = "1.10"
+StaticArrays = "1.9"
+StructArrays = "0.7.2"
+Test = "1.10"
+TestItemRunner = "1.1"
+TestItems = "1"
+julia = "1.10"
 
 [extras]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 
 [targets]
-test = ["Test", "TestItemRunner"]
+test = ["Aqua", "Test", "TestItemRunner"]

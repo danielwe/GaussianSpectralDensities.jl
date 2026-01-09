@@ -7,9 +7,8 @@ using LinearAlgebra: I, Bidiagonal, Cholesky, Diagonal, Hermitian, PosDefExcepti
     ldiv!, ldlt, ldlt!, mul!, tr
 using LinearMaps: LinearMap
 using MappedArrays: mappedarray
-using SparseArrays: SparseMatrixCSC, spdiagm
+using SparseArrays: CHOLMOD, SparseMatrixCSC, spdiagm
 using StaticArrays: SArray, SMatrix, SVector, StaticMatrix, @SVector
-using SuiteSparse: SuiteSparse
 
 export RealOrComplex
 export AbstractMatrixOrUniform, DiagonalOrUniform, AnySArray, AnySMatrix
@@ -286,9 +285,7 @@ end
 
 """
     decompose!!(F::Cholesky{E}, A::Hermitian{E}; shift=zero(E)) where {E}
-    decompose!!(
-        F::SuiteSparse.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0
-    )
+    decompose!!(F::CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0)
     decompose!!(F::Diagonal{E}, A::Diagonal{E}; shift=zero(E)) where {E}
 
 Factorize `A + shift * I` into an existing factorization instance `F`; return `F`
@@ -320,7 +317,7 @@ function decompose!!(F::Cholesky{E}, A::Hermitian{E}; shift=zero(E)) where {E}
 end
 
 function decompose!!(
-    F::SuiteSparse.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...
+    F::CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...
 )
     return ldlt!(F, A; kwargs...)
 end
@@ -376,7 +373,7 @@ ldiv!!(A, B) = ldiv!(A, B)
 
 """
     ldiv!!(A, B::AnySArray)
-    ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B)
+    ldiv!!(A::CHOLMOD.Factor, B)
 
 Return `A \\ B`
 
@@ -384,12 +381,23 @@ This provides a generic left division interface that also covers cases where the
 efficient or only option is out-of-place division.
 """
 ldiv!!(A, B::AnySArray) = A \ B
-ldiv!!(A::SuiteSparse.CHOLMOD.Factor, B) = A \ B
+ldiv!!(A::CHOLMOD.Factor, B) = A \ B
+
+"""
+    ldiv!!(A::CHOLMOD.Factor, B::AnySArray))
+
+Return `A \\ Matrix(B)`
+
+This method mainly exists to avoid method ambiguity, but it does the right thing. (CHOLMOD
+left division doesn't support structured wrappers like `Diagonal` and `Hermitian` anyway, so
+no use in trying to do the Adapt.jl thing to preserve them.)
+"""
+ldiv!!(A::CHOLMOD.Factor, B::AnySArray) = A \ Matrix(B)
 
 """
     invert(F)
     invert(F::Cholesky)
-    invert(F::SuiteSparse.CHOLMOD.Factor)
+    invert(F::CHOLMOD.Factor)
 
 Compute the inverse of a matrix from a factorization
 
@@ -400,7 +408,7 @@ This function falls back to `inv` on types for which it is not specialized.
 invert(F) = inv(F)
 invert(F::Cholesky) = Hermitian(inv(F), Symbol(F.uplo))
 
-function invert(F::SuiteSparse.CHOLMOD.Factor)
+function invert(F::CHOLMOD.Factor)
     id = spdiagm(ones(eltype(F), size(F, 1)))
     return Hermitian(Matrix(F \ id))
 end
@@ -437,7 +445,7 @@ function invert!!(Ai::Diagonal{E}, F::Diagonal{E}) where {E}
 end
 
 """
-    invert!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
+    invert!!(Ai::Hermitian{E}, F::CHOLMOD.Factor{E}) where {E}
 
 Compute the inverse of a matrix from a factorization, using an existing array as workspace
 
@@ -445,7 +453,7 @@ Compute the inverse of a matrix from a factorization, using an existing array as
     `Ai` will not contain the inverse at the end; it is used as a working array only. The
     inverse is the function's return value.
 """
-function invert!!(Ai::Hermitian{E}, F::SuiteSparse.CHOLMOD.Factor{E}) where {E}
+function invert!!(Ai::Hermitian{E}, F::CHOLMOD.Factor{E}) where {E}
     copyto!(Ai.data, I)
     return Hermitian(ldiv!!(F, Ai.data), Symbol(Ai.uplo))
 end
@@ -497,7 +505,7 @@ function _invmap!(F::Cholesky{E}, A::Hermitian{E,<:StridedMatrix}) where {E}
     )
 end
 
-function _invmap!(F::SuiteSparse.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC})
+function _invmap!(F::CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC})
     decompose!!(F, A)
     return LinearMap{eltype(F)}(
         x -> F \ x, size(A, 2); ismutating=false, ishermitian=true, isposdef=true
