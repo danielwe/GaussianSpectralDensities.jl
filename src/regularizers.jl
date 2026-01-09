@@ -81,7 +81,8 @@ end
 
     shift64, gap64 = 0.0, 0.5
     nullgap64 = gap64 - shift64
-    reg_shift64, reg_gap64 = Regularizer(shift64, :shift), Regularizer(gap64, :gap)
+    reg_shift64 = Regularizer(shift64, :shift)
+    reg_gap64 = Regularizer(gap64, :gap)
 
     # Traits
     @test reg_shift64 isa Regularizer{Float64}

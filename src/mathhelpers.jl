@@ -15,7 +15,19 @@ export mapdiag, alldiag, inunitdisc, phase, converteltype, sizedmatrix
 
 @static if VERSION >= v"1.11.0-DEV.469"
     # `public ldiv rdiv` without getting parse errors in 1.10
-    eval(Expr(:public, :ldiv, :rdiv))
+    eval(Expr(
+        :public,
+        :ldiv,
+        :rdiv,
+        :decompose,
+        :decompose!!,
+        :eigmin!!,
+        :invert,
+        :invert!!,
+        :ldiv!!,
+        :psdmul,
+        :psdmul!!,
+    ))
 end
 
 ## Type utilities
@@ -99,7 +111,6 @@ psdmul!!(H, A) = psdmul!!(H, A, true, false)
 
 Overwrite `H` with `α * A * A' + β * H`, return `H`
 """
-
 function psdmul!!(H::Hermitian, A, α, β)
     mul!(H.data, A, A', α, β)
     return H

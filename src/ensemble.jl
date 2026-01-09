@@ -26,8 +26,8 @@ struct MatrixEnsemble{
     L::TL
     R::TR
     T::TT
-    LiRi::TC
-    LiMRi::TC
+    L_inv_R_inv::TC
+    L_inv_M_R_inv::TC
 
     function MatrixEnsemble{F}(
         M::AbstractMatrixOrUniform,
@@ -50,11 +50,19 @@ struct MatrixEnsemble{
         end
         alldiag(inunitdisc, T) || throw(ArgumentError("all elements of T must lie in the unit disc"))
         RC = any(eltype(A) <: Complex for A in (M, L, R, T)) ? Complex{F} : F
-        Mrc, Lrc, Rrc = converteltype.(RC, (M, L, mapdiag(phase, T) * R))
-        Tf = converteltype(F, mapdiag(abs, T))
-        LiMRi = sizedmatrix(converteltype(RC, MathHelpers.rdiv(MathHelpers.ldiv(Lrc, Mrc), Rrc)), Tf)
-        LiRi = sizedmatrix(converteltype(RC, MathHelpers.ldiv(Rrc * Lrc, I)), LiMRi)
-        return new{F,RC,typeof.((Mrc, Lrc, Rrc, Tf, LiMRi))...}(Mrc, Lrc, Rrc, Tf, LiRi, LiMRi)
+        M_RC, L_RC, R_RC = converteltype.(RC, (M, L, mapdiag(phase, T) * R))
+        T_F = converteltype(F, mapdiag(abs, T))
+        L_inv_M_R_inv = sizedmatrix(
+            converteltype(RC, MathHelpers.rdiv(MathHelpers.ldiv(L_RC, M_RC), R_RC)),
+            T_F,
+        )
+        L_inv_R_inv = sizedmatrix(
+            converteltype(RC, MathHelpers.ldiv(R_RC * L_RC, I)),
+            L_inv_M_R_inv,
+        )
+        return new{F,RC,typeof.((M_RC, L_RC, R_RC, T_F, L_inv_M_R_inv))...}(
+            M_RC, L_RC, R_RC, T_F, L_inv_R_inv, L_inv_M_R_inv
+        )
     end
 end
 
@@ -68,7 +76,7 @@ MatrixEnsemble{F}(e::MatrixEnsemble) where {F} = MatrixEnsemble{F}(e.M, e.L, e.R
 
 ## Traits, comparisons, conversions
 ## ================================
-Base.size(e::MatrixEnsemble) = size(e.LiMRi)
+Base.size(e::MatrixEnsemble) = size(e.L_inv_M_R_inv)
 
 function Base.:(==)(a::E, b::E) where {E<:MatrixEnsemble}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))

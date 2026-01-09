@@ -1,6 +1,6 @@
 module GaussianSpectralDensities
 
-using TestItems
+using TestItems: @testitem
 
 using EnumX: @enumx
 using LinearAlgebra: I
@@ -38,15 +38,18 @@ export TraceObjective, RegularizerObjective
 # const MissingOr{T} = Union{Missing, T}
 
 module Defaults
+
 const trace_target = 1.0
 const regularizer_target_value = 0.0
 const regularizer_target_type = :shift
-# const q_init = sqrt(eps(Float32))
+const q_init = ComplexF64(sqrt(eps(Float32)))
+const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
+const regularizer_schedule_type = :gap
 # const regularizer_init = Regularizer(1.0, :gap)
-# const regschedule = Regularizer.(2.0 .^ (4:-0.5:-4), :gap)
 # const μschedule = range(0, 1, 11)
 # const shiftmin = -Inf
 # const margin = 0.1
+
 end
 
 include("mathhelpers.jl")
