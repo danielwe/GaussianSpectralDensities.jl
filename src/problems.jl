@@ -6,7 +6,12 @@ using ..Ensembles: MatrixEnsemble
 using ..Public: @public
 using ..Regularizers: Regularizer
 
-@public LocalResolventEquation LocalRegularizerProblem LocalTraceProblem
+@public(
+    AbstractLocalResolventProblem,
+    LocalResolventEquation,
+    LocalRegularizerProblem,
+    LocalTraceProblem,
+)
 
 """
     LocalResolventEquation(ensemble::MatrixEnsemble, z, normalizeQ=false)
@@ -48,10 +53,9 @@ function LocalResolventEquation{F}(eq::LocalResolventEquation) where {F}
 end
 
 function Base.convert(
-    ::Type{P}, eq::Q
-) where {F,P<:LocalResolventEquation{F},Q<:LocalResolventEquation}
-    (eq isa P) && return eq
-    return LocalResolventEquation{F}(eq)
+    ::Type{P}, eq::LocalResolventEquation
+) where {F,P<:LocalResolventEquation{F}}
+    return (eq isa P) ? eq : LocalResolventEquation{F}(eq)
 end
 
 abstract type AbstractLocalResolventProblem{F<:AbstractFloat,E<:LocalResolventEquation{F}} end
@@ -89,10 +93,15 @@ function LocalRegularizerProblem{F}(problem::LocalRegularizerProblem) where {F}
 end
 
 function Base.convert(
-    ::Type{P}, p::Q
-) where {F,P<:LocalRegularizerProblem{F},Q<:LocalRegularizerProblem}
-    (p isa P) && return p
-    return LocalRegularizerProblem{F}(p)
+    ::Type{P}, p::LocalRegularizerProblem
+) where {F,P<:LocalRegularizerProblem{F}}
+    return (p isa P) ? p : LocalRegularizerProblem{F}(p)
+end
+
+function Base.convert(
+    ::Type{AbstractLocalResolventProblem{F}}, p::LocalRegularizerProblem
+) where {F}
+    return convert(LocalRegularizerProblem{F}, p)
 end
 
 """
@@ -131,16 +140,19 @@ function LocalTraceProblem{F}(problem::LocalTraceProblem) where {F}
     return LocalTraceProblem{F}(problem.eq, problem.k, problem.reg0, problem.q0, problem.qscale)
 end
 
-function Base.convert(
-    ::Type{P}, p::Q
-) where {F,P<:LocalTraceProblem{F},Q<:LocalTraceProblem}
-    (p isa P) && return p
-    return LocalTraceProblem{F}(p)
+function Base.convert(::Type{P}, p::LocalTraceProblem) where {F,P<:LocalTraceProblem{F}}
+    return (p isa P) ? p : LocalTraceProblem{F}(p)
+end
+
+function Base.convert(::Type{AbstractLocalResolventProblem{F}}, p::LocalTraceProblem) where {F}
+    return convert(LocalTraceProblem{F}, p)
 end
 
 function _checkqscale(qscale)
-    ((qscale isa Real) && (0 <= qscale <= 1)) || throw(ArgumentError("symmetry scale factor qscale not in [0, 1]"))
-    return nothing
+    if (qscale isa Real) && (0 <= qscale <= 1)
+        return nothing
+    end
+    throw(ArgumentError("symmetry scale factor qscale not in [0, 1]"))
 end
 
 #=
@@ -258,8 +270,8 @@ end
 
 @testitem "Local*Problems" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: LocalResolventEquation,
-        LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Problems: AbstractLocalResolventProblem,
+        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
 
     using LinearAlgebra: I
@@ -307,6 +319,8 @@ end
             # Floattype conversions
             @test convert(P{F}, problem64) === problemF
             @test convert(P{Float64}, problemF) === problem64
+            @test convert(AbstractLocalResolventProblem{F}, problem64) === problemF
+            @test convert(AbstractLocalResolventProblem{Float64}, problemF) === problem64
             @test P{F}(problem64) === problemF
             @test P{Float64}(problemF) === problem64
         end

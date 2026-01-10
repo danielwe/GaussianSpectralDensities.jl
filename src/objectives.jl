@@ -7,7 +7,7 @@ using ..Regularizers: Regularizer
 
 using ..Defaults: Defaults
 
-@public TraceObjective RegularizerObjective
+@public AbstractObjective TraceObjective RegularizerObjective
 
 abstract type AbstractObjective{F<:Real} end
 
@@ -28,7 +28,11 @@ TraceObjective{F}(o::TraceObjective) where {F} = TraceObjective{F}(o.value)
 
 ## Conversions
 ## ===========
-Base.convert(::Type{P}, o::Q) where {P<:TraceObjective,Q<:TraceObjective} = P(o)
+Base.convert(::Type{P}, o::TraceObjective) where {P<:TraceObjective} = (o isa P) ? o : P(o)
+
+function Base.convert(::Type{AbstractObjective{F}}, o::TraceObjective) where {F}
+    return convert(TraceObjective{F}, o)
+end
 
 """
     RegularizerObjective(
@@ -56,7 +60,13 @@ RegularizerObjective{F}(o::RegularizerObjective) where {F} = RegularizerObjectiv
 
 ## Conversions
 ## ===========
-Base.convert(::Type{P}, o::Q) where {P<:RegularizerObjective,Q<:RegularizerObjective} = P(o)
+function Base.convert(::Type{P}, o::RegularizerObjective) where {P<:RegularizerObjective}
+    return (o isa P) ? o : P(o)
+end
+
+function Base.convert(::Type{AbstractObjective{F}}, o::RegularizerObjective) where {F}
+    return convert(RegularizerObjective{F}, o)
+end
 
 #=
 ## solution score
@@ -68,7 +78,7 @@ score(solution, obj::RegularizerObjective) = score(solution, obj.value)
 
 @testitem "TraceObjective" begin
     using GaussianSpectralDensities.Defaults: Defaults
-    using GaussianSpectralDensities.Objectives: TraceObjective
+    using GaussianSpectralDensities.Objectives: AbstractObjective, TraceObjective
 
     trace_target64 = 1.0
     trace_objective64 = TraceObjective(trace_target64)
@@ -93,6 +103,8 @@ score(solution, obj::RegularizerObjective) = score(solution, obj.value)
         # Floattype conversions
         @test convert(TraceObjective{F}, trace_objective64) === trace_objectiveF
         @test convert(TraceObjective{Float64}, trace_objectiveF) === trace_objective64
+        @test convert(AbstractObjective{F}, trace_objective64) === trace_objectiveF
+        @test convert(AbstractObjective{Float64}, trace_objectiveF) === trace_objective64
         @test TraceObjective{F}(trace_objective64) === trace_objectiveF
         @test TraceObjective{Float64}(trace_objectiveF) === trace_objective64
     end
@@ -100,7 +112,7 @@ end
 
 @testitem "RegularizerObjective" begin
     using GaussianSpectralDensities.Defaults: Defaults
-    using GaussianSpectralDensities.Objectives: RegularizerObjective
+    using GaussianSpectralDensities.Objectives: AbstractObjective, RegularizerObjective
     using GaussianSpectralDensities.Regularizers: Regularizer
 
     regularizer_target_value64, regularizer_target_type = 0.5, :gap
@@ -134,6 +146,8 @@ end
         # Floattype conversions
         @test convert(RegularizerObjective{F}, regularizer_objective64) === regularizer_objectiveF
         @test convert(RegularizerObjective{Float64}, regularizer_objectiveF) === regularizer_objective64
+        @test convert(AbstractObjective{F}, regularizer_objective64) === regularizer_objectiveF
+        @test convert(AbstractObjective{Float64}, regularizer_objectiveF) === regularizer_objective64
         @test RegularizerObjective{F}(regularizer_objective64) === regularizer_objectiveF
         @test RegularizerObjective{Float64}(regularizer_objectiveF) === regularizer_objective64
     end

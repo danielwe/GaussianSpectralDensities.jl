@@ -101,9 +101,8 @@ function Base.:(==)(a::E, b::E) where {E<:MatrixEnsemble}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
 end
 
-function Base.convert(::Type{P}, e::Q) where {F,P<:MatrixEnsemble{F},Q<:MatrixEnsemble}
-    (e isa P) && return e
-    return MatrixEnsemble{F}(e)
+function Base.convert(::Type{P}, e::MatrixEnsemble) where {F,P<:MatrixEnsemble{F}}
+    return (e isa P) ? e : MatrixEnsemble{F}(e)
 end
 
 ## Tests

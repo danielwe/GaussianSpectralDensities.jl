@@ -40,7 +40,7 @@ Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
 
 ## Conversions
 ## ===========
-Base.convert(::Type{P}, r::Q) where {P<:Regularizer,Q<:Regularizer} = P(r)
+Base.convert(::Type{P}, r::Regularizer) where {P<:Regularizer} = (r isa P) ? r : P(r)
 
 """
     shift(reg::Regularizer, nullgap::Number)
