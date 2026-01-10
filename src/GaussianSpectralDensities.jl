@@ -43,6 +43,17 @@ end
 
 module Defaults
 
+using ..Public: @public
+
+@public(
+    trace_target,
+    regularizer_target_value,
+    regularizer_target_type,
+    q_init,
+    regularizer_schedule_values,
+    regularizer_schedule_type,
+)
+
 const trace_target = 1.0
 const regularizer_target_value = 0.0
 const regularizer_target_type = :shift

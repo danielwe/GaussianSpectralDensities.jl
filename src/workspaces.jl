@@ -12,7 +12,7 @@ using ..Public: @public
 
 using ..Defaults: Defaults
 
-@public Workspace
+@public Workspace shift! gap! q_rhs! k! E!
 
 # Abstract supertype that can also be subtyped by GPU workspaces later
 abstract type AbstractWorkspace{F<:AbstractFloat} end
@@ -372,7 +372,7 @@ copy!!(::AnySArray, src) = deepcopy(src)
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: LocalResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Workspaces: Workspaces, Workspace
+    using GaussianSpectralDensities.Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
 
     using LinearAlgebra: I, Diagonal, Hermitian, eigmin, tr
     using SparseArrays: sparse
@@ -428,20 +428,20 @@ copy!!(::AnySArray, src) = deepcopy(src)
 
                 @test wsF isa Workspace{F}
 
-                @test Workspaces.shift!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value
-                @test Workspaces.shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - nullgap
+                @test shift!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value
+                @test shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - nullgap
 
-                @test Workspaces.gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + nullgap
-                @test Workspaces.gap!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value
+                @test gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + nullgap
+                @test gap!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value
 
-                @test Workspaces.q_rhs!(wsF, eqF, qF, reg_shiftF) ≈ q_rhs_shift
-                @test Workspaces.q_rhs!(wsF, eqF, qF, reg_gapF) ≈ q_rhs_gap
+                @test q_rhs!(wsF, eqF, qF, reg_shiftF) ≈ q_rhs_shift
+                @test q_rhs!(wsF, eqF, qF, reg_gapF) ≈ q_rhs_gap
 
-                @test Workspaces.k!(wsF, eqF, qF, reg_shiftF) ≈ kshift
-                @test Workspaces.k!(wsF, eqF, qF, reg_gapF) ≈ kgap
+                @test k!(wsF, eqF, qF, reg_shiftF) ≈ kshift
+                @test k!(wsF, eqF, qF, reg_gapF) ≈ kgap
 
-                @test Workspaces.E!(wsF, eqF, qF, reg_shiftF) ≈ Eshift
-                @test Workspaces.E!(wsF, eqF, qF, reg_gapF) ≈ Egap
+                @test E!(wsF, eqF, qF, reg_shiftF) ≈ Eshift
+                @test E!(wsF, eqF, qF, reg_gapF) ≈ Egap
             end
         end
     end
