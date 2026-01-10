@@ -280,7 +280,7 @@ end
     eq64 = LocalResolventEquation(ensemble64, z64, normalizeQ)
     reg_value64, reg_type = 0.5, :gap
     reg64 = Regularizer(reg_value64, reg_type)
-    k64, q64, qscale64 = 1.0, complex(eps()), 1.0
+    k64, q64, qscale64 = 1.0, complex(eps(), eps()), 1.0
 
     @testset "$(nameof(P))" for (P, params64) in [
         (LocalRegularizerProblem, ()),
@@ -305,7 +305,8 @@ end
             eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
             reg_valueF = F(reg_value64)
             regF = Regularizer(reg_valueF, reg_type)
-            qF, qscaleF = F.((q64, qscale64))
+            qF = Complex{F}(q64)
+            qscaleF = F(qscale64)
             paramsF = F.(params64)
             problemF = P(eqF, paramsF..., regF, qF, qscaleF)
 
