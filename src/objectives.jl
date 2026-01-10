@@ -1,3 +1,14 @@
+module Objectives
+
+using TestItems: @testitem
+
+using ..Public: @public
+using ..Regularizers: Regularizer
+
+using ..Defaults: Defaults
+
+@public TraceObjective RegularizerObjective
+
 abstract type AbstractObjective{F<:Real} end
 
 """
@@ -56,7 +67,9 @@ score(solution, obj::RegularizerObjective) = score(solution, obj.value)
 =#
 
 @testitem "TraceObjective" begin
-    using GaussianSpectralDensities: Defaults
+    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities.Objectives: TraceObjective
+
     trace_target64 = 1.0
     trace_objective64 = TraceObjective(trace_target64)
 
@@ -86,7 +99,9 @@ score(solution, obj::RegularizerObjective) = score(solution, obj.value)
 end
 
 @testitem "RegularizerObjective" begin
-    using GaussianSpectralDensities: Defaults, Regularizer
+    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities.Objectives: RegularizerObjective
+    using GaussianSpectralDensities.Regularizers: Regularizer
 
     regularizer_target_value64, regularizer_target_type = 0.5, :gap
     regularizer_target64 = Regularizer(regularizer_target_value64, regularizer_target_type)
@@ -123,3 +138,5 @@ end
         @test RegularizerObjective{Float64}(regularizer_objectiveF) === regularizer_objective64
     end
 end
+
+end  # module Objectives

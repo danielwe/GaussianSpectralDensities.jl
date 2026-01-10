@@ -1,3 +1,22 @@
+module Ensembles
+
+using LinearAlgebra: I
+using TestItems: @testitem
+
+using ..MathHelpers:
+    MathHelpers,
+    AbstractMatrixOrUniform,
+    DiagonalOrUniform,
+    alldiag,
+    inunitdisc,
+    mapdiag,
+    phase,
+    converteltype,
+    sizedmatrix
+using ..Public: @public
+
+@public MatrixEnsemble
+
 # TODO: consider generalizations where M, L, R can be LinearMaps etc.
 """
     MatrixEnsemble(M, L, R, T)
@@ -90,6 +109,8 @@ end
 ## Tests
 ## =====
 @testitem "MatrixEnsemble with UniformScaling" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
     using LinearAlgebra: I
 
     @testset "UniformScaling" begin
@@ -123,6 +144,8 @@ end
 end
 
 @testitem "MatrixEnsemble with various array types" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
     using LinearAlgebra: I, Diagonal
     using SparseArrays: sparse
     using StaticArrays: SMatrix, SVector
@@ -228,6 +251,8 @@ end
 end
 
 @testitem "MatrixEnsemble errors" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
     using LinearAlgebra: I, Diagonal
 
     Adata = ComplexF64[1.0 -1.0; 1.0 1.0]
@@ -241,3 +266,5 @@ end
     @test_throws DimensionMismatch MatrixEnsemble(Adata, I, I, I(N + 1))
     @test_throws DimensionMismatch MatrixEnsemble(hcat(Adata, Ddata), I, I, I)
 end
+
+end  # module Ensembles

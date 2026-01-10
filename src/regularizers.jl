@@ -1,3 +1,12 @@
+module Regularizers
+
+using EnumX: @enumx
+using TestItems: @testitem
+
+using ..Public: @public
+
+@public Regularizer shift gap
+
 @enumx RegularizerType::UInt8 shift gap
 
 function Base.convert(::Type{RegularizerType.T}, type::Symbol)
@@ -77,7 +86,7 @@ end
 =#
 
 @testitem "Regularizer" begin
-    using GaussianSpectralDensities: Regularizer, shift, gap
+    using GaussianSpectralDensities.Regularizers: Regularizer, shift, gap
 
     shift64, gap64 = 0.0, 0.5
     nullgap64 = gap64 - shift64
@@ -123,3 +132,5 @@ end
         @test gap(reg_gapF, () -> nullgapF) === gapF
     end
 end
+
+end  # module Regularizers

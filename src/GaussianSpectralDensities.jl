@@ -1,10 +1,5 @@
 module GaussianSpectralDensities
 
-using TestItems: @testitem
-
-using EnumX: @enumx
-using LinearAlgebra: I
-
 # using Adapt
 # using ArnoldiMethod
 # using ArnoldiMethod: LM
@@ -25,8 +20,17 @@ using LinearAlgebra: I
   of plots it makes sense to write recipes for, however.
 =#
 
-export MatrixEnsemble
-export TraceObjective, RegularizerObjective
+module Public
+
+# `public ...` without getting parse errors in 1.10
+macro public(symbols...)
+    (VERSION < v"1.11.0-DEV.469") && return
+    return Expr(:public, esc.(symbols)...)
+end
+
+end
+
+#= Public.@public MatrixEnsemble TraceObjective RegularizerObjective =#
 
 # export init, solve!, solve
 # export DirectSolve, RegularizerSchedule, SymmetrySchedule
@@ -53,15 +57,12 @@ const regularizer_schedule_type = :gap
 end
 
 include("mathhelpers.jl")
-using .MathHelpers
-
 # include("matrix_utils.jl")
-include("ensemble.jl")
+include("ensembles.jl")
 include("regularizers.jl")
 include("objectives.jl")
 include("problems.jl")
-include("workspace.jl")
-using .Workspaces
+include("workspaces.jl")
 
 # include("solutions.jl")
 # include("newton.jl")

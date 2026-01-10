@@ -2,16 +2,17 @@ module Workspaces
 
 using EnumX: @enumx
 using LinearAlgebra: Diagonal, Factorization, Hermitian
+using TestItems: @testitem
 
-using ..GaussianSpectralDensities: MatrixEnsemble, Regularizer, shift, gap
+using ..Ensembles: MatrixEnsemble
+using ..Regularizers: Regularizer, shift, gap
 using ..MathHelpers: AnySArray, decompose, decompose!!, eigmin!!, hsdot_normalized, invert,
     invert!!, ldiv!!, muladd!!, muladd_diag!!, neg, psdmul, psdmul!!, tr_normalized
+using ..Public: @public
 
 using ..Defaults: Defaults
 
-using TestItems: @testitem
-
-export Workspace
+@public Workspace
 
 # Abstract supertype that can also be subtyped by GPU workspaces later
 abstract type AbstractWorkspace{F<:AbstractFloat} end
@@ -368,8 +369,11 @@ copy!!(::AnySArray, src) = deepcopy(src)
 ## Tests
 ## =====
 @testitem "Workspace" begin
-    using GaussianSpectralDensities: LocalResolventEquation, Regularizer
-    using GaussianSpectralDensities.Workspaces
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Workspaces: Workspaces, Workspace
+
     using LinearAlgebra: I, Diagonal, Hermitian, eigmin, tr
     using SparseArrays: sparse
     using StaticArrays: SMatrix, SVector
@@ -546,4 +550,4 @@ function q∞!(problem, γ∞², ws)
 end
 =#
 
-end
+end  # module Workspaces

@@ -1,3 +1,13 @@
+module Problems
+
+using TestItems: @testitem
+
+using ..Ensembles: MatrixEnsemble
+using ..Public: @public
+using ..Regularizers: Regularizer
+
+@public LocalResolventEquation LocalRegularizerProblem LocalTraceProblem
+
 """
     LocalResolventEquation(ensemble::MatrixEnsemble, z, normalizeQ=false)
     LocalResolventEquation{F}(ensemble, z, normalizeQ) where {F}
@@ -208,7 +218,9 @@ end
 =#
 
 @testitem "LocalResolventEquation" begin
-    using GaussianSpectralDensities: LocalResolventEquation
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation
+
     using LinearAlgebra: I
 
     ensemble64, z64, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, false
@@ -218,7 +230,11 @@ end
     @test eq64 isa LocalResolventEquation{Float64}
 
     # Defaults
-    @test LocalResolventEquation(ensemble64, z64) === LocalResolventEquation(ensemble64, z64, false)
+    @test (
+        LocalResolventEquation(ensemble64, z64)
+        ===
+        LocalResolventEquation(ensemble64, z64, false)
+    )
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(I, I, I, I)
@@ -241,8 +257,11 @@ end
 end
 
 @testitem "Local*Problems" begin
-    using GaussianSpectralDensities: LocalResolventEquation, LocalRegularizerProblem,
-        LocalTraceProblem, Regularizer
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation,
+        LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Regularizers: Regularizer
+
     using LinearAlgebra: I
 
     ensemble64, z64, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, false
@@ -293,3 +312,5 @@ end
         end
     end
 end
+
+end  # module Problems

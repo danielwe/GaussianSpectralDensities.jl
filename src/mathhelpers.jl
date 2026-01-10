@@ -1,39 +1,47 @@
 module MathHelpers
 
+# TODO: unit tests
+
 using Adapt: WrappedArray
-using ArnoldiMethod: LM, partialschur
+using ArnoldiMethod: ArnoldiMethod, partialschur
 using LinearAlgebra: I, Bidiagonal, Cholesky, Diagonal, Hermitian, PosDefException,
     SymTridiagonal, Tridiagonal, UniformScaling, LAPACK, cholesky, diagind, dot, eigmin,
     ldiv!, ldlt, ldlt!, mul!, tr
 using LinearMaps: LinearMap
 using MappedArrays: mappedarray
-using SparseArrays: CHOLMOD, SparseMatrixCSC, spdiagm
+using SparseArrays: SparseArrays, SparseMatrixCSC, spdiagm
 using StaticArrays: SArray, SMatrix, SVector, StaticMatrix, @SVector
 
-export RealOrComplex
-export AbstractMatrixOrUniform, DiagonalOrUniform, AnySArray, AnySMatrix
-export mapdiag, alldiag, inunitdisc, phase, converteltype, sizedmatrix
+using ..Public: @public
 
-@static if VERSION >= v"1.11.0-DEV.469"
-    # `public ldiv rdiv` without getting parse errors in 1.10
-    eval(Expr(
-        :public,
-        :ldiv,
-        :rdiv,
-        :decompose,
-        :decompose!!,
-        :eigmin!!,
-        :invert,
-        :invert!!,
-        :ldiv!!,
-        :muladd!!,
-        :muladd_diag!!,
-        :tr_normalized,
-        :hsdot_normalized,
-        :psdmul,
-        :psdmul!!,
-    ))
-end
+@public(
+    AbstractMatrixOrUniform,
+    AnySArray,
+    AnySMatrix,
+    DiagonalOrUniform,
+    RealOrComplex,
+    alldiag,
+    converteltype,
+    decompose!!,
+    decompose,
+    eigmin!!,
+    hsdot_normalized,
+    inunitdisc,
+    invert!!,
+    invert,
+    ldiv!!,
+    ldiv,
+    mapdiag,
+    muladd!!,
+    muladd_diag!!,
+    neg,
+    phase,
+    psdmul!!,
+    psdmul,
+    rdiv,
+    sizedmatrix,
+    tr_normalized,
+)
 
 ## Type utilities
 ## ==============
@@ -285,7 +293,9 @@ end
 
 """
     decompose!!(F::Cholesky{E}, A::Hermitian{E}; shift=zero(E)) where {E}
-    decompose!!(F::CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0)
+    decompose!!(
+        F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0
+    )
     decompose!!(F::Diagonal{E}, A::Diagonal{E}; shift=zero(E)) where {E}
 
 Factorize `A + shift * I` into an existing factorization instance `F`; return `F`
@@ -317,7 +327,7 @@ function decompose!!(F::Cholesky{E}, A::Hermitian{E}; shift=zero(E)) where {E}
 end
 
 function decompose!!(
-    F::CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...
+    F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...
 )
     return ldlt!(F, A; kwargs...)
 end
@@ -373,7 +383,7 @@ ldiv!!(A, B) = ldiv!(A, B)
 
 """
     ldiv!!(A, B::AnySArray)
-    ldiv!!(A::CHOLMOD.Factor, B)
+    ldiv!!(A::SparseArrays.CHOLMOD.Factor, B)
 
 Return `A \\ B`
 
@@ -381,23 +391,23 @@ This provides a generic left division interface that also covers cases where the
 efficient or only option is out-of-place division.
 """
 ldiv!!(A, B::AnySArray) = A \ B
-ldiv!!(A::CHOLMOD.Factor, B) = A \ B
+ldiv!!(A::SparseArrays.CHOLMOD.Factor, B) = A \ B
 
 """
-    ldiv!!(A::CHOLMOD.Factor, B::AnySArray))
+    ldiv!!(A::SparseArrays.CHOLMOD.Factor, B::AnySArray))
 
 Return `A \\ Matrix(B)`
 
-This method mainly exists to avoid method ambiguity, but it does the right thing. (CHOLMOD
-left division doesn't support structured wrappers like `Diagonal` and `Hermitian` anyway, so
-no use in trying to do the Adapt.jl thing to preserve them.)
+This method mainly exists to avoid method ambiguity, but it does the right thing.
+(SparseArrays.CHOLMOD left division doesn't support structured wrappers like `Diagonal` and
+`Hermitian` anyway, so no use in trying to do the Adapt.jl thing to preserve them.)
 """
-ldiv!!(A::CHOLMOD.Factor, B::AnySArray) = A \ Matrix(B)
+ldiv!!(A::SparseArrays.CHOLMOD.Factor, B::AnySArray) = A \ Matrix(B)
 
 """
     invert(F)
     invert(F::Cholesky)
-    invert(F::CHOLMOD.Factor)
+    invert(F::SparseArrays.CHOLMOD.Factor)
 
 Compute the inverse of a matrix from a factorization
 
@@ -408,7 +418,7 @@ This function falls back to `inv` on types for which it is not specialized.
 invert(F) = inv(F)
 invert(F::Cholesky) = Hermitian(inv(F), Symbol(F.uplo))
 
-function invert(F::CHOLMOD.Factor)
+function invert(F::SparseArrays.CHOLMOD.Factor)
     id = spdiagm(ones(eltype(F), size(F, 1)))
     return Hermitian(Matrix(F \ id))
 end
@@ -445,7 +455,7 @@ function invert!!(Ai::Diagonal{E}, F::Diagonal{E}) where {E}
 end
 
 """
-    invert!!(Ai::Hermitian{E}, F::CHOLMOD.Factor{E}) where {E}
+    invert!!(Ai::Hermitian{E}, F::SparseArrays.CHOLMOD.Factor{E}) where {E}
 
 Compute the inverse of a matrix from a factorization, using an existing array as workspace
 
@@ -453,7 +463,7 @@ Compute the inverse of a matrix from a factorization, using an existing array as
     `Ai` will not contain the inverse at the end; it is used as a working array only. The
     inverse is the function's return value.
 """
-function invert!!(Ai::Hermitian{E}, F::CHOLMOD.Factor{E}) where {E}
+function invert!!(Ai::Hermitian{E}, F::SparseArrays.CHOLMOD.Factor{E}) where {E}
     copyto!(Ai.data, I)
     return Hermitian(ldiv!!(F, Ai.data), Symbol(Ai.uplo))
 end
@@ -482,7 +492,7 @@ of `A`. The appropriate type of `F` is the return type of `decompose(A)`.
 """
 function eigmin!!(F, A::Hermitian)
     Ai = _invmap!(F, A)
-    schur, history = partialschur(Ai; nev=1, which=LM(), tol=_eigmin_reltol(Ai))
+    schur, history = partialschur(Ai; nev=1, which=ArnoldiMethod.LM(), tol=_eigmin_reltol(Ai))
     (history.nconverged >= 1) || error("smallest eigenvalue not found: did not converge")
     return inv(real(first(schur.eigenvalues)))
 end
@@ -505,7 +515,7 @@ function _invmap!(F::Cholesky{E}, A::Hermitian{E,<:StridedMatrix}) where {E}
     )
 end
 
-function _invmap!(F::CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC})
+function _invmap!(F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC})
     decompose!!(F, A)
     return LinearMap{eltype(F)}(
         x -> F \ x, size(A, 2); ismutating=false, ishermitian=true, isposdef=true
