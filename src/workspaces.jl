@@ -317,7 +317,13 @@ Calculate the regularizer shift ``γ²``
 
 The arguments are the same as for `P!`
 """
-shift!(ws, eq, q, reg) = shift(reg, baregap(ws, eq, q))
+function shift!(ws, eq, q, reg)
+    baregap = let ws = ws, eq = eq, q = q
+        # Use a closure to defer computation of baregap in case it's not needed for this reg
+        baregap!(ws, eq, q)
+    end
+    return shift(reg, baregap)
+end
 
 """
     gap!(ws, eq, q, reg)
@@ -326,9 +332,15 @@ Calculate the regularized gap `eigmin(QQ†) + γ²`
 
 The arguments are the same as for `P!`
 """
-gap!(ws, eq, q, reg) = gap(reg, baregap(ws, eq, q))
+function gap!(ws, eq, q, reg)
+    baregap = let ws = ws, eq = eq, q = q
+        # Use a closure to defer computation of baregap in case it's not needed for this reg
+        baregap!(ws, eq, q)
+    end
+    return gap(reg, baregap)
+end
 
-function baregap(ws, eq, q)
+function baregap!(ws, eq, q)
     QQh!(ws, eq, q)
     return ws.baregap
 end
