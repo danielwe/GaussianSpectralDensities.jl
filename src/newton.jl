@@ -1,3 +1,14 @@
+module Newton
+
+using StaticArrays: SVector, SMatrix, MVector, MMatrix
+using TestItems: @testitem
+
+using ..Public: @public
+
+# TODO: Try with Enzyme.jl, it might actually be able to diff through the Workspace craze
+
+@public NewtonException newton finite_difference_jacobian
+
 struct NewtonException <: Exception
     msg::String
 end
@@ -23,25 +34,25 @@ ensures dimensional consistency in case `T` is a dimensionful type).
 A `NewtonException` is thrown after `maxiters` iterations without convergence.
 """
 function newton(f, x; kwargs...)
-    jac = let f=f
+    jac = let f = f
         jac(x, fx) = finite_difference_jacobian(f, x, fx)
     end
     return newton(f, jac, x; kwargs...)
 end
 
-function newton(f, jac, x; atol=_atol(eltype(x)), maxiters=999)
+function newton(f, jac, x; atol=atol(eltype(x)), maxiters=999)
     fx = f(x)
-    _approxzero(fx, atol) && return (x, 0)
+    approx_zero(fx, atol) && return (x, 0)
     for i in 1:maxiters
         x = x - jac(x, fx) \ fx
         fx = f(x)
-        _approxzero(fx, atol) && return (x, i)
+        approx_zero(fx, atol) && return (x, i)
     end
     throw(NewtonException("failed to converge after maxiters=$maxiters iterations"))
 end
 
-_approxzero(y, atol) = (sqrt(sum(abs2, y) / length(y)) < atol)
-_atol(T) = (eps(T)^(3 // 4)) * (oneunit(T)^(1 // 4))
+approx_zero(y, atol) = (sqrt(sum(abs2, y) / length(y)) < atol)
+atol(T) = (eps(T)^(3 // 4)) * (oneunit(T)^(1 // 4))
 
 """
     finite_difference_jacobian(f, x::Real, fx=f(x))
@@ -56,7 +67,7 @@ There are no hard constraints on the return type of `f`, but the methods are wri
 `Real` and `SVector` in mind and are not optimized for other cases such as `Vector`.
 """
 function finite_difference_jacobian(f, x::Real, fx=f(x))
-    xinc = x + _increment(x)
+    xinc = x + increment(x)
     return (f(xinc) - fx) / (xinc - x)  # Numerical recipes accuracy trick https://twitter.com/willkurt/status/1330183861452541953
 end
 
@@ -65,7 +76,7 @@ function finite_difference_jacobian(f, x::SVector, fx=f(x))
     jac = MMatrix{length(fx),length(x),T}(undef)
     mx = MVector(x)
     for i in eachindex(x)
-        mx[i] = x[i] + _increment(x[i])
+        mx[i] = x[i] + increment(x[i])
         xinc = SVector(mx)
         jac[:, i] = (f(xinc) - fx) / (xinc[i] - x[i])  # Numerical recipes accuracy trick https://twitter.com/willkurt/status/1330183861452541953
         mx[i] = x[i]
@@ -73,14 +84,92 @@ function finite_difference_jacobian(f, x::SVector, fx=f(x))
     return SMatrix(jac)
 end
 
-function _increment(x::T) where {T<:Real}
+function increment(x::T) where {T<:Real}
     if (x > oneunit(T)) || (x < -oneunit(T))  # oneunit for dimensional consistency
-        return _relativeincrement(T) * x
+        return relative_increment(T) * x
     elseif x < zero(T)
-        return -_relativeincrement(T) * oneunit(T)
+        return -relative_increment(T) * oneunit(T)
     else
-        return _relativeincrement(T) * oneunit(T)
+        return relative_increment(T) * oneunit(T)
     end
 end
 
-_relativeincrement(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional consistency
+relative_increment(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional consistency
+
+@testitem "newton Real" begin
+    using GaussianSpectralDensities.Newton: NewtonException, newton, finite_difference_jacobian
+
+    using LinearAlgebra: norm
+    using StaticArrays: SVector, SMatrix, Size
+
+    rtol_exponent = 2 // 5
+    atol_exponent = 3 // 4
+
+    f(x) = cos(x) - x^3
+    df(x, _) = -sin(x) - 3x^2
+
+    x0_64 = 0.5
+
+    @testset "$F" for F in [Float32, Float64]
+        x0_F = F(x0_64)
+        rtol = eps(F)^rtol_exponent
+        atol = eps(F)^atol_exponent
+
+        # finite_difference_jacobian
+        fx0_F = f(x0_F)
+        dfx0_F = df(x0_F, fx0_F)
+        @test finite_difference_jacobian(f, x0_F, fx0_F) ≈ dfx0_F rtol = rtol
+        @test finite_difference_jacobian(f, x0_F) ≈ dfx0_F rtol = rtol
+
+        # newton
+        @test norm(f(first(newton(f, x0_F)))) < atol
+        @test norm(f(first(newton(f, df, x0_F)))) < atol
+
+        @test_throws NewtonException newton(f, x0_F; maxiters=0)
+        @test_throws NewtonException newton(f, df, x0_F; maxiters=0)
+    end
+end
+@testitem "newton SVector" begin
+    using GaussianSpectralDensities.Newton: NewtonException, newton, finite_difference_jacobian
+
+    using LinearAlgebra: norm
+    using StaticArrays: SVector, SMatrix, Size
+
+    rtol_exponent = 2 // 5
+    atol_exponent = 3 // 4
+
+    g(x) = (x .* (x .^ 2 .- 1)) .+ (reverse(x) ./ 2)
+
+    function jg(x::SVector{L}, _) where {L}
+        jac = fill!(similar(x, Size(L, L)), 0)
+        for i in 1:L
+            jac[i, i] = 3x[i]^2 - 1
+            jac[L-i+1, i] = 0.5
+        end
+        return SMatrix(jac)
+    end
+
+    x0_64 = SVector(0.3, -0.7)
+
+    @testset "$F" for F in [Float32, Float64]
+        x0_F = F.(x0_64)
+        rtol = eps(F)^rtol_exponent
+        atol = eps(F)^atol_exponent
+
+        # finite_difference_jacobian
+        gx0_F = g(x0_F)
+        jgx0_F = jg(x0_F, gx0_F)
+        @test finite_difference_jacobian(g, x0_F, gx0_F) ≈ jgx0_F rtol = rtol
+        @test finite_difference_jacobian(g, x0_F) ≈ jgx0_F rtol = rtol
+
+        # newton
+        N = length(x0_F)
+        @test norm(g(first(newton(g, x0_F)))) < atol * sqrt(N)
+        @test norm(g(first(newton(g, jg, x0_F)))) < atol * sqrt(N)
+
+        @test_throws NewtonException newton(g, x0_F; maxiters=0)
+        @test_throws NewtonException newton(g, jg, x0_F; maxiters=0)
+    end
+end
+
+end  # module Newton
