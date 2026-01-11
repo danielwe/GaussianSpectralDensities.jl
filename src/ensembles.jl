@@ -112,33 +112,31 @@ end
 
     using LinearAlgebra: I
 
-    @testset "UniformScaling" begin
-        ensemble = MatrixEnsemble(I, I, I, I)
+    ensemble = MatrixEnsemble(I, I, I, I)
 
-        # Traits
-        @test ensemble isa MatrixEnsemble{Float64}
-        @test size(ensemble) == (1, 1)
+    # Traits
+    @test ensemble isa MatrixEnsemble{Float64}
+    @test size(ensemble) == (1, 1)
 
-        # Fields
-        @test ensemble.M === 1.0I
-        @test ensemble.L === 1.0I
-        @test ensemble.R === 1.0I
-        @test ensemble.T === 1.0I
-        @test isequal(ensemble.L_inv_R_inv, I(1))
-        @test isequal(ensemble.L_inv_M_R_inv, I(1))
+    # Fields
+    @test ensemble.M === 1.0I
+    @test ensemble.L === 1.0I
+    @test ensemble.R === 1.0I
+    @test ensemble.T === 1.0I
+    @test isequal(ensemble.L_inv_R_inv, I(1))
+    @test isequal(ensemble.L_inv_M_R_inv, I(1))
 
-        @testset "$F" for F in [Float32, Float64]
-            ensembleF = MatrixEnsemble{F}(I, I, I, I)
+    @testset "$F" for F in [Float32, Float64]
+        ensembleF = MatrixEnsemble{F}(I, I, I, I)
 
-            # Floattype enforcing constructor
-            @test ensembleF isa MatrixEnsemble{F}
+        # Floattype enforcing constructor
+        @test ensembleF isa MatrixEnsemble{F}
 
-            # Floattype conversions
-            @test convert(MatrixEnsemble{F}, ensemble) === ensembleF
-            @test convert(MatrixEnsemble{Float64}, ensembleF) === ensemble
-            @test MatrixEnsemble{F}(ensemble) === ensembleF
-            @test MatrixEnsemble{Float64}(ensembleF) === ensemble
-        end
+        # Floattype conversions
+        @test convert(MatrixEnsemble{F}, ensemble) === ensembleF
+        @test convert(MatrixEnsemble{Float64}, ensembleF) === ensemble
+        @test MatrixEnsemble{F}(ensemble) === ensembleF
+        @test MatrixEnsemble{Float64}(ensembleF) === ensemble
     end
 end
 
