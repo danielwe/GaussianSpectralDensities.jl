@@ -69,7 +69,7 @@ Specify the problem of finding ``q`` given a regularizer in the averaged resolve
 
 `q0` is a starting guess for `q`. `qscale` is an overall scaling factor for the degree of
 symmetry given by `eq.ensemble.T`. This parameter is inserted by hand into the equations to
-facilitate a solution strategy whereby the symmetry is annealed.
+facilitate a solution strategy where the symmetry is annealed from below.
 """
 struct LocalRegularizerProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     eq::E
@@ -84,7 +84,9 @@ struct LocalRegularizerProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     end
 end
 
-function LocalRegularizerProblem(eq::LocalResolventEquation{F}, reg, q0, qscale=one(F)) where {F}
+function LocalRegularizerProblem(
+    eq::LocalResolventEquation{F}, reg, q0, qscale=one(F)
+) where {F}
     return LocalRegularizerProblem{F}(eq, reg, q0, qscale)
 end
 
@@ -114,9 +116,9 @@ Specify the problem of finding ``γ²,q`` given ``k`` in the averaged resolvent 
 Here, ``k`` is the target value of the normalized trace ``k = \\tr[(QQ^† + γ²I)⁻¹] / N``.
 
 `reg0` and `q0` are starting guesses for ``γ²,q``. The initial guess for the regularizer can
-be specified in terms of either `Regularizer` type. `qscale` is an overall scaling factor for the
-degree of symmetry given by `eq.ensemble.T`. This parameter is inserted by hand into the
-equations to facilitate a solution strategy whereby the symmetry is annealed.
+be specified in terms of either `Regularizer` type. `qscale` is an overall scaling factor
+for the degree of symmetry given by `eq.ensemble.T`. This parameter is inserted by hand into
+the equations to facilitate a solution strategy where the symmetry is annealed from below.
 """
 struct LocalTraceProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     eq::E
@@ -137,7 +139,8 @@ function LocalTraceProblem(eq::LocalResolventEquation{F}, k, reg0, q0, qscale=on
 end
 
 function LocalTraceProblem{F}(problem::LocalTraceProblem) where {F}
-    return LocalTraceProblem{F}(problem.eq, problem.k, problem.reg0, problem.q0, problem.qscale)
+    p = LocalTraceProblem{F}(problem.eq, problem.k, problem.reg0, problem.q0, problem.qscale)
+    return p
 end
 
 function Base.convert(::Type{P}, p::LocalTraceProblem) where {F,P<:LocalTraceProblem{F}}

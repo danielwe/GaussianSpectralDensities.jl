@@ -43,35 +43,35 @@ Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
 Base.convert(::Type{P}, r::Regularizer) where {P<:Regularizer} = (r isa P) ? r : P(r)
 
 """
-    shift(reg::Regularizer, nullgap::Number)
-    shift(reg::Regularizer, () -> nullgap)
+    shift(reg::Regularizer, baregap::Number)
+    shift(reg::Regularizer, () -> baregap)
 
-Return the value of the shift ``γ²`` given a Regularizer and the unregularized spectral gap `nullgap = eigmin(QQ†)`
+Get the regularizer shift ``γ²`` given a Regularizer and the bare gap `eigmin(QQ†)`
 
-`nullgap` can be given either as a numerical value or as a callable returning the value. The
-latter is useful for deferring any heavy computation to only be invoked if needed, that is,
-if the regularizer type of `reg` is `:gap`.
+`baregap` can be given either as a numerical value or as a callable returning the value. The
+latter is useful for deferring any computation necessary to only be invoked if needed, that
+is, if the regularizer type of `reg` is `:gap`.
 """
-function shift(reg::Regularizer, nullgap)
+function shift(reg::Regularizer, baregap)
     (reg.type === RegularizerType.shift) && return reg.value
-    (nullgap isa Number) && return reg.value - nullgap
-    return reg.value - nullgap()
+    (baregap isa Number) && return reg.value - baregap
+    return reg.value - baregap()
 end
 
 """
-    gap(reg::Regularizer, nullgap::Number)
-    gap(reg::Regularizer, () -> nullgap)
+    gap(reg::Regularizer, baregap::Number)
+    gap(reg::Regularizer, () -> baregap)
 
-Return the value of the gap `eigmin(QQ†) + γ²` given a Regularizer and the unregularized spectral gap `nullgap = eigmin(QQ†)`
+Get the regularized gap `eigmin(QQ†) + γ²` given a Regularizer and the bare gap `eigmin(QQ†)`
 
-`nullgap` can be given either as a numerical value or as a callable returning the value. The
-latter is useful for deferring any heavy computation to only be invoked if needed, that is,
-if the regularizer type of `reg` is `:shift`.
+`baregap` can be given either as a numerical value or as a callable returning the value. The
+latter is useful for deferring any computation necessary to only be invoked if needed, that
+is, if the regularizer type of `reg` is `:shift`.
 """
-function gap(reg::Regularizer, nullgap)
+function gap(reg::Regularizer, baregap)
     (reg.type === RegularizerType.gap) && return reg.value
-    (nullgap isa Number) && return reg.value + nullgap
-    return reg.value + nullgap()
+    (baregap isa Number) && return reg.value + baregap
+    return reg.value + baregap()
 end
 
 #=
@@ -89,7 +89,7 @@ end
     using GaussianSpectralDensities.Regularizers: Regularizer, shift, gap
 
     shift64, gap64 = 0.0, 0.5
-    nullgap64 = gap64 - shift64
+    baregap64 = gap64 - shift64
     reg_shift64 = Regularizer(shift64, :shift)
     reg_gap64 = Regularizer(gap64, :gap)
 
@@ -98,7 +98,7 @@ end
     @test reg_gap64 isa Regularizer{Float64}
 
     @testset "$F" for F in [Float32, Float64]
-        shiftF, gapF, nullgapF = F.((shift64, gap64, nullgap64))
+        shiftF, gapF, baregapF = F.((shift64, gap64, baregap64))
         reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
 
         # Floattype inferring constructor
@@ -122,14 +122,14 @@ end
         @test Regularizer{Float64}(reg_gapF) === reg_gap64
 
         # Interface
-        @test shift(reg_shiftF, nullgapF) === shiftF
-        @test shift(reg_shiftF, () -> nullgapF) === shiftF
-        @test gap(reg_shiftF, nullgapF) === gapF
-        @test gap(reg_shiftF, () -> nullgapF) === gapF
-        @test shift(reg_gapF, nullgapF) === shiftF
-        @test shift(reg_gapF, () -> nullgapF) === shiftF
-        @test gap(reg_gapF, nullgapF) === gapF
-        @test gap(reg_gapF, () -> nullgapF) === gapF
+        @test shift(reg_shiftF, baregapF) === shiftF
+        @test shift(reg_shiftF, () -> baregapF) === shiftF
+        @test gap(reg_shiftF, baregapF) === gapF
+        @test gap(reg_shiftF, () -> baregapF) === gapF
+        @test shift(reg_gapF, baregapF) === shiftF
+        @test shift(reg_gapF, () -> baregapF) === shiftF
+        @test gap(reg_gapF, baregapF) === gapF
+        @test gap(reg_gapF, () -> baregapF) === gapF
     end
 end
 

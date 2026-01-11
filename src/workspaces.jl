@@ -68,7 +68,7 @@ mutable struct Workspace{
     P_inv_fact::TP_inv_fact
     P::TP
     P_L_inv_R_inv::TP_L_inv_R_inv
-    nullgap::F
+    baregap::F
     clean::Clean.T
     normalizeQ::Bool
     # PQ::TQ
@@ -86,8 +86,8 @@ mutable struct Workspace{
         Q = muladd(-q, ensemble.T, G0_inv)
         QQh = psdmul(Q)
         P_inv_fact = decompose(QQh)
-        nullgap = eigmin!!(P_inv_fact, QQh)
-        P_inv_fact = decompose!!(P_inv_fact, QQh; shift=shift(reg, nullgap))
+        baregap = eigmin!!(P_inv_fact, QQh)
+        P_inv_fact = decompose!!(P_inv_fact, QQh; shift=shift(reg, baregap))
         P = invert(P_inv_fact)
         P_L_inv_R_inv = P_inv_fact \ ensemble.L_inv_R_inv
         return new{F,E,typeof.((G0_inv, Q, QQh, P_inv_fact, P, P_L_inv_R_inv))...}(
@@ -101,7 +101,7 @@ mutable struct Workspace{
             P_inv_fact,
             P,
             P_L_inv_R_inv,
-            nullgap,
+            baregap,
             Clean.all,
             false,
             # PQ,
@@ -142,7 +142,8 @@ end
 
 function update_G0_inv(ws)
     (ws.clean >= Clean.G0_inv) && return nothing
-    ws.G0_inv = muladd!!(ws.G0_inv, ws.z, ws.ensemble.L_inv_R_inv, neg(ws.ensemble.L_inv_M_R_inv))
+    (; L_inv_R_inv, L_inv_M_R_inv) = ws.ensemble
+    ws.G0_inv = muladd!!(ws.G0_inv, ws.z, L_inv_R_inv, neg(L_inv_M_R_inv))
     if !(ws.Q isa Diagonal)
         ws.Q = copy!!(ws.Q, ws.G0_inv)  # set off-diagonal elements of Q
     end
@@ -207,7 +208,7 @@ function update_QQh(ws)
         half = one(real(eltype(ws.QQh))) / 2
         ws.QQh = psdmul!!(ws.QQh, ws.Q', half, half)
     end
-    ws.nullgap = eigmin!!(ws.P_inv_fact, ws.QQh)
+    ws.baregap = eigmin!!(ws.P_inv_fact, ws.QQh)
     ws.clean = Clean.QQh
     return nothing
 end
@@ -234,7 +235,7 @@ end
 function update_P_inv_fact(ws)
     (ws.clean >= Clean.P_inv_fact) && return nothing
     update_QQh(ws)
-    ws.P_inv_fact = decompose!!(ws.P_inv_fact, ws.QQh; shift=shift(ws.reg, ws.nullgap))
+    ws.P_inv_fact = decompose!!(ws.P_inv_fact, ws.QQh; shift=shift(ws.reg, ws.baregap))
     ws.clean = Clean.P_inv_fact
     return nothing
 end
@@ -316,20 +317,20 @@ Calculate the regularizer shift ``γ²``
 
 The arguments are the same as for `P!`
 """
-shift!(ws, eq, q, reg) = shift(reg, nullgap(ws, eq, q))
+shift!(ws, eq, q, reg) = shift(reg, baregap(ws, eq, q))
 
 """
     gap!(ws, eq, q, reg)
 
-Calculate the regularizer gap `δ² = eigmin(QQ†)`
+Calculate the regularized gap `eigmin(QQ†) + γ²`
 
 The arguments are the same as for `P!`
 """
-gap!(ws, eq, q, reg) = gap(reg, nullgap(ws, eq, q))
+gap!(ws, eq, q, reg) = gap(reg, baregap(ws, eq, q))
 
-function nullgap(ws, eq, q)
+function baregap(ws, eq, q)
     QQh!(ws, eq, q)
-    return ws.nullgap
+    return ws.baregap
 end
 
 """
@@ -401,8 +402,8 @@ copy!!(::AnySArray, src) = deepcopy(src)
     @testset "normalizeQ = $normalizeQ" for normalizeQ in [false, true]
         # Ground truth; only for comparison, so we don't fuss about eltypes
         QQh = normalizeQ ? ((Q * Q') + (Q' * Q)) / 2 : Q * Q'
-        nullgap = eigmin(Hermitian(QQh))
-        Pshift, Pgap = inv(QQh + shift64 * I), inv(QQh + (gap64 - nullgap) * I)
+        baregap = eigmin(Hermitian(QQh))
+        Pshift, Pgap = inv(QQh + shift64 * I), inv(QQh + (gap64 - baregap) * I)
         q_rhs_shift, q_rhs_gap = tr(T_actual * Q' * Pshift) / 2, tr(T_actual * Q' * Pgap) / 2
         kshift, kgap = tr(Pshift) / 2, tr(Pgap) / 2
         Eshift, Egap = tr(L_inv_R_inv * Q' * Pshift) / 2, tr(L_inv_R_inv * Q' * Pgap) / 2
@@ -429,9 +430,9 @@ copy!!(::AnySArray, src) = deepcopy(src)
                 @test wsF isa Workspace{F}
 
                 @test shift!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value
-                @test shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - nullgap
+                @test shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - baregap
 
-                @test gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + nullgap
+                @test gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + baregap
                 @test gap!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value
 
                 @test q_rhs!(wsF, eqF, qF, reg_shiftF) ≈ q_rhs_shift

@@ -24,7 +24,7 @@ problem. Use the function `eqsolve!` to obtain a consistent `LocalResolventSolut
 - `success`: whether the solution was successful
 - `q`: value of the self-consistently determined parameter ``q``
 - `shift`: value of the regularizer shift ``γ²``
-- `gap`: value of the regularizer gap `eigmin(QQ') + γ²`
+- `gap`: value of the regularized gap `eigmin(QQ†) + γ²`
 - `k`: value of the normalized trace ``\\tr[(QQ^† + γ²I)⁻¹] / N``.
 - `E`: value of the normalized trace of the resolvent ``\\tr[Q^†(QQ^† + γ²I)⁻¹] / N``
 """

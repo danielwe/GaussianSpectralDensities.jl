@@ -61,13 +61,18 @@ struct MatrixEnsemble{
         if length(sizes) > 0
             N = first(first(sizes))
             for s in sizes
-                (s == (N, N)) || throw(DimensionMismatch(
-                    "M, L, R, and T must all be square matrices of the same size or UniformScaling. "
-                    * "Got " * join(("size($name) == $s" for (name, s) in pairs(sizes)), "; ")
-                ))
+                if s != (N, N)
+                    size_strs = ("size($name) == $s" for (name, s) in pairs(sizes))
+                    throw(DimensionMismatch(
+                        "M, L, R, and T must all be same-size square matrices or "
+                        * "Uniformscaling, got " * join(size_strs, "; ")
+                    ))
+                end
             end
         end
-        alldiag(inunitdisc, T) || throw(ArgumentError("all elements of T must lie in the unit disc"))
+        if !alldiag(inunitdisc, T)
+            throw(ArgumentError("all elements of T must lie in the unit disc"))
+        end
         RC = any(eltype(A) <: Complex for A in (M, L, R, T)) ? Complex{F} : F
         M_RC, L_RC, R_RC = converteltype.(RC, (M, L, mapdiag(phase, T) * R))
         T_F = converteltype(F, mapdiag(abs, T))
@@ -165,8 +170,20 @@ end
 
         @testset "$label" for (label, A, D, AF, DF) in [
             ("Array", A64data, Diagonal(D64data), AFdata, Diagonal(DFdata)),
-            ("SArray", SMatrix{2,2}(A64data), Diagonal(SVector{2}(D64data)), SMatrix{2,2}(AFdata), Diagonal(SVector{2}(DFdata))),
-            ("SparseMatrixCSC", sparse(A64data), Diagonal(D64data), sparse(AFdata), Diagonal(DFdata)),
+            (
+                "SArray",
+                SMatrix{2,2}(A64data),
+                Diagonal(SVector{2}(D64data)),
+                SMatrix{2,2}(AFdata),
+                Diagonal(SVector{2}(DFdata)),
+            ),
+            (
+                "SparseMatrixCSC",
+                sparse(A64data),
+                Diagonal(D64data),
+                sparse(AFdata),
+                Diagonal(DFdata),
+            ),
         ]
             ensemblesF = [
                 MatrixEnsemble(AF, I, I, I),
