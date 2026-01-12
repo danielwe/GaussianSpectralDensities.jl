@@ -23,10 +23,20 @@ module GaussianSpectralDensities
 module Public
 
 # `public ...` without getting parse errors in 1.10
-macro public(symbols...)
+macro public(exprs...)
     (VERSION < v"1.11.0-DEV.469") && return
-    return Expr(:public, esc.(symbols)...)
+    symbols = map(exprs) do e
+        if (e isa Expr) && (e.head == :macrocall)
+            e = e.args[1]
+        end
+        (e isa Symbol) && return e
+        error("@public only accepts identifiers and macros")
+    end
+    return esc(Expr(:public, symbols...))
 end
+
+# First use!
+@public @public
 
 end
 
