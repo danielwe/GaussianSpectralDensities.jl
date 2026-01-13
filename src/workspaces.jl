@@ -59,9 +59,9 @@ mutable struct Workspace{
     TE<:MatrixEnsemble{F},
     TG0_inv<:AbstractMatrix{Complex{F}},
     TQ<:AbstractMatrix{Complex{F}},
-    TQQh<:Union{<:Diagonal{F},<:Hermitian{Complex{F}}},
-    TP_inv_fact<:Union{<:Diagonal{F},<:Factorization{<:Complex}},  # factorizations can promote
-    TP<:Union{<:Diagonal{F},<:Hermitian{<:Complex}},
+    TQQh<:Union{Diagonal{F},Hermitian{Complex{F}}},
+    TP_inv_fact<:Union{Diagonal{F},Factorization{<:Complex}},  # factorizations can promote
+    TP<:Union{Diagonal{F},Hermitian{<:Complex}},
     TP_L_inv_R_inv<:AbstractMatrix{<:Number},
 } <: AbstractWorkspace{F}
     ensemble::TE
