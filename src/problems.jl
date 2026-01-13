@@ -283,24 +283,19 @@ end
     eq64 = LocalResolventEquation(ensemble64, z64, normalizeQ)
     reg_value64, reg_type = 0.5, :gap
     reg64 = Regularizer(reg_value64, reg_type)
-    k64, q64, qscale64 = 1.0, complex(eps(), eps()), 1.0
+    k, q, qscale = 1.0, complex(eps(), eps()), 1.0
 
     @testset "$(nameof(P))" for (P, params64) in [
         (LocalRegularizerProblem, ()),
-        (LocalTraceProblem, (k64,))
+        (LocalTraceProblem, (k,))
     ]
-        problem64 = P(eq64, params64..., reg64, q64, qscale64)
+        problem64 = P(eq64, params64..., reg64, q, qscale)
 
         # Traits
         @test problem64 isa P{Float64}
 
         # Defaults
-        @test P(eq64, params64..., reg64, q64) === P(eq64, params64..., reg64, q64, 1)
-
-        # Errors: qscale ∈ [0, 1]
-        @test_throws ArgumentError P(eq64, params64..., reg64, q64, -0.1)
-        @test_throws ArgumentError P(eq64, params64..., reg64, q64, 1.1)
-        @test_throws ArgumentError P(eq64, params64..., reg64, q64, 0.5im)
+        @test P(eq64, params64..., reg64, q) === P(eq64, params64..., reg64, q, 1)
 
         @testset "$F" for F in [Float32, Float64]
             ensembleF = MatrixEnsemble{F}(I, I, I, I)
@@ -308,8 +303,8 @@ end
             eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
             reg_valueF = F(reg_value64)
             regF = Regularizer(reg_valueF, reg_type)
-            qF = Complex{F}(q64)
-            qscaleF = F(qscale64)
+            qF = Complex{F}(q)
+            qscaleF = F(qscale)
             paramsF = F.(params64)
             problemF = P(eqF, paramsF..., regF, qF, qscaleF)
 
@@ -317,7 +312,7 @@ end
             @test problemF isa P{F}
 
             # Floattype enforcing constructor
-            @test P{F}(eq64, params64..., reg64, q64, qscale64) === problemF
+            @test P{F}(eq64, params64..., reg64, q, qscale) === problemF
             @test P{Float64}(eqF, paramsF..., regF, qF, qscaleF) === problem64
 
             # Floattype conversions
@@ -329,6 +324,27 @@ end
             @test P{Float64}(problemF) === problem64
         end
     end
+end
+
+@testitem "Local*Problem errors" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: AbstractLocalResolventProblem,
+        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Regularizers: Regularizer
+
+    using LinearAlgebra: I
+
+    eq = LocalResolventEquation(MatrixEnsemble(I, I, I, I), 0.0im, false)
+    reg = Regularizer(0.5, :gap)
+    k, q = 1.0, complex(eps(), eps())
+
+    # qscale ∈ [0, 1]
+    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, -0.1)
+    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, 1.1)
+    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, 0.5im)
+    @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, -0.1)
+    @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, 1.1)
+    @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, 0.5im)
 end
 
 end  # module Problems

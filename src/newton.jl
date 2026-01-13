@@ -124,11 +124,9 @@ relative_increment(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional con
         # newton
         @test norm(f(first(newton(f, x0_F)))) < atol
         @test norm(f(first(newton(f, df, x0_F)))) < atol
-
-        @test_throws NewtonException newton(f, x0_F; maxiters=0)
-        @test_throws NewtonException newton(f, df, x0_F; maxiters=0)
     end
 end
+
 @testitem "newton SVector" begin
     using GaussianSpectralDensities.Newton: NewtonException, newton, finite_difference_jacobian
 
@@ -166,10 +164,13 @@ end
         N = length(x0_F)
         @test norm(g(first(newton(g, x0_F)))) < atol * sqrt(N)
         @test norm(g(first(newton(g, jg, x0_F)))) < atol * sqrt(N)
-
-        @test_throws NewtonException newton(g, x0_F; maxiters=0)
-        @test_throws NewtonException newton(g, jg, x0_F; maxiters=0)
     end
+end
+
+@testitem "Newton errors" begin
+    using GaussianSpectralDensities.Newton: NewtonException, newton
+    f(x) = cos(x) - x^3
+    @test_throws NewtonException newton(f, 0.5; maxiters=0)
 end
 
 end  # module Newton

@@ -133,4 +133,10 @@ end
     end
 end
 
+@testitem "Regularizer errors" begin
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    @test_throws ArgumentError Regularizer(0.5, :foo)
+    @test_throws "not a valid Regularizer" Regularizer(0.5, :foo)
+end
+
 end  # module Regularizers

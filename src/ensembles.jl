@@ -234,10 +234,13 @@ end
             @test all(e -> e isa MatrixEnsemble{Float64}, ensembles64)
 
             # Floattype enforcing constructor
-            @test isapprox(MatrixEnsemble{F}(A, I, I, I), ensemblesF[1])
-            @test isapprox(MatrixEnsemble{F}(I, A, I, I), ensemblesF[2])
-            @test isapprox(MatrixEnsemble{F}(I, I, A, I), ensemblesF[3])
-            @test isapprox(MatrixEnsemble{F}(I, I, I, D), ensemblesF[4])
+            # These tests use == since any truncation is the same on both sides
+            @test MatrixEnsemble{F}(A, I, I, I) == ensemblesF[1]
+            @test MatrixEnsemble{F}(I, A, I, I) == ensemblesF[2]
+            @test MatrixEnsemble{F}(I, I, A, I) == ensemblesF[3]
+            @test MatrixEnsemble{F}(I, I, I, D) == ensemblesF[4]
+            # These tests use isapprox since they RHS uses original values while the LHS may
+            # have roundtripped through lower precision
             @test isapprox(MatrixEnsemble{Float64}(AF, I, I, I), ensembles64[1])
             @test isapprox(MatrixEnsemble{Float64}(I, AF, I, I), ensembles64[2])
             @test isapprox(MatrixEnsemble{Float64}(I, I, AF, I), ensembles64[3])
@@ -275,6 +278,7 @@ end
 
     @test_throws MethodError MatrixEnsemble(I, I, I, Adata)  # T not diagonal
     @test_throws ArgumentError MatrixEnsemble(I, I, I, 2im * I)  # T not in unit disc
+    @test_throws "unit disc" MatrixEnsemble(I, I, I, 2im * I)  # T not in unit disc
     @test_throws DimensionMismatch MatrixEnsemble(Adata, I(N + 1), I, I)
     @test_throws DimensionMismatch MatrixEnsemble(Adata, I, I(N + 1), I)
     @test_throws DimensionMismatch MatrixEnsemble(Adata, I, I, I(N + 1))

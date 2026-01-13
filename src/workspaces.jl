@@ -12,7 +12,7 @@ using ..Public: @public
 
 using ..Defaults: Defaults
 
-@public Workspace shift! gap! q_rhs! k! E!
+@public Workspace Q! QQh! P! P_L_inv_R_inv! shift! gap! q_rhs! k! E!
 
 # Abstract supertype that can also be subtyped by GPU workspaces later
 abstract type AbstractWorkspace{F<:AbstractFloat} end
@@ -21,27 +21,33 @@ abstract type AbstractWorkspace{F<:AbstractFloat} end
 #                                 ↙ P
 # G0_inv <- Q <- QQh <- P_inv_fact
 #                                 ↖ P_L_inv_R_inv
-# So the possible dirty states are
-# - ALL_DIRTY
-# - G0_inv                                        CLEAN
-# - G0_inv & Q                                    CLEAN
-# - G0_inv & Q & QQh                              CLEAN
-# - G0_inv & Q & QQh & P_inv_fact                 CLEAN
-# - G0_inv & Q & QQh & P_inv_fact & P             CLEAN
-# - G0_inv & Q & QQh & P_inv_fact & P_L_inv_R_inv CLEAN
-# - ALL_CLEAN
+# So the possible states are
+# - NONE
+# - G0_inv
+# - G0_inv & Q
+# - G0_inv & Q & QQh
+# - G0_inv & Q & QQh & P_inv_fact
+# - G0_inv & Q & QQh & P_inv_fact & P
+# - G0_inv & Q & QQh & P_inv_fact & P_L_inv_R_inv
+# - ALL
 #
-# We use an enum to keep track of this so we only recalculate what is necessary
+# We use an enum to keep track of this so we only recalculate what is necessary. Note that
+# since P and P_L_int_R_inv are independent, we can treat their subspace as a bitfield: When
+# P_inv_fact is clean, the third bit is set and the first two bits indicate whether each of
+# P and P_L_inv_R_inv are also clean. See comments within the enum definition.
 @enumx Clean::UInt8 begin
     none = 0
     G0_inv = 1
     Q = 2
     QQh = 3
-    P_inv_fact = 4
-    P = 5
-    P_L_inv_R_inv = 6
-    all = 7
+    P_inv_fact = 4     # 0b100
+    P = 5              # 0b101
+    P_L_inv_R_inv = 6  # 0b110
+    all = 7            # 0b111
 end
+
+Base.:|(a::Clean.T, b::Clean.T) = Clean.T(UInt8(a) | UInt8(b))
+Base.:&(a::Clean.T, b::Clean.T) = Clean.T(UInt8(a) & UInt8(b))
 
 """
     Workspace(ensemble::MatrixEnsemble)
@@ -114,16 +120,19 @@ end
 
 ## Auxiliary matrix getters
 ## ==============
-"""
-    G0_inv!(ws, eq)
-
-Calculate the bare inverse resolvent `G0_inv(z) = L \\ (z * I - M) / R`
-"""
-function G0_inv!(ws, eq)
-    set_G0_inv_params(ws, eq)
-    update_G0_inv(ws)
-    return ws.G0_inv
-end
+# TODO: delete this if the need never arises
+# As of now there are no direct consumers of G0_inv itself, not even downstream in this
+# module. It's just a computational step. So for now we don't include it in the getter API.
+# """
+#     G0_inv!(ws, eq)
+#
+# Calculate the bare inverse resolvent `G0_inv(z) = L \\ (z * I - M) / R`
+# """
+# function G0_inv!(ws, eq)
+#     set_G0_inv_params(ws, eq)
+#     update_G0_inv(ws)
+#     return ws.G0_inv
+# end
 
 function set_G0_inv_params(ws, eq)
     if ws.ensemble !== eq.ensemble
@@ -213,16 +222,19 @@ function update_QQh(ws)
     return nothing
 end
 
-"""
-    P_inv_fact!(ws, eq, q, reg)
-
-Factorize `P⁻¹ = Q * Q' + γ² * I`
-"""
-function P_inv_fact!(ws, eq, q, reg)
-    set_P_inv_fact_params(ws, eq, q, reg)
-    update_P_inv_fact(ws)
-    return ws.P_inv_fact
-end
+# TODO: delete this if the need never arises
+# As of now there are no direct consumers of P_inv_fact itself, not even downstream in this
+# module. It's just a computational step. So for now we don't include it in the getter API.
+# """
+#     P_inv_fact!(ws, eq, q, reg)
+# 
+# Factorize `P⁻¹ = Q * Q' + γ² * I`
+# """
+# function P_inv_fact!(ws, eq, q, reg)
+#     set_P_inv_fact_params(ws, eq, q, reg)
+#     update_P_inv_fact(ws)
+#     return ws.P_inv_fact
+# end
 
 function set_P_inv_fact_params(ws, eq, q, reg)
     set_QQh_params(ws, eq, q)
@@ -257,16 +269,11 @@ end
 set_P_params(ws, eq, q, reg) = set_P_inv_fact_params(ws, eq, q, reg)
 
 function update_P(ws)
-    # There has to be a better way. Ideally these two (but only these two) would be
-    # represented by a bitfield
-    ((ws.clean >= Clean.P) && (ws.clean != Clean.P_L_inv_R_inv)) && return nothing
+    # The states of P and P_L_inv_R_inv are a bitfield, see Clean comments
+    ((ws.clean & Clean.P) >= Clean.P) && return nothing
     update_P_inv_fact(ws)
     ws.P = invert!!(ws.P, ws.P_inv_fact)
-    if ws.clean == Clean.P_L_inv_R_inv
-        ws.clean = Clean.all
-    else
-        ws.clean = Clean.P
-    end
+    ws.clean |= Clean.P
     return nothing
 end
 
@@ -275,7 +282,7 @@ end
 
 Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 
-The arguments are the same as for `_P!`.
+The arguments are the same as for `P!`.
 """
 function P_L_inv_R_inv!(ws, eq, q, reg)
     set_P_L_inv_R_inv_params(ws, eq, q, reg)
@@ -286,14 +293,11 @@ end
 set_P_L_inv_R_inv_params(ws, eq, q, reg) = set_P_inv_fact_params(ws, eq, q, reg)
 
 function update_P_L_inv_R_inv(ws)
-    (ws.clean >= Clean.P_L_inv_R_inv) && return nothing
+    # The states of P and P_L_inv_R_inv are a bitfield, see Clean comments
+    ((ws.clean & Clean.P_L_inv_R_inv) >= Clean.P_L_inv_R_inv) && return nothing
     update_P_inv_fact(ws)
     ws.P_L_inv_R_inv = ldiv!!(ws.P_inv_fact, copy!!(ws.P_L_inv_R_inv, ws.ensemble.L_inv_R_inv))
-    if ws.clean == Clean.P
-        ws.clean = Clean.all
-    else
-        ws.clean = Clean.P_L_inv_R_inv
-    end
+    ws.clean |= Clean.P_L_inv_R_inv
     return nothing
 end
 
@@ -458,6 +462,28 @@ copy!!(::AnySArray, src) = deepcopy(src)
             end
         end
     end
+end
+
+@testitem "Workspace errors" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation
+    using GaussianSpectralDensities.Workspaces: Workspace, Q!
+
+    using LinearAlgebra: I, Diagonal
+
+    A = ComplexF64[1 -1; 1 1]
+    D = Diagonal(ComplexF64[0.75, 0.25*cispi(1 // 3)])
+    z = -(2.0 + im) / 4
+    q = (1.0 - im) / 2
+
+    ensemble = MatrixEnsemble(A, I, I, D)
+    ws = Workspace(ensemble)
+
+    other_ensemble = MatrixEnsemble(I, I, I, I(1) / 2)
+    other_eq = LocalResolventEquation(other_ensemble, z, false)
+
+    @test_throws ArgumentError Q!(ws, other_eq, q)
+    @test_throws "size does not match" Q!(ws, other_eq, q)
 end
 
 ## Attic---may be scavenged for further functionality
