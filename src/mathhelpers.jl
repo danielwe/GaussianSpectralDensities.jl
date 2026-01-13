@@ -51,7 +51,7 @@ const RealOrComplex{T<:Real} = Union{T,Complex{T}}
 
 # Array/operator type unions
 const AbstractMatrixOrUniform{T} = Union{AbstractMatrix{T},UniformScaling{T}}
-const DiagonalOrUniform{T} = Union{<:Diagonal{T},UniformScaling{T}}
+const DiagonalOrUniform{T} = Union{Diagonal{T},UniformScaling{T}}
 
 """
     AnySArray
