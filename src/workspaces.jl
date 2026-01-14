@@ -84,7 +84,7 @@ mutable struct Workspace{
 
     function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
         z = zero(Complex{F})
-        q = convert(Complex{F}, Defaults.q_init)
+        q = convert(Complex{F}, Defaults.q0)
         reg = Regularizer{F}(
             first(Defaults.regularizer_schedule_values), Defaults.regularizer_schedule_type
         )

@@ -59,7 +59,7 @@ using ..Public: @public
     trace_target,
     regularizer_target_value,
     regularizer_target_type,
-    q_init,
+    q0,
     regularizer_schedule_values,
     regularizer_schedule_type,
 )
@@ -67,7 +67,7 @@ using ..Public: @public
 const trace_target = 1.0
 const regularizer_target_value = 0.0
 const regularizer_target_type = :shift
-const q_init = ComplexF64(sqrt(eps(Float32)))
+const q0 = ComplexF64(sqrt(eps(Float32)))
 const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
 const regularizer_schedule_type = :gap
 # const regularizer_init = Regularizer(1.0, :gap)
@@ -86,8 +86,8 @@ include("problems.jl")
 include("workspaces.jl")
 include("solutions.jl")
 include("newton.jl")
+include("equationsolvers.jl")
 
-# include("eqsolve.jl")
 # include("algorithms.jl")
 # include("localsolve.jl")
 # include("solve.jl")
