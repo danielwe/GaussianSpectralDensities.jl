@@ -1,6 +1,6 @@
 using TestItemRunner
 
-@run_package_tests
+@run_package_tests verbose = true
 
 @testitem "Aqua.jl" begin
     using Aqua: test_all
