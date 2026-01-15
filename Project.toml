@@ -1,7 +1,7 @@
 name = "GaussianSpectralDensities"
 uuid = "d24dbb70-b498-4c6e-be6a-7c28347cbb8b"
-authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 version = "0.1.0"
+authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 
 [deps]
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
@@ -23,8 +23,8 @@ Adapt = "4.4"
 Aqua = "0.8.14"
 ArnoldiMethod = "0.4"
 CommonSolve = "0.2.6"
-ExplicitImports = "1.14"
 EnumX = "1.0.5"
+ExplicitImports = "1.15"
 LinearAlgebra = "1.11"
 LinearMaps = "3.11"
 MappedArrays = "0.4.3"

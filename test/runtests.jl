@@ -12,11 +12,10 @@ using TestItemRunner
 end
 
 @testitem "ExplicitImports.jl" begin
-    # TODO: add other checks from ExplicitImports.jl
-    using ExplicitImports: check_no_implicit_imports, check_no_stale_explicit_imports,
-        check_all_explicit_imports_via_owners, check_all_explicit_imports_are_public,
-        check_all_qualified_accesses_via_owners, check_all_qualified_accesses_are_public,
-        check_no_self_qualified_accesses
+    using ExplicitImports: test_no_implicit_imports, test_no_stale_explicit_imports,
+        test_all_explicit_imports_via_owners, test_all_explicit_imports_are_public,
+        test_all_qualified_accesses_via_owners, test_all_qualified_accesses_are_public,
+        test_no_self_qualified_accesses
 
     # ExplicitImports.jl chokes on EnumX modules
     const enumx_modules = (
@@ -24,26 +23,22 @@ end
         GaussianSpectralDensities.Workspaces.Clean,
     )
 
-    @test nothing === check_no_implicit_imports(
-        GaussianSpectralDensities; allow_unanalyzable=enumx_modules,
-    )
-    @test nothing === check_no_stale_explicit_imports(
-        GaussianSpectralDensities; allow_unanalyzable=enumx_modules,
-    )
-    @test nothing === check_all_explicit_imports_via_owners(
+    test_no_implicit_imports(GaussianSpectralDensities; allow_unanalyzable=enumx_modules)
+    test_no_stale_explicit_imports(GaussianSpectralDensities; allow_unanalyzable=enumx_modules)
+    test_all_explicit_imports_via_owners(
         GaussianSpectralDensities;
         require_submodule_import=true,
         allow_internal_imports=false,
     )
-    @test nothing === check_all_explicit_imports_are_public(
+    test_all_explicit_imports_are_public(
         GaussianSpectralDensities; allow_internal_imports=false,
     )
-    @test nothing === check_all_qualified_accesses_via_owners(
+    test_all_qualified_accesses_via_owners(
         GaussianSpectralDensities;
         require_submodule_access=true,
         allow_internal_accesses=false,
     )
-    @test nothing === check_all_qualified_accesses_are_public(
+    test_all_qualified_accesses_are_public(
         GaussianSpectralDensities;
         ignore=(
             :T,        # EnumX.jl; XXX: remove when EnumX.jl#17 is merged and released
@@ -54,5 +49,5 @@ end
         ),
         allow_internal_accesses=false,
     )
-    @test nothing === check_no_self_qualified_accesses(GaussianSpectralDensities)
+    test_no_self_qualified_accesses(GaussianSpectralDensities)
 end
