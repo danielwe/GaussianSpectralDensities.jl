@@ -62,6 +62,7 @@ using ..Public: @public
     q0,
     regularizer_schedule_values,
     regularizer_schedule_type,
+    symmetry_schedule_values,
 )
 
 const trace_target = 1.0
@@ -70,9 +71,8 @@ const regularizer_target_type = :shift
 const q0 = ComplexF64(sqrt(eps(Float32)))
 const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
 const regularizer_schedule_type = :gap
+const symmetry_schedule_values = range(0, 1, 11)
 # const regularizer_init = Regularizer(1.0, :gap)
-# const μschedule = range(0, 1, 11)
-# const shiftmin = -Inf
 # const margin = 0.1
 
 end
@@ -87,8 +87,8 @@ include("workspaces.jl")
 include("solutions.jl")
 include("newton.jl")
 include("equationsolvers.jl")
+include("algorithms.jl")
 
-# include("algorithms.jl")
 # include("localsolve.jl")
 # include("solve.jl")
 # include("density.jl")
