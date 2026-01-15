@@ -96,7 +96,8 @@ relative_increment(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional con
 end  # module Newton
 
 @testitem "newton Real" begin
-    using GaussianSpectralDensities.Newton: NewtonException, newton, finite_difference_jacobian
+    using GaussianSpectralDensities.Newton:
+        NewtonException, newton, finite_difference_jacobian
 
     using LinearAlgebra: norm
     using StaticArrays: SVector, SMatrix, Size
@@ -127,7 +128,8 @@ end  # module Newton
 end
 
 @testitem "newton SVector" begin
-    using GaussianSpectralDensities.Newton: NewtonException, newton, finite_difference_jacobian
+    using GaussianSpectralDensities.Newton:
+        NewtonException, newton, finite_difference_jacobian
 
     using LinearAlgebra: norm
     using StaticArrays: SVector, SMatrix, Size
@@ -141,7 +143,7 @@ end
         jac = fill!(similar(x, Size(L, L)), 0)
         for i in 1:L
             jac[i, i] = 3x[i]^2 - 1
-            jac[L-i+1, i] = 0.5
+            jac[L - i + 1, i] = 0.5
         end
         return SMatrix(jac)
     end

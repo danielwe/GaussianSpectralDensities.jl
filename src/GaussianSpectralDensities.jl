@@ -35,16 +35,21 @@ using TestItems: @testitem
 
 module Defaults
 
-public trace_target, regularizer_target_value, regularizer_target_type, q0,
-    regularizer_schedule_values, regularizer_schedule_type, symmetry_schedule_values
+    public trace_target,
+        regularizer_target_value,
+        regularizer_target_type,
+        q0,
+        regularizer_schedule_values,
+        regularizer_schedule_type,
+        symmetry_schedule_values
 
-const trace_target = 1.0
-const regularizer_target_value = 0.0
-const regularizer_target_type = :shift
-const q0 = ComplexF64(sqrt(eps(Float32)))
-const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
-const regularizer_schedule_type = :gap
-const symmetry_schedule_values = range(0, 1, 11)
+    const trace_target = 1.0
+    const regularizer_target_value = 0.0
+    const regularizer_target_type = :shift
+    const q0 = ComplexF64(sqrt(eps(Float32)))
+    const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
+    const regularizer_schedule_type = :gap
+    const symmetry_schedule_values = range(0, 1, 11)
 # const regularizer_init = Regularizer(1.0, :gap)
 # const margin = 0.1
 

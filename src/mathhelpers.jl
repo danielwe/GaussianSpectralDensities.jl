@@ -4,18 +4,57 @@ module MathHelpers
 
 using Adapt: WrappedArray
 using ArnoldiMethod: ArnoldiMethod, partialschur
-using LinearAlgebra: I, Bidiagonal, Cholesky, Diagonal, Hermitian, PosDefException,
-    SymTridiagonal, Tridiagonal, UniformScaling, LAPACK, cholesky, diagind, dot, eigmin,
-    ldiv!, ldlt, ldlt!, mul!, tr
+using LinearAlgebra:
+    I,
+    Bidiagonal,
+    Cholesky,
+    Diagonal,
+    Hermitian,
+    PosDefException,
+    SymTridiagonal,
+    Tridiagonal,
+    UniformScaling,
+    LAPACK,
+    cholesky,
+    diagind,
+    dot,
+    eigmin,
+    ldiv!,
+    ldlt,
+    ldlt!,
+    mul!,
+    tr
 using LinearMaps: LinearMap
 using MappedArrays: mappedarray
 using SparseArrays: SparseArrays, SparseMatrixCSC, spdiagm
 using StaticArrays: SArray, SMatrix, SVector, StaticMatrix, @SVector
 
-public AbstractMatrixOrUniform, AnySArray, AnySMatrix, DiagonalOrUniform, RealOrComplex,
-    alldiag, converteltype, decompose!!, decompose, eigmin!!, hsdot_normalized, inunitdisc,
-    invert!!, invert, ldiv!!, ldiv, mapdiag, muladd!!, muladd_diag!!, neg, phase, psdmul!!,
-    psdmul, rdiv, sizedmatrix, tr_normalized
+public AbstractMatrixOrUniform,
+    AnySArray,
+    AnySMatrix,
+    DiagonalOrUniform,
+    RealOrComplex,
+    alldiag,
+    converteltype,
+    decompose!!,
+    decompose,
+    eigmin!!,
+    hsdot_normalized,
+    inunitdisc,
+    invert!!,
+    invert,
+    ldiv!!,
+    ldiv,
+    mapdiag,
+    muladd!!,
+    muladd_diag!!,
+    neg,
+    phase,
+    psdmul!!,
+    psdmul,
+    rdiv,
+    sizedmatrix,
+    tr_normalized
 
 ## Type utilities
 ## ==============
@@ -78,7 +117,7 @@ rdiv(A::UniformScaling, R::SparseMatrixCSC) = sizedmatrix(A, R') / R
 ## Array unary operations
 ## ======================
 """
-   neg(A)
+neg(A)
 
 Return a non-allocating representation of `-A`
 
@@ -97,7 +136,7 @@ neg(A::Tridiagonal) = Tridiagonal(neg(A.dl), neg(A.d), neg(A.du))
 """
     muladd!!(C, λ::Number, A, B)
 
-Overwrite ``C`` with ``λA + B` and return ``C``
+Overwrite ``C`` with ``λA + B`` and return ``C``
 """
 function muladd!!(C, λ::Number, A, B)
     C .= muladd.(λ, A, B)
@@ -256,7 +295,6 @@ Get the LDLt factorization of `A + shift * I` with Hermitian `A` and real `shift
 decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = ldlt(A; kwargs...)
 
 """
-
     decompose(A::Diagonal{E}; shift=zero(E)) where {E}
 
 Return `A + shift * I`
@@ -280,7 +318,7 @@ is the return type of `decompose(A)`; that is, appropriate usage may look as fol
 ```julia
 F = decompose(A)
 # Do stuff with F, which holds a factorization of A
-F = decompose!(F, A; shift=1)`
+F = decompose!(F, A; shift=1)
 # Do more stuff with F, which now holds a factorization of A + I
 ```
 
@@ -411,7 +449,7 @@ usage may look as follows:
 F = decompose(A)
 Ai = invert(F)
 # Do stuff with Ai, which holds the inverse of A
-F = decompose!!(F, A; shift=1)`
+F = decompose!!(F, A; shift=1)
 Ai = invert!!(Ai, F)
 # Do more stuff with Ai, which now holds the inverse of A + I
 ```
@@ -434,6 +472,7 @@ end
 Compute the inverse of a matrix from a factorization, using an existing array as workspace
 
 !!! note
+
     `Ai` will not contain the inverse at the end; it is used as a working array only. The
     inverse is the function's return value.
 """
@@ -466,7 +505,8 @@ of `A`. The appropriate type of `F` is the return type of `decompose(A)`.
 """
 function eigmin!!(F, A::Hermitian)
     Ai = _invmap!(F, A)
-    schur, history = partialschur(Ai; nev=1, which=ArnoldiMethod.LM(), tol=_eigmin_reltol(Ai))
+    which = ArnoldiMethod.LM()
+    schur, history = partialschur(Ai; which, nev=1, tol=_eigmin_reltol(Ai))
     (history.nconverged >= 1) || error("smallest eigenvalue not found: did not converge")
     return inv(real(first(schur.eigenvalues)))
 end
@@ -496,4 +536,4 @@ function _invmap!(F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMat
     )
 end
 
-end
+end  # module MathHelpers

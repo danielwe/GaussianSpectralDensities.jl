@@ -3,8 +3,8 @@ module Problems
 using ..Ensembles: MatrixEnsemble
 using ..Regularizers: Regularizer
 
-public AbstractLocalResolventProblem, LocalResolventEquation, LocalRegularizerProblem,
-    LocalTraceProblem
+public AbstractLocalResolventProblem,
+    LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
 
 """
     LocalResolventEquation(ensemble::MatrixEnsemble, z, normalizeQ=false)
@@ -15,9 +15,9 @@ Specify the averaged resolvent equation for an ensemble at a point in the comple
 
 # Arguments
 
-- `ensemble`: random matrix ensemble over which to average the resolvent
-- `z`: point in the complex plane at which to calculate the averaged resolvent
-- `normalizeQ=false`: whether to replace ``QQ^†`` with ``(QQ^† + Q^†Q) / 2`` in the
+  - `ensemble`: random matrix ensemble over which to average the resolvent
+  - `z`: point in the complex plane at which to calculate the averaged resolvent
+  - `normalizeQ=false`: whether to replace ``QQ^†`` with ``(QQ^† + Q^†Q) / 2`` in the
     self-consistent equations for the averaged resolvent, mimicking the case where
     ``QQ^† = Q^†Q``, i.e., where ``Q`` is normal. This is an attempt to get around an issue
     relating to order of limits that can arise for highly non-normal `Q` (see Ahmadian,
@@ -127,12 +127,16 @@ struct LocalTraceProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     end
 end
 
-function LocalTraceProblem(eq::LocalResolventEquation{F}, k, reg0, q0, qscale=one(F)) where {F}
+function LocalTraceProblem(
+    eq::LocalResolventEquation{F}, k, reg0, q0, qscale=one(F)
+) where {F}
     return LocalTraceProblem{F}(eq, k, reg0, q0, qscale)
 end
 
 function LocalTraceProblem{F}(problem::LocalTraceProblem) where {F}
-    p = LocalTraceProblem{F}(problem.eq, problem.k, problem.reg0, problem.q0, problem.qscale)
+    p = LocalTraceProblem{F}(
+        problem.eq, problem.k, problem.reg0, problem.q0, problem.qscale
+    )
     return p
 end
 
@@ -140,7 +144,9 @@ function Base.convert(::Type{P}, p::LocalTraceProblem) where {F,P<:LocalTracePro
     return (p isa P) ? p : LocalTraceProblem{F}(p)
 end
 
-function Base.convert(::Type{AbstractLocalResolventProblem{F}}, p::LocalTraceProblem) where {F}
+function Base.convert(
+    ::Type{AbstractLocalResolventProblem{F}}, p::LocalTraceProblem
+) where {F}
     return convert(LocalTraceProblem{F}, p)
 end
 
@@ -240,11 +246,8 @@ end  # module Problems
     @test eq64 isa LocalResolventEquation{Float64}
 
     # Defaults
-    @test (
-        LocalResolventEquation(ensemble64, z64)
-        ===
+    @test LocalResolventEquation(ensemble64, z64) ===
         LocalResolventEquation(ensemble64, z64, false)
-    )
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(I, I, I, I)
@@ -268,8 +271,11 @@ end
 
 @testitem "Local*Problems" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: AbstractLocalResolventProblem,
-        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Problems:
+        AbstractLocalResolventProblem,
+        LocalResolventEquation,
+        LocalRegularizerProblem,
+        LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
 
     using LinearAlgebra: I
@@ -280,10 +286,8 @@ end
     reg64 = Regularizer(reg_value64, reg_type)
     k, q, qscale = 1.0, complex(eps(), eps()), 1.0
 
-    @testset "$(nameof(P))" for (P, params64) in [
-        (LocalRegularizerProblem, ()),
-        (LocalTraceProblem, (k,))
-    ]
+    @testset "$(nameof(P))" for (P, params64) in
+                                [(LocalRegularizerProblem, ()), (LocalTraceProblem, (k,))]
         problem64 = P(eq64, params64..., reg64, q, qscale)
 
         # Traits
@@ -323,8 +327,11 @@ end
 
 @testitem "Local*Problem errors" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: AbstractLocalResolventProblem,
-        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Problems:
+        AbstractLocalResolventProblem,
+        LocalResolventEquation,
+        LocalRegularizerProblem,
+        LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
 
     using LinearAlgebra: I

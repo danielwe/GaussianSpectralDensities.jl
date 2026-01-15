@@ -16,13 +16,13 @@ problem. Use the function `eqsolve!` to obtain a consistent `LocalResolventSolut
 
 # Arguments
 
-- `problem`: the averaged resolvent equation problem
-- `success`: whether the solution was successful
-- `q`: value of the self-consistently determined parameter ``q``
-- `shift`: value of the regularizer shift ``γ²``
-- `gap`: value of the regularized gap `eigmin(QQ†) + γ²`
-- `k`: value of the normalized trace ``\\tr[(QQ^† + γ²I)⁻¹] / N``.
-- `E`: value of the normalized trace of the resolvent ``\\tr[Q^†(QQ^† + γ²I)⁻¹] / N``
+  - `problem`: the averaged resolvent equation problem
+  - `success`: whether the solution was successful
+  - `q`: value of the self-consistently determined parameter ``q``
+  - `shift`: value of the regularizer shift ``γ²``
+  - `gap`: value of the regularized gap `eigmin(QQ†) + γ²`
+  - `k`: value of the normalized trace ``\\tr[(QQ^† + γ²I)⁻¹] / N``.
+  - `E`: value of the normalized trace of the resolvent ``\\tr[Q^†(QQ^† + γ²I)⁻¹] / N``
 """
 struct LocalResolventSolution{F,P<:AbstractLocalResolventProblem{F}}
     problem::P
@@ -49,7 +49,9 @@ function LocalResolventSolution(
 end
 
 function LocalResolventSolution{F}(s::LocalResolventSolution) where {F}
-    sF = LocalResolventSolution{F}(s.problem, s.success, s.q, s.reg, s.shift, s.gap, s.k, s.E)
+    sF = LocalResolventSolution{F}(
+        s.problem, s.success, s.q, s.reg, s.shift, s.gap, s.k, s.E
+    )
     return sF
 end
 
@@ -63,8 +65,8 @@ end  # module Solutions
 
 @testitem "Solutions" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: LocalResolventEquation,
-        LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Problems:
+        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: LocalResolventSolution
 
@@ -76,10 +78,8 @@ end  # module Solutions
     reg64 = Regularizer(reg_value64, reg_type)
     k64, q64, qscale64, E64 = 1.0, complex(eps(), eps()), 1.0, 0.5 - im
 
-    @testset "$(nameof(P))" for (P, params64) in [
-        (LocalRegularizerProblem, ()),
-        (LocalTraceProblem, (k64,))
-    ]
+    @testset "$(nameof(P))" for (P, params64) in
+                                [(LocalRegularizerProblem, ()), (LocalTraceProblem, (k64,))]
         problem64 = P(eq64, params64..., reg64, q64, qscale64)
 
         solution64 = LocalResolventSolution(

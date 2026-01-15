@@ -42,8 +42,9 @@ If `type` is provided, `value` should be a numerical value, otherwise it should 
 a `Regularizer`. See [`Regularizer`](@ref) for the available regularizer types.
 
 The default value is
+
 ```julia
-    RegularizerObjective(Defaults.regularizer_target_value, Defaults.regularizer_target_type)
+RegularizerObjective(Defaults.regularizer_target_value, Defaults.regularizer_target_type)
 ```
 """
 struct RegularizerObjective{F} <: AbstractObjective{F}
@@ -51,9 +52,16 @@ struct RegularizerObjective{F} <: AbstractObjective{F}
 end
 
 RegularizerObjective(value, type) = RegularizerObjective(Regularizer(value, type))
-RegularizerObjective() = RegularizerObjective(Defaults.regularizer_target_value, Defaults.regularizer_target_type)
 
-RegularizerObjective{F}(o::RegularizerObjective) where {F} = RegularizerObjective{F}(o.value)
+function RegularizerObjective()
+    return RegularizerObjective(
+        Defaults.regularizer_target_value, Defaults.regularizer_target_type
+    )
+end
+
+function RegularizerObjective{F}(o::RegularizerObjective) where {F}
+    return RegularizerObjective{F}(o.value)
+end
 
 ## Conversions
 ## ===========
@@ -79,33 +87,33 @@ end  # module Objectives
     using GaussianSpectralDensities.Defaults: Defaults
     using GaussianSpectralDensities.Objectives: AbstractObjective, TraceObjective
 
-    trace_target64 = 1.0
-    trace_objective64 = TraceObjective(trace_target64)
+    target64 = 1.0
+    objective64 = TraceObjective(target64)
 
     # Traits
-    @test trace_objective64 isa TraceObjective{Float64}
+    @test objective64 isa TraceObjective{Float64}
 
     # Defaults
     @test TraceObjective() === TraceObjective(Defaults.trace_target)
 
     @testset "$F" for F in [Float32, Float64]
-        trace_targetF = F(trace_target64)
-        trace_objectiveF = TraceObjective(trace_targetF)
+        targetF = F(target64)
+        objectiveF = TraceObjective(targetF)
 
         # Floattype inferring constructor
-        @test trace_objectiveF isa TraceObjective{F}
+        @test objectiveF isa TraceObjective{F}
 
         # Floattype enforcing constructor
-        @test TraceObjective{F}(trace_target64) === trace_objectiveF
-        @test TraceObjective{Float64}(trace_targetF) === trace_objective64
+        @test TraceObjective{F}(target64) === objectiveF
+        @test TraceObjective{Float64}(targetF) === objective64
 
         # Floattype conversions
-        @test convert(TraceObjective{F}, trace_objective64) === trace_objectiveF
-        @test convert(TraceObjective{Float64}, trace_objectiveF) === trace_objective64
-        @test convert(AbstractObjective{F}, trace_objective64) === trace_objectiveF
-        @test convert(AbstractObjective{Float64}, trace_objectiveF) === trace_objective64
-        @test TraceObjective{F}(trace_objective64) === trace_objectiveF
-        @test TraceObjective{Float64}(trace_objectiveF) === trace_objective64
+        @test convert(TraceObjective{F}, objective64) === objectiveF
+        @test convert(TraceObjective{Float64}, objectiveF) === objective64
+        @test convert(AbstractObjective{F}, objective64) === objectiveF
+        @test convert(AbstractObjective{Float64}, objectiveF) === objective64
+        @test TraceObjective{F}(objective64) === objectiveF
+        @test TraceObjective{Float64}(objectiveF) === objective64
     end
 end
 
@@ -114,12 +122,12 @@ end
     using GaussianSpectralDensities.Objectives: AbstractObjective, RegularizerObjective
     using GaussianSpectralDensities.Regularizers: Regularizer
 
-    regularizer_target_value64, regularizer_target_type = 0.5, :gap
-    regularizer_target64 = Regularizer(regularizer_target_value64, regularizer_target_type)
-    regularizer_objective64 = RegularizerObjective(regularizer_target64)
+    target_value64, target_type = 0.5, :gap
+    target64 = Regularizer(target_value64, target_type)
+    objective64 = RegularizerObjective(target64)
 
     # Traits
-    @test regularizer_objective64 isa RegularizerObjective{Float64}
+    @test objective64 isa RegularizerObjective{Float64}
 
     # Defaults
     @test RegularizerObjective() === RegularizerObjective(
@@ -127,27 +135,25 @@ end
     )
 
     @testset "$F" for F in [Float32, Float64]
-        regularizer_target_valueF = F(regularizer_target_value64)
-        regularizer_targetF = Regularizer(regularizer_target_valueF, regularizer_target_type)
-        regularizer_objectiveF = RegularizerObjective(regularizer_targetF)
+        target_valueF = F(target_value64)
+        targetF = Regularizer(target_valueF, target_type)
+        objectiveF = RegularizerObjective(targetF)
 
         # Floattype inferring constructor
-        @test regularizer_objectiveF isa RegularizerObjective{F}
+        @test objectiveF isa RegularizerObjective{F}
         # - All the signatures
-        @test RegularizerObjective(
-            regularizer_target_valueF, regularizer_target_type
-        ) === regularizer_objectiveF
+        @test RegularizerObjective(target_valueF, target_type) === objectiveF
 
         # Floattype enforcing constructor
-        @test RegularizerObjective{F}(regularizer_target64) === regularizer_objectiveF
-        @test RegularizerObjective{Float64}(regularizer_targetF) === regularizer_objective64
+        @test RegularizerObjective{F}(target64) === objectiveF
+        @test RegularizerObjective{Float64}(targetF) === objective64
 
         # Floattype conversions
-        @test convert(RegularizerObjective{F}, regularizer_objective64) === regularizer_objectiveF
-        @test convert(RegularizerObjective{Float64}, regularizer_objectiveF) === regularizer_objective64
-        @test convert(AbstractObjective{F}, regularizer_objective64) === regularizer_objectiveF
-        @test convert(AbstractObjective{Float64}, regularizer_objectiveF) === regularizer_objective64
-        @test RegularizerObjective{F}(regularizer_objective64) === regularizer_objectiveF
-        @test RegularizerObjective{Float64}(regularizer_objectiveF) === regularizer_objective64
+        @test convert(RegularizerObjective{F}, objective64) === objectiveF
+        @test convert(RegularizerObjective{Float64}, objectiveF) === objective64
+        @test convert(AbstractObjective{F}, objective64) === objectiveF
+        @test convert(AbstractObjective{Float64}, objectiveF) === objective64
+        @test RegularizerObjective{F}(objective64) === objectiveF
+        @test RegularizerObjective{Float64}(objectiveF) === objective64
     end
 end

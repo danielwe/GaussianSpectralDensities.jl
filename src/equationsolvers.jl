@@ -49,17 +49,21 @@ function eqsolve!(ws::Workspace{F}, problem::LocalRegularizerProblem{F}) where {
 end
 
 function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}) where {F}
-    fqreg = let ws = ws, type = problem.reg0.type, qscale = problem.qscale,
-        eq = problem.eq, k = problem.k
+    fqreg =
+        let ws = ws,
+            type = problem.reg0.type,
+            qscale = problem.qscale,
+            eq = problem.eq,
+            k = problem.k
 
-        function fqreg(qregv)
-            q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], type)
-            q_scaled = qscale * q
-            dq = qscale * q_rhs!(ws, eq, q_scaled, reg) - q
-            dk = k!(ws, eq, q_scaled, reg) - k
-            return SVector(real(dq), imag(dq), dk)
+            function fqreg(qregv)
+                q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], type)
+                q_scaled = qscale * q
+                dq = qscale * q_rhs!(ws, eq, q_scaled, reg) - q
+                dk = k!(ws, eq, q_scaled, reg) - k
+                return SVector(real(dq), imag(dq), dk)
+            end
         end
-    end
     qreg0v = SVector(real(problem.q0), imag(problem.q0), problem.reg0.value)
     local qregv, niters, success
     try
@@ -116,8 +120,8 @@ end  # module ResolventEquationSolvers
     using GaussianSpectralDensities.Defaults: Defaults
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
-    using GaussianSpectralDensities.Problems: LocalResolventEquation,
-        LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Problems:
+        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
 
@@ -160,8 +164,9 @@ end  # module ResolventEquationSolvers
                         @test solF.problem === problemF
                         @test getproperty(solF, param) === getproperty(problemF, param)
 
-                        sol_q_scaled = problemF.qscale * solF.q
-                        q = problemF.qscale * q_rhs!(wsF, problemF.eq, sol_q_scaled, solF.reg)
+                        pqscale = problemF.qscale
+                        sol_q_scaled = pqscale * solF.q
+                        q = pqscale * q_rhs!(wsF, problemF.eq, sol_q_scaled, solF.reg)
                         shift = shift!(wsF, problemF.eq, sol_q_scaled, solF.reg)
                         gap = gap!(wsF, problemF.eq, sol_q_scaled, solF.reg)
                         k = k!(wsF, problemF.eq, sol_q_scaled, solF.reg)
@@ -183,8 +188,8 @@ end
 @testitem "eqsolve! errors" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
-    using GaussianSpectralDensities.Problems: LocalResolventEquation,
-        LocalRegularizerProblem, LocalTraceProblem
+    using GaussianSpectralDensities.Problems:
+        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
 

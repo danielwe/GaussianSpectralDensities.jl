@@ -2,8 +2,17 @@ module Ensembles
 
 using LinearAlgebra: I
 
-using ..MathHelpers: MathHelpers, AbstractMatrixOrUniform, DiagonalOrUniform, alldiag,
-    inunitdisc, mapdiag, phase, converteltype, sizedmatrix
+using ..MathHelpers:
+    AbstractMatrixOrUniform,
+    DiagonalOrUniform,
+    alldiag,
+    inunitdisc,
+    mapdiag,
+    phase,
+    converteltype,
+    sizedmatrix,
+    ldiv as mh_ldiv,
+    rdiv as mh_rdiv
 
 public MatrixEnsemble
 
@@ -35,8 +44,8 @@ struct MatrixEnsemble{
     L::TL
     R::TR
     T::TT
-    L_inv_R_inv::TC
-    L_inv_M_R_inv::TC
+    Li_Ri::TC
+    Li_M_Ri::TC
 
     function MatrixEnsemble{F}(
         M::AbstractMatrixOrUniform,
@@ -45,18 +54,17 @@ struct MatrixEnsemble{
         T::DiagonalOrUniform,
     ) where {F}
         sizes = NamedTuple(
-            name => size(A)
-            for (name, A) in ((:M, M), (:L, L), (:R, R), (:T, T)) if applicable(size, A)
+            n => size(A) for (n, A) in pairs((; M, L, R, T)) if applicable(size, A)
         )
         if length(sizes) > 0
             N = first(first(sizes))
-            for s in sizes
-                if s != (N, N)
-                    size_strs = ("size($name) == $s" for (name, s) in pairs(sizes))
-                    throw(DimensionMismatch(
-                        "M, L, R, and T must all be same-size square matrices or "
-                        * "Uniformscaling, got " * join(size_strs, "; ")
-                    ))
+            for size in sizes
+                if size != (N, N)
+                    size_str = join(("size($n) == $s" for (n, s) in pairs(sizes)), "; ")
+                    msg =
+                        "M, L, R, and T must all be same-size square matrices or " *
+                        "Uniformscaling, got $size_str"
+                    throw(DimensionMismatch(msg))
                 end
             end
         end
@@ -66,16 +74,10 @@ struct MatrixEnsemble{
         RC = any(eltype(A) <: Complex for A in (M, L, R, T)) ? Complex{F} : F
         M_RC, L_RC, R_RC = converteltype.(RC, (M, L, mapdiag(phase, T) * R))
         T_F = converteltype(F, mapdiag(abs, T))
-        L_inv_M_R_inv = sizedmatrix(
-            converteltype(RC, MathHelpers.rdiv(MathHelpers.ldiv(L_RC, M_RC), R_RC)),
-            T_F,
-        )
-        L_inv_R_inv = sizedmatrix(
-            converteltype(RC, MathHelpers.ldiv(R_RC * L_RC, I)),
-            L_inv_M_R_inv,
-        )
-        return new{F,RC,typeof.((M_RC, L_RC, R_RC, T_F, L_inv_M_R_inv))...}(
-            M_RC, L_RC, R_RC, T_F, L_inv_R_inv, L_inv_M_R_inv
+        Li_M_Ri = sizedmatrix(converteltype(RC, mh_rdiv(mh_ldiv(L_RC, M_RC), R_RC)), T_F)
+        Li_Ri = sizedmatrix(converteltype(RC, mh_ldiv(R_RC * L_RC, I)), Li_M_Ri)
+        return new{F,RC,typeof.((M_RC, L_RC, R_RC, T_F, Li_M_Ri))...}(
+            M_RC, L_RC, R_RC, T_F, Li_Ri, Li_M_Ri
         )
     end
 end
@@ -90,7 +92,7 @@ MatrixEnsemble{F}(e::MatrixEnsemble) where {F} = MatrixEnsemble{F}(e.M, e.L, e.R
 
 ## Traits, comparisons, conversions
 ## ================================
-Base.size(e::MatrixEnsemble) = size(e.L_inv_M_R_inv)
+Base.size(e::MatrixEnsemble) = size(e.Li_M_Ri)
 
 function Base.:(==)(a::E, b::E) where {E<:MatrixEnsemble}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
@@ -118,8 +120,8 @@ end  # module Ensembles
     @test ensemble.L === 1.0I
     @test ensemble.R === 1.0I
     @test ensemble.T === 1.0I
-    @test isequal(ensemble.L_inv_R_inv, I(1))
-    @test isequal(ensemble.L_inv_M_R_inv, I(1))
+    @test isequal(ensemble.Li_Ri, I(1))
+    @test isequal(ensemble.Li_M_Ri, I(1))
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(I, I, I, I)
@@ -197,27 +199,27 @@ end
             @test ensemblesF[1].L == I
             @test ensemblesF[1].R == I
             @test ensemblesF[1].T == I
-            @test ensemblesF[1].L_inv_R_inv == I(2)
-            @test ensemblesF[1].L_inv_M_R_inv == AF
+            @test ensemblesF[1].Li_Ri == I(2)
+            @test ensemblesF[1].Li_M_Ri == AF
             @test ensemblesF[2].M == I
             @test ensemblesF[2].L == AF
             @test ensemblesF[2].R == I
             @test ensemblesF[2].T == I
-            @test ensemblesF[2].L_inv_R_inv == Ainv
-            @test ensemblesF[2].L_inv_M_R_inv == Ainv
+            @test ensemblesF[2].Li_Ri == Ainv
+            @test ensemblesF[2].Li_M_Ri == Ainv
             @test ensemblesF[3].M == I
             @test ensemblesF[3].L == I
             @test ensemblesF[3].R == AF
             @test ensemblesF[3].T == I
-            @test ensemblesF[3].L_inv_R_inv == Ainv
-            @test ensemblesF[3].L_inv_M_R_inv == Ainv
+            @test ensemblesF[3].Li_Ri == Ainv
+            @test ensemblesF[3].Li_M_Ri == Ainv
             # Phase is sensitive to floating point round errors, so use ≈
             @test ensemblesF[4].M == I
             @test ensemblesF[4].L == I
             @test ensemblesF[4].R ≈ Dphase
             @test ensemblesF[4].T == Dabs
-            @test ensemblesF[4].L_inv_R_inv ≈ map(conj, Dphase)
-            @test ensemblesF[4].L_inv_M_R_inv ≈ map(conj, Dphase)
+            @test ensemblesF[4].Li_Ri ≈ map(conj, Dphase)
+            @test ensemblesF[4].Li_M_Ri ≈ map(conj, Dphase)
 
             # Floattype inferring constructor
             @test all(e -> e isa MatrixEnsemble{F}, ensemblesF)
@@ -263,7 +265,7 @@ end
     using LinearAlgebra: I, Diagonal
 
     Adata = ComplexF64[1.0 -1.0; 1.0 1.0]
-    Ddata = Diagonal(ComplexF64[0.75, 0.25*cispi(1 // 3)])
+    Ddata = Diagonal(ComplexF64[0.75, 0.25cispi(1//3)])
     N = length(Ddata.diag)
 
     @test_throws MethodError MatrixEnsemble(I, I, I, Adata)  # T not diagonal

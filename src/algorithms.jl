@@ -4,8 +4,8 @@ using ..Defaults: Defaults
 using ..Problems: LocalRegularizerProblem
 using ..Solutions: LocalResolventSolution
 
-public AbstractAlgorithm, DirectSolve, AbstractSchedule, RegularizerSchedule,
-    SymmetrySchedule, initiallength
+public AbstractAlgorithm,
+    AbstractSchedule, DirectSolve, RegularizerSchedule, SymmetrySchedule, initiallength
 
 abstract type AbstractAlgorithm end
 abstract type AbstractAlgorithmState end
@@ -69,13 +69,14 @@ bifurcation that annihilates the solution branch, leading to a poorly initialize
 rendering interpolation meaningless.
 
 The default value is
+
 ```julia
-RegularizerSchedule(Defaults.regularizer_schedule_values, Defaults.regularizer_schedule_type)
+RegularizerSchedule(
+    Defaults.regularizer_schedule_values, Defaults.regularizer_schedule_type
+)
 ```
 """
 struct RegularizerSchedule{F,U<:AbstractVector{F}} <: AbstractSchedule{F}
-    # TODO: since `type` is not in the type domain, we should store a values vector and a
-    # type separately. The current implementation won't reject a mixed-type schedule.
     values::U
     type::Symbol
     shiftmin::F
@@ -106,7 +107,6 @@ function RegularizerSchedule{F}(alg::RegularizerSchedule) where {F}
     return RegularizerSchedule{F}(alg.values, alg.type, alg.shiftmin)
 end
 
-
 ## Traits, comparisons, conversions
 ## ================================
 initiallength(::RegularizerSchedule) = 0
@@ -115,7 +115,9 @@ function Base.:(==)(a::A, b::A) where {A<:RegularizerSchedule}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
 end
 
-function Base.convert(::Type{P}, alg::RegularizerSchedule) where {F,P<:RegularizerSchedule{F}}
+function Base.convert(
+    ::Type{P}, alg::RegularizerSchedule
+) where {F,P<:RegularizerSchedule{F}}
     return (alg isa P) ? alg : RegularizerSchedule{F}(alg)
 end
 
@@ -159,6 +161,7 @@ default `DirectSolve` usually suffices here, but you can also use a `Regularizer
 The meaning of `shiftmin` is the same as in [`RegularizerSchedule`](@ref).
 
 The default value is
+
 ```julia
 SymmetrySchedule(Defaults.symmetry_schedule_values)
 ```
@@ -170,9 +173,12 @@ struct SymmetrySchedule{
     initialalg::A
     shiftmin::F
 
-    function SymmetrySchedule{F}(values, initialalg=DirectSolve(), shiftmin=F(-Inf)) where {F}
+    function SymmetrySchedule{F}(
+        values, initialalg=DirectSolve(), shiftmin=F(-Inf)
+    ) where {F}
         if (first(values) != 0) || (last(values) != 1) || !monotonic(values)
-            throw(ArgumentError("symmetry schedule must increase monotonically from 0 to 1"))
+            msg = "symmetry schedule must increase monotonically from 0 to 1"
+            throw(ArgumentError(msg))
         end
         # map preserves ranges types etc. better than broadcasting
         values_ = (eltype(values) === F) ? values : map(F, values)
@@ -211,7 +217,6 @@ function SymmetrySchedule{F}(alg::SymmetrySchedule) where {F}
     return SymmetrySchedule{F}(alg.values, alg.initialalg, alg.shiftmin)
 end
 
-
 ## Traits, comparisons, conversions
 ## ================================
 initiallength(alg::SymmetrySchedule) = length(alg.initialalg)
@@ -232,10 +237,9 @@ end
 ## =======
 function monotonic(x)
     (length(x) == 1) && return true
-    tail = @view x[(begin+1):end]
+    tail = @view x[(begin + 1):end]
     return (first(x) < first(tail)) && monotonic(tail)
 end
-
 
 #=
 ## Implementation
@@ -343,7 +347,8 @@ end
 end  # module Algorithms
 
 @testitem "DirectSolve" begin
-    using GaussianSpectralDensities.Algorithms: AbstractAlgorithm, DirectSolve, initiallength
+    using GaussianSpectralDensities.Algorithms:
+        AbstractAlgorithm, DirectSolve, initiallength
 
     alg64 = DirectSolve()
 
@@ -359,8 +364,8 @@ end  # module Algorithms
 end
 
 @testitem "RegularizerSchedule" begin
-    using GaussianSpectralDensities.Algorithms: AbstractSchedule, RegularizerSchedule,
-        initiallength
+    using GaussianSpectralDensities.Algorithms:
+        AbstractSchedule, RegularizerSchedule, initiallength
     using GaussianSpectralDensities.Defaults: Defaults
 
     values64, type, shiftmin = 2.0 .^ (2:-1:-2), :gap, 0.0
@@ -398,8 +403,8 @@ end
 end
 
 @testitem "SymmetrySchedule" begin
-    using GaussianSpectralDensities.Algorithms: AbstractSchedule, RegularizerSchedule,
-        SymmetrySchedule, initiallength
+    using GaussianSpectralDensities.Algorithms:
+        AbstractSchedule, RegularizerSchedule, SymmetrySchedule, initiallength
     using GaussianSpectralDensities.Defaults: Defaults
 
     steps = 3

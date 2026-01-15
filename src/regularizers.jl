@@ -23,8 +23,8 @@ Represent the regularizer in the averaged resolvent equations
 
 The available types of regularizers are:
 
-- `:shift`: specifies the additive regularizer ``γ²`` in the denominator ``QQ† + γ²I``
-- `:gap`: specifies the spectral gap of the denominator, that is, `eigmin(QQ†) + γ²`
+  - `:shift`: specifies the additive regularizer ``γ²`` in the denominator ``QQ† + γ²I``
+  - `:gap`: specifies the spectral gap of the denominator, that is, `eigmin(QQ†) + γ²`
 """
 struct Regularizer{F<:Real}
     value::F
