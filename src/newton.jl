@@ -3,11 +3,9 @@ module Newton
 using StaticArrays: SVector, SMatrix, MVector, MMatrix
 using TestItems: @testitem
 
-using ..Public: @public
-
 # TODO: Try with Enzyme.jl, it might actually be able to diff through the Workspace craze
 
-@public NewtonException newton finite_difference_jacobian
+public NewtonException, newton, finite_difference_jacobian
 
 struct NewtonException <: Exception
     msg::String

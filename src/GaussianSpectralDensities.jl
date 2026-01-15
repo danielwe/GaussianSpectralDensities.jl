@@ -20,27 +20,7 @@ module GaussianSpectralDensities
   of plots it makes sense to write recipes for, however.
 =#
 
-module Public
-
-# `public ...` without getting parse errors in 1.10
-macro public(exprs...)
-    (VERSION < v"1.11.0-DEV.469") && return
-    symbols = map(exprs) do e
-        if (e isa Expr) && (e.head == :macrocall)
-            e = e.args[1]
-        end
-        (e isa Symbol) && return e
-        error("@public only accepts identifiers and macros")
-    end
-    return esc(Expr(:public, symbols...))
-end
-
-# First use!
-@public @public
-
-end
-
-#= Public.@public MatrixEnsemble TraceObjective RegularizerObjective =#
+# public MatrixEnsemble, TraceObjective, RegularizerObjective
 
 # export init, solve!, solve
 # export DirectSolve, RegularizerSchedule, SymmetrySchedule
@@ -53,17 +33,8 @@ end
 
 module Defaults
 
-using ..Public: @public
-
-@public(
-    trace_target,
-    regularizer_target_value,
-    regularizer_target_type,
-    q0,
-    regularizer_schedule_values,
-    regularizer_schedule_type,
-    symmetry_schedule_values,
-)
+public trace_target, regularizer_target_value, regularizer_target_type, q0,
+    regularizer_schedule_values, regularizer_schedule_type, symmetry_schedule_values
 
 const trace_target = 1.0
 const regularizer_target_value = 0.0

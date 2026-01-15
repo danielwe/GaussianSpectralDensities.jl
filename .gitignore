@@ -1,4 +1,4 @@
-/Manifest.toml
+/Manifest*.toml
 /demo/.ipynb_checkpoints
 .*.swp
 *.cov

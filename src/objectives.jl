@@ -2,12 +2,10 @@ module Objectives
 
 using TestItems: @testitem
 
-using ..Public: @public
+using ..Defaults: Defaults
 using ..Regularizers: Regularizer
 
-using ..Defaults: Defaults
-
-@public AbstractObjective TraceObjective RegularizerObjective
+public AbstractObjective, TraceObjective, RegularizerObjective
 
 abstract type AbstractObjective{F<:Real} end
 

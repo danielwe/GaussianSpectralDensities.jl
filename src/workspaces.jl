@@ -4,15 +4,13 @@ using EnumX: @enumx
 using LinearAlgebra: Diagonal, Factorization, Hermitian
 using TestItems: @testitem
 
+using ..Defaults: Defaults
 using ..Ensembles: MatrixEnsemble
 using ..Regularizers: Regularizer, shift, gap
 using ..MathHelpers: AnySArray, decompose, decompose!!, eigmin!!, hsdot_normalized, invert,
     invert!!, ldiv!!, muladd!!, muladd_diag!!, neg, psdmul, psdmul!!, tr_normalized
-using ..Public: @public
 
-using ..Defaults: Defaults
-
-@public Workspace Q! QQh! P! P_L_inv_R_inv! shift! gap! q_rhs! k! E!
+public Workspace, Q!, QQh!, P!, P_L_inv_R_inv!, shift!, gap!, q_rhs!, k!, E!
 
 # Abstract supertype that can also be subtyped by GPU workspaces later
 abstract type AbstractWorkspace{F<:AbstractFloat} end

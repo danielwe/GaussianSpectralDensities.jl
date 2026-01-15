@@ -3,9 +3,7 @@ module Regularizers
 using EnumX: @enumx
 using TestItems: @testitem
 
-using ..Public: @public
-
-@public Regularizer shift gap
+public Regularizer, shift, gap
 
 @enumx RegularizerType::UInt8 shift gap
 

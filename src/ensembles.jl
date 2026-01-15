@@ -3,19 +3,10 @@ module Ensembles
 using LinearAlgebra: I
 using TestItems: @testitem
 
-using ..MathHelpers:
-    MathHelpers,
-    AbstractMatrixOrUniform,
-    DiagonalOrUniform,
-    alldiag,
-    inunitdisc,
-    mapdiag,
-    phase,
-    converteltype,
-    sizedmatrix
-using ..Public: @public
+using ..MathHelpers: MathHelpers, AbstractMatrixOrUniform, DiagonalOrUniform, alldiag,
+    inunitdisc, mapdiag, phase, converteltype, sizedmatrix
 
-@public MatrixEnsemble
+public MatrixEnsemble
 
 # TODO: consider generalizations where M, L, R can be LinearMaps etc.
 """

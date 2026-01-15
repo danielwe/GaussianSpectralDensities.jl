@@ -12,36 +12,10 @@ using MappedArrays: mappedarray
 using SparseArrays: SparseArrays, SparseMatrixCSC, spdiagm
 using StaticArrays: SArray, SMatrix, SVector, StaticMatrix, @SVector
 
-using ..Public: @public
-
-@public(
-    AbstractMatrixOrUniform,
-    AnySArray,
-    AnySMatrix,
-    DiagonalOrUniform,
-    RealOrComplex,
-    alldiag,
-    converteltype,
-    decompose!!,
-    decompose,
-    eigmin!!,
-    hsdot_normalized,
-    inunitdisc,
-    invert!!,
-    invert,
-    ldiv!!,
-    ldiv,
-    mapdiag,
-    muladd!!,
-    muladd_diag!!,
-    neg,
-    phase,
-    psdmul!!,
-    psdmul,
-    rdiv,
-    sizedmatrix,
-    tr_normalized,
-)
+public AbstractMatrixOrUniform, AnySArray, AnySMatrix, DiagonalOrUniform, RealOrComplex,
+    alldiag, converteltype, decompose!!, decompose, eigmin!!, hsdot_normalized, inunitdisc,
+    invert!!, invert, ldiv!!, ldiv, mapdiag, muladd!!, muladd_diag!!, neg, phase, psdmul!!,
+    psdmul, rdiv, sizedmatrix, tr_normalized
 
 ## Type utilities
 ## ==============

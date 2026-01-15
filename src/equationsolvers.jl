@@ -10,9 +10,7 @@ using ..Regularizers: Regularizer
 using ..Solutions: LocalResolventSolution
 using ..Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
 
-using ..Public: @public
-
-@public eqsolve!
+public eqsolve!
 
 const ConvergenceException = Union{NewtonException,SingularException,LAPACKException}
 

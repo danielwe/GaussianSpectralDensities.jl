@@ -5,9 +5,7 @@ using TestItems: @testitem
 using ..Problems: AbstractLocalResolventProblem
 using ..Regularizers: Regularizer
 
-using ..Public: @public
-
-@public LocalResolventSolution
+public LocalResolventSolution
 
 """
     LocalResolventSolution(problem::AbstractLocalResolventProblem, q, shift, gap, k, E)

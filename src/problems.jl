@@ -3,15 +3,10 @@ module Problems
 using TestItems: @testitem
 
 using ..Ensembles: MatrixEnsemble
-using ..Public: @public
 using ..Regularizers: Regularizer
 
-@public(
-    AbstractLocalResolventProblem,
-    LocalResolventEquation,
-    LocalRegularizerProblem,
-    LocalTraceProblem,
-)
+public AbstractLocalResolventProblem, LocalResolventEquation, LocalRegularizerProblem,
+    LocalTraceProblem
 
 """
     LocalResolventEquation(ensemble::MatrixEnsemble, z, normalizeQ=false)

@@ -6,16 +6,8 @@ using ..Defaults: Defaults
 using ..Problems: LocalRegularizerProblem
 using ..Solutions: LocalResolventSolution
 
-using ..Public: @public
-
-@public(
-    AbstractAlgorithm,
-    DirectSolve,
-    AbstractSchedule,
-    RegularizerSchedule,
-    SymmetrySchedule,
-    initiallength,
-)
+public AbstractAlgorithm, DirectSolve, AbstractSchedule, RegularizerSchedule,
+    SymmetrySchedule, initiallength
 
 abstract type AbstractAlgorithm end
 abstract type AbstractAlgorithmState end
