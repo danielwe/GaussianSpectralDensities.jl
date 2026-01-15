@@ -35,9 +35,8 @@ function Base.convert(::Type{AbstractObjective{F}}, o::TraceObjective) where {F}
 end
 
 """
-    RegularizerObjective(
-        value=Defaults.regularizer_target_value, type=Defaults.regularizer_target_type
-    )
+    RegularizerObjective()
+    RegularizerObjective(value, type)
     RegularizerObjective{F}(regularizer::Regularizer) where {F<:Real}
     RegularizerObjective{F}(reg_obj::RegularizerObjective) where {F<:Real}
 
@@ -45,16 +44,18 @@ Set a target value for a regularizer when solving averaged resolvent equations
 
 If `type` is provided, `value` should be a numerical value, otherwise it should be
 a `Regularizer`. See [`Regularizer`](@ref) for the available regularizer types.
+
+The default value is
+```julia
+    RegularizerObjective(Defaults.regularizer_target_value, Defaults.regularizer_target_type)
+```
 """
 struct RegularizerObjective{F} <: AbstractObjective{F}
     value::Regularizer{F}
 end
 
-function RegularizerObjective(
-    value=Defaults.regularizer_target_value, type=Defaults.regularizer_target_type
-)
-    return RegularizerObjective(Regularizer(value, type))
-end
+RegularizerObjective(value, type) = RegularizerObjective(Regularizer(value, type))
+RegularizerObjective() = RegularizerObjective(Defaults.regularizer_target_value, Defaults.regularizer_target_type)
 
 RegularizerObjective{F}(o::RegularizerObjective) where {F} = RegularizerObjective{F}(o.value)
 
