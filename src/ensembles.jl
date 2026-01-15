@@ -165,8 +165,8 @@ end
     Dphase = Diagonal([1.0, cispi(1 // 3)])
 
     @testset "$F" for F in [Float32, Float64]
-        AFdata = convert.(Complex{F}, A64data)
-        DFdata = convert.(Complex{F}, D64data)
+        AFdata = map(Complex{F}, A64data)
+        DFdata = map(Complex{F}, D64data)
 
         @testset "$label" for (label, A, D, AF, DF) in [
             ("Array", A64data, Diagonal(D64data), AFdata, Diagonal(DFdata)),
@@ -226,8 +226,8 @@ end
             @test ensemblesF[4].L == I
             @test ensemblesF[4].R ≈ Dphase
             @test ensemblesF[4].T == Dabs
-            @test ensemblesF[4].L_inv_R_inv ≈ conj.(Dphase)
-            @test ensemblesF[4].L_inv_M_R_inv ≈ conj.(Dphase)
+            @test ensemblesF[4].L_inv_R_inv ≈ map(conj, Dphase)
+            @test ensemblesF[4].L_inv_M_R_inv ≈ map(conj, Dphase)
 
             # Floattype inferring constructor
             @test all(e -> e isa MatrixEnsemble{F}, ensemblesF)

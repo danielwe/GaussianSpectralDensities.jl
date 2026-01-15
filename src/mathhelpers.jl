@@ -67,7 +67,7 @@ const AnySArray{T,N} = Union{
 const AnySMatrix{T} = AnySArray{T,2}
 
 # Exported helpers
-mapdiag(f, A::Diagonal) = Diagonal(f.(A.diag))
+mapdiag(f, A::Diagonal) = Diagonal(map(f, A.diag))
 mapdiag(f, A::UniformScaling) = UniformScaling(f(A.λ))
 
 alldiag(f, A::Diagonal) = all(f, A.diag)
@@ -79,7 +79,7 @@ phase(a::Number) = (a == 0) ? one(a) : a / abs(a)  # like sign except when a == 
 
 function converteltype(::Type{E}, A) where {E}
     (E === eltype(A)) && return A
-    return convert.(E, A)
+    return map(Ai -> convert(E, Ai), A)
 end
 
 converteltype(::Type{E}, A::Diagonal) where {E} = Diagonal(converteltype(E, A.diag)) # Work around lack of structure-preserving broadcast with SArray storage
@@ -219,7 +219,7 @@ hsdot_normalized(T::UniformScaling, A, B) = T.λ * hsdot_normalized(A, B)
 Compute `A * A'` and return as an appropriate type
 """
 psdmul(A) = Hermitian(A * A')
-psdmul(A::Diagonal) = Diagonal(abs2.(A.diag))
+psdmul(A::Diagonal) = Diagonal(map(abs2, A.diag))
 
 """
     psdmul!!(H, A)
@@ -255,7 +255,7 @@ function psdmul!!(H::Hermitian{<:Any,<:SMatrix}, A, α, β)
 end
 
 function psdmul!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β)
-    return Diagonal(α * abs2.(A.diag) + β * H.diag)
+    return Diagonal(α * map(abs2, A.diag) + β * H.diag)
 end
 
 ## Decomposition

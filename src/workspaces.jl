@@ -410,7 +410,7 @@ copy!!(::AnySArray, src) = deepcopy(src)
 
     # Ground truth; only for comparison, so we don't fuss about eltypes
     R_actual = Dphase
-    L_inv_R_inv = conj.(Dphase)
+    L_inv_R_inv = map(conj, Dphase)
     T_actual = Dabs
     G0_inv = (z64 * I - A64data) / R_actual
     Q = G0_inv - q64 * T_actual
@@ -425,8 +425,8 @@ copy!!(::AnySArray, src) = deepcopy(src)
         Eshift, Egap = tr(L_inv_R_inv * Q' * Pshift) / 2, tr(L_inv_R_inv * Q' * Pgap) / 2
 
         @testset "$F" for F in [Float32, Float64]
-            AFdata = convert.(Complex{F}, A64data)
-            DFdata = convert.(Complex{F}, D64data)
+            AFdata = map(Complex{F}, A64data)
+            DFdata = map(Complex{F}, D64data)
 
             zF, qF = Complex{F}.((z64, q64))
             shiftF, gapF = F.((shift64, gap64))

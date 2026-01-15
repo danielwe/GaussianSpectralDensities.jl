@@ -150,7 +150,7 @@ end
     x0_64 = SVector(0.3, -0.7)
 
     @testset "$F" for F in [Float32, Float64]
-        x0_F = F.(x0_64)
+        x0_F = map(F, x0_64)
         rtol = eps(F)^rtol_exponent
         atol = eps(F)^atol_exponent
 
