@@ -1,7 +1,6 @@
 module Ensembles
 
 using LinearAlgebra: I
-using TestItems: @testitem
 
 using ..MathHelpers: MathHelpers, AbstractMatrixOrUniform, DiagonalOrUniform, alldiag,
     inunitdisc, mapdiag, phase, converteltype, sizedmatrix
@@ -101,8 +100,8 @@ function Base.convert(::Type{P}, e::MatrixEnsemble) where {F,P<:MatrixEnsemble{F
     return (e isa P) ? e : MatrixEnsemble{F}(e)
 end
 
-## Tests
-## =====
+end  # module Ensembles
+
 @testitem "MatrixEnsemble with UniformScaling" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
@@ -275,5 +274,3 @@ end
     @test_throws DimensionMismatch MatrixEnsemble(Adata, I, I, I(N + 1))
     @test_throws DimensionMismatch MatrixEnsemble(hcat(Adata, Ddata), I, I, I)
 end
-
-end  # module Ensembles

@@ -1,5 +1,7 @@
 module GaussianSpectralDensities
 
+using TestItems: @testitem
+
 # using Adapt
 # using ArnoldiMethod
 # using ArnoldiMethod: LM

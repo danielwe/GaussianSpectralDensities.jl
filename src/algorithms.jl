@@ -1,7 +1,5 @@
 module Algorithms
 
-using TestItems: @testitem
-
 using ..Defaults: Defaults
 using ..Problems: LocalRegularizerProblem
 using ..Solutions: LocalResolventSolution
@@ -342,6 +340,8 @@ end
 # abort(::Any, ::Ramp) = false
 =#
 
+end  # module Algorithms
+
 @testitem "DirectSolve" begin
     using GaussianSpectralDensities.Algorithms: AbstractAlgorithm, DirectSolve, initiallength
 
@@ -462,5 +462,3 @@ end
     @test_throws ArgumentError SymmetrySchedule(range(1.0, 0.0, 3))
     @test_throws "monotonic" SymmetrySchedule(range(1.0, 0.0, 3))
 end
-
-end  # module Algorithms

@@ -1,7 +1,5 @@
 module Problems
 
-using TestItems: @testitem
-
 using ..Ensembles: MatrixEnsemble
 using ..Regularizers: Regularizer
 
@@ -227,6 +225,8 @@ ResolventProblem(objective, ensemble; kwargs...)
 end
 =#
 
+end  # module Problems
+
 @testitem "LocalResolventEquation" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: LocalResolventEquation
@@ -341,5 +341,3 @@ end
     @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, 1.1)
     @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, 0.5im)
 end
-
-end  # module Problems

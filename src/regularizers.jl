@@ -1,7 +1,6 @@
 module Regularizers
 
 using EnumX: @enumx
-using TestItems: @testitem
 
 public Regularizer, shift, gap
 
@@ -83,6 +82,8 @@ function score(solution, r::Regularizer)
 end
 =#
 
+end  # module Regularizers
+
 @testitem "Regularizer" begin
     using GaussianSpectralDensities.Regularizers: Regularizer, shift, gap
 
@@ -136,5 +137,3 @@ end
     @test_throws ArgumentError Regularizer(0.5, :foo)
     @test_throws "not a valid Regularizer" Regularizer(0.5, :foo)
 end
-
-end  # module Regularizers

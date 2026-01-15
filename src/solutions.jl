@@ -1,7 +1,5 @@
 module Solutions
 
-using TestItems: @testitem
-
 using ..Problems: AbstractLocalResolventProblem
 using ..Regularizers: Regularizer
 
@@ -60,6 +58,8 @@ function Base.convert(
 ) where {F,P<:LocalResolventSolution{F}}
     return (s isa P) ? s : LocalResolventSolution{F}(s)
 end
+
+end  # module Solutions
 
 @testitem "Solutions" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -123,5 +123,3 @@ end
         end
     end
 end
-
-end  # module Solutions

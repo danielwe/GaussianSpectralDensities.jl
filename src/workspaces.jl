@@ -2,7 +2,6 @@ module Workspaces
 
 using EnumX: @enumx
 using LinearAlgebra: Diagonal, Factorization, Hermitian
-using TestItems: @testitem
 
 using ..Defaults: Defaults
 using ..Ensembles: MatrixEnsemble
@@ -381,109 +380,6 @@ Return a copy of `src`
 """
 copy!!(::AnySArray, src) = deepcopy(src)
 
-## Tests
-## =====
-@testitem "Workspace" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: LocalResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
-
-    using LinearAlgebra: I, Diagonal, Hermitian, eigmin, tr
-    using SparseArrays: sparse
-    using StaticArrays: SMatrix, SVector
-
-    A64data = ComplexF64[1 -1; 1 1]
-    D64data = ComplexF64[0.75, 0.25*cispi(1 // 3)]
-
-    z64 = -(2.0 + im) / 4
-    q64 = (1.0 - im) / 2
-
-    shift64 = 0.25
-    gap64 = 0.5
-
-    # These are just used for comparison, so we don't fuss about eltypes and array types
-    Dabs = Diagonal([0.75, 0.25])
-    Dphase = Diagonal([1.0, cispi(1 // 3)])
-
-    # Ground truth; only for comparison, so we don't fuss about eltypes
-    R_actual = Dphase
-    L_inv_R_inv = map(conj, Dphase)
-    T_actual = Dabs
-    G0_inv = (z64 * I - A64data) / R_actual
-    Q = G0_inv - q64 * T_actual
-
-    @testset "normalizeQ = $normalizeQ" for normalizeQ in [false, true]
-        # Ground truth; only for comparison, so we don't fuss about eltypes
-        QQh = normalizeQ ? ((Q * Q') + (Q' * Q)) / 2 : Q * Q'
-        baregap = eigmin(Hermitian(QQh))
-        Pshift, Pgap = inv(QQh + shift64 * I), inv(QQh + (gap64 - baregap) * I)
-        q_rhs_shift, q_rhs_gap = tr(T_actual * Q' * Pshift) / 2, tr(T_actual * Q' * Pgap) / 2
-        kshift, kgap = tr(Pshift) / 2, tr(Pgap) / 2
-        Eshift, Egap = tr(L_inv_R_inv * Q' * Pshift) / 2, tr(L_inv_R_inv * Q' * Pgap) / 2
-
-        @testset "$F" for F in [Float32, Float64]
-            AFdata = map(Complex{F}, A64data)
-            DFdata = map(Complex{F}, D64data)
-
-            zF, qF = Complex{F}.((z64, q64))
-            shiftF, gapF = F.((shift64, gap64))
-            reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
-
-            @testset "$label" for (label, AF, DF) in [
-                ("Array", AFdata, Diagonal(DFdata)),
-                ("SArray", SMatrix{2,2}(AFdata), Diagonal(SVector{2}(DFdata))),
-                ("SparseMatrixCSC", sparse(AFdata), Diagonal(DFdata)),
-            ]
-                ensembleF = MatrixEnsemble(AF, I, I, DF)
-
-                eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
-
-                wsF = Workspace(ensembleF)
-
-                @test wsF isa Workspace{F}
-
-                @test shift!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value
-                @test shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - baregap
-
-                @test gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + baregap
-                @test gap!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value
-
-                @test q_rhs!(wsF, eqF, qF, reg_shiftF) ≈ q_rhs_shift
-                @test q_rhs!(wsF, eqF, qF, reg_gapF) ≈ q_rhs_gap
-
-                @test k!(wsF, eqF, qF, reg_shiftF) ≈ kshift
-                @test k!(wsF, eqF, qF, reg_gapF) ≈ kgap
-
-                @test E!(wsF, eqF, qF, reg_shiftF) ≈ Eshift
-                @test E!(wsF, eqF, qF, reg_gapF) ≈ Egap
-            end
-        end
-    end
-end
-
-@testitem "Workspace errors" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: LocalResolventEquation
-    using GaussianSpectralDensities.Workspaces: Workspace, Q!
-
-    using LinearAlgebra: I, Diagonal
-
-    A = ComplexF64[1 -1; 1 1]
-    D = Diagonal(ComplexF64[0.75, 0.25*cispi(1 // 3)])
-    z = -(2.0 + im) / 4
-    q = (1.0 - im) / 2
-
-    ensemble = MatrixEnsemble(A, I, I, D)
-    ws = Workspace(ensemble)
-
-    other_ensemble = MatrixEnsemble(I, I, I, I(1) / 2)
-    other_eq = LocalResolventEquation(other_ensemble, z, false)
-
-    @test_throws ArgumentError Q!(ws, other_eq, q)
-    @test_throws "size does not match" Q!(ws, other_eq, q)
-end
-
 ## Attic---may be scavenged for further functionality
 ## ==================================================
 #=
@@ -588,3 +484,104 @@ end
 =#
 
 end  # module Workspaces
+
+@testitem "Workspace" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
+
+    using LinearAlgebra: I, Diagonal, Hermitian, eigmin, tr
+    using SparseArrays: sparse
+    using StaticArrays: SMatrix, SVector
+
+    A64data = ComplexF64[1 -1; 1 1]
+    D64data = ComplexF64[0.75, 0.25*cispi(1 // 3)]
+
+    z64 = -(2.0 + im) / 4
+    q64 = (1.0 - im) / 2
+
+    shift64 = 0.25
+    gap64 = 0.5
+
+    # These are just used for comparison, so we don't fuss about eltypes and array types
+    Dabs = Diagonal([0.75, 0.25])
+    Dphase = Diagonal([1.0, cispi(1 // 3)])
+
+    # Ground truth; only for comparison, so we don't fuss about eltypes
+    R_actual = Dphase
+    L_inv_R_inv = map(conj, Dphase)
+    T_actual = Dabs
+    G0_inv = (z64 * I - A64data) / R_actual
+    Q = G0_inv - q64 * T_actual
+
+    @testset "normalizeQ = $normalizeQ" for normalizeQ in [false, true]
+        # Ground truth; only for comparison, so we don't fuss about eltypes
+        QQh = normalizeQ ? ((Q * Q') + (Q' * Q)) / 2 : Q * Q'
+        baregap = eigmin(Hermitian(QQh))
+        Pshift, Pgap = inv(QQh + shift64 * I), inv(QQh + (gap64 - baregap) * I)
+        q_rhs_shift, q_rhs_gap = tr(T_actual * Q' * Pshift) / 2, tr(T_actual * Q' * Pgap) / 2
+        kshift, kgap = tr(Pshift) / 2, tr(Pgap) / 2
+        Eshift, Egap = tr(L_inv_R_inv * Q' * Pshift) / 2, tr(L_inv_R_inv * Q' * Pgap) / 2
+
+        @testset "$F" for F in [Float32, Float64]
+            AFdata = map(Complex{F}, A64data)
+            DFdata = map(Complex{F}, D64data)
+
+            zF, qF = Complex{F}.((z64, q64))
+            shiftF, gapF = F.((shift64, gap64))
+            reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
+
+            @testset "$label" for (label, AF, DF) in [
+                ("Array", AFdata, Diagonal(DFdata)),
+                ("SArray", SMatrix{2,2}(AFdata), Diagonal(SVector{2}(DFdata))),
+                ("SparseMatrixCSC", sparse(AFdata), Diagonal(DFdata)),
+            ]
+                ensembleF = MatrixEnsemble(AF, I, I, DF)
+
+                eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
+
+                wsF = Workspace(ensembleF)
+
+                @test wsF isa Workspace{F}
+
+                @test shift!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value
+                @test shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - baregap
+
+                @test gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + baregap
+                @test gap!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value
+
+                @test q_rhs!(wsF, eqF, qF, reg_shiftF) ≈ q_rhs_shift
+                @test q_rhs!(wsF, eqF, qF, reg_gapF) ≈ q_rhs_gap
+
+                @test k!(wsF, eqF, qF, reg_shiftF) ≈ kshift
+                @test k!(wsF, eqF, qF, reg_gapF) ≈ kgap
+
+                @test E!(wsF, eqF, qF, reg_shiftF) ≈ Eshift
+                @test E!(wsF, eqF, qF, reg_gapF) ≈ Egap
+            end
+        end
+    end
+end
+
+@testitem "Workspace errors" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation
+    using GaussianSpectralDensities.Workspaces: Workspace, Q!
+
+    using LinearAlgebra: I, Diagonal
+
+    A = ComplexF64[1 -1; 1 1]
+    D = Diagonal(ComplexF64[0.75, 0.25*cispi(1 // 3)])
+    z = -(2.0 + im) / 4
+    q = (1.0 - im) / 2
+
+    ensemble = MatrixEnsemble(A, I, I, D)
+    ws = Workspace(ensemble)
+
+    other_ensemble = MatrixEnsemble(I, I, I, I(1) / 2)
+    other_eq = LocalResolventEquation(other_ensemble, z, false)
+
+    @test_throws ArgumentError Q!(ws, other_eq, q)
+    @test_throws "size does not match" Q!(ws, other_eq, q)
+end

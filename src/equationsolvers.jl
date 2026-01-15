@@ -2,7 +2,6 @@ module EquationSolvers
 
 using LinearAlgebra: LAPACKException, SingularException
 using StaticArrays: SVector
-using TestItems: @testitem
 
 using ..Newton: newton, NewtonException
 using ..Problems: LocalRegularizerProblem, LocalTraceProblem
@@ -84,6 +83,34 @@ function make_resolvent_solution(ws, problem, success, q, reg, k)
     E = E!(ws, problem.eq, q_scaled, reg)
     return LocalResolventSolution(problem, success, q, reg, shift, gap, k, E)
 end
+
+## Attic
+## =====
+# function qj!(
+#     problem::LocalSpectralProblem{NormalizeQ, <:Any, <:Fixγ²}, q, ws
+# ) where {NormalizeQ}
+#     T = problem.ensemble.T
+#     P = P!(problem, q, ws)
+#     PQ = PQ!(problem, q, ws)
+#     QᴴPQ = QᴴPQ!(problem, q, ws)
+#     df_dq = trTAᴴTB(T, PQ, PQ')  # Tr[(TQᴴP)²]
+#     df_dq⁺ = trTAᴴTB(T, QᴴPQ, P)  # Tr[TQᴴPQTP]
+#     if NormalizeQ
+#         QP = QP!(problem, q, ws)
+#         QPQ = QPQ!(problem, q, ws)
+#         df_dq += trTAᴴTB(T, QPQ, P)  # Tr[TQᴴPQᴴTP]
+#         df_dq⁺ += trTAᴴTB(T, PQ, QP)  # Tr[TQᴴPTQP]
+#         df_dq /= 2
+#         df_dq⁺ /= 2
+#     end
+#     df_dq⁺ -= trT²A(T, P)  # Tr[T²P]
+#     μ²N⁻¹ = problem.μ^2 / problem.ensemble.N
+#     df_dq = muladd(df_dq, μ²N⁻¹, -one(q))
+#     df_dq⁺ *= μ²N⁻¹
+#     return df_dq, df_dq⁺
+# end
+
+end  # module ResolventEquationSolvers
 
 @testitem "eqsolve!" begin
     using GaussianSpectralDensities.Defaults: Defaults
@@ -183,31 +210,3 @@ end
         @test sol.reg === reg
     end
 end
-
-## Attic
-## =====
-# function qj!(
-#     problem::LocalSpectralProblem{NormalizeQ, <:Any, <:Fixγ²}, q, ws
-# ) where {NormalizeQ}
-#     T = problem.ensemble.T
-#     P = P!(problem, q, ws)
-#     PQ = PQ!(problem, q, ws)
-#     QᴴPQ = QᴴPQ!(problem, q, ws)
-#     df_dq = trTAᴴTB(T, PQ, PQ')  # Tr[(TQᴴP)²]
-#     df_dq⁺ = trTAᴴTB(T, QᴴPQ, P)  # Tr[TQᴴPQTP]
-#     if NormalizeQ
-#         QP = QP!(problem, q, ws)
-#         QPQ = QPQ!(problem, q, ws)
-#         df_dq += trTAᴴTB(T, QPQ, P)  # Tr[TQᴴPQᴴTP]
-#         df_dq⁺ += trTAᴴTB(T, PQ, QP)  # Tr[TQᴴPTQP]
-#         df_dq /= 2
-#         df_dq⁺ /= 2
-#     end
-#     df_dq⁺ -= trT²A(T, P)  # Tr[T²P]
-#     μ²N⁻¹ = problem.μ^2 / problem.ensemble.N
-#     df_dq = muladd(df_dq, μ²N⁻¹, -one(q))
-#     df_dq⁺ *= μ²N⁻¹
-#     return df_dq, df_dq⁺
-# end
-
-end  # module ResolventEquationSolvers

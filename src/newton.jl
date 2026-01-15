@@ -1,7 +1,6 @@
 module Newton
 
 using StaticArrays: SVector, SMatrix, MVector, MMatrix
-using TestItems: @testitem
 
 # TODO: Try with Enzyme.jl, it might actually be able to diff through the Workspace craze
 
@@ -94,6 +93,8 @@ end
 
 relative_increment(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional consistency
 
+end  # module Newton
+
 @testitem "newton Real" begin
     using GaussianSpectralDensities.Newton: NewtonException, newton, finite_difference_jacobian
 
@@ -170,5 +171,3 @@ end
     f(x) = cos(x) - x^3
     @test_throws NewtonException newton(f, 0.5; maxiters=0)
 end
-
-end  # module Newton

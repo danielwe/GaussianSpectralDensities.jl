@@ -1,7 +1,5 @@
 module Objectives
 
-using TestItems: @testitem
-
 using ..Defaults: Defaults
 using ..Regularizers: Regularizer
 
@@ -74,6 +72,8 @@ end
 score(solution, obj::TraceObjective) = score(log(solution.k), log(obj.value))
 score(solution, obj::RegularizerObjective) = score(solution, obj.value)
 =#
+
+end  # module Objectives
 
 @testitem "TraceObjective" begin
     using GaussianSpectralDensities.Defaults: Defaults
@@ -151,5 +151,3 @@ end
         @test RegularizerObjective{Float64}(regularizer_objectiveF) === regularizer_objective64
     end
 end
-
-end  # module Objectives
