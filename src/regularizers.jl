@@ -2,7 +2,7 @@ module Regularizers
 
 using EnumX: @enumx
 
-public Regularizer, gap, shift
+public Regularizer, RegularizerType, gap, shift
 
 @enumx RegularizerType::UInt8 shift gap
 

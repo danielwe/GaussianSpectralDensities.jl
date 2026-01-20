@@ -53,6 +53,7 @@ public AbstractMatrixOrUniform,
     psdmul,
     psdmul!!,
     rdiv,
+    samesign,
     sizedmatrix,
     tr_normalized
 
@@ -89,6 +90,8 @@ alldiag(f, A::UniformScaling) = f(A.λ)
 inunitdisc(a::Number) = (abs2(a) <= 1)
 
 phase(a::Number) = (a == 0) ? one(a) : a / abs(a)  # like sign except when a == 0
+
+samesign(x::Number, y::Number) = (x * y > 0)  # TODO: is this good enough (Inf/NaN etc.)
 
 function converteltype(::Type{E}, A) where {E}
     (E === eltype(A)) && return A
