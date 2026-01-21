@@ -80,7 +80,7 @@ const AnySArray{T,N} = Union{
 }
 const AnySMatrix{T} = AnySArray{T,2}
 
-# Exported helpers
+# Public helpers
 mapdiag(f, A::Diagonal) = Diagonal(map(f, A.diag))
 mapdiag(f, A::UniformScaling) = UniformScaling(f(A.λ))
 
@@ -106,7 +106,6 @@ sizedmatrix(A::UniformScaling, T::AnySMatrix) = Diagonal(@SVector fill(A.λ, siz
 sizedmatrix(A::UniformScaling, T::AbstractMatrix) = A(size(T, 1))
 sizedmatrix(A::AbstractMatrix, ::AbstractMatrixOrUniform) = A
 
-# Public helpers
 ldiv(L, A) = L \ A
 ldiv(L::AnySMatrix, A::UniformScaling) = L \ SMatrix{size(L, 1),size(L, 1)}(A)  # should file issue
 ldiv(L::Diagonal{<:Any,<:SArray}, A::UniformScaling) = L \ sizedmatrix(A, L)
