@@ -80,6 +80,7 @@ end
 function LocalRegularizerProblem(
     eq::LocalResolventEquation{F}, reg, q0, qscale=one(F)
 ) where {F}
+    # TODO: make q0 optional, use large shift asymptotics to calculate default value
     return LocalRegularizerProblem{F}(eq, reg, q0, qscale)
 end
 
@@ -130,6 +131,7 @@ end
 function LocalTraceProblem(
     eq::LocalResolventEquation{F}, k, reg0, q0, qscale=one(F)
 ) where {F}
+    # TODO: make q0 optional, use large shift asymptotics to calculate default value
     return LocalTraceProblem{F}(eq, k, reg0, q0, qscale)
 end
 
