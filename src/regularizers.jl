@@ -2,7 +2,7 @@ module Regularizers
 
 using EnumX: @enumx
 
-public Regularizer, shift, gap
+public Regularizer, gap, shift
 
 @enumx RegularizerType::UInt8 shift gap
 
@@ -85,7 +85,7 @@ end
 end  # module Regularizers
 
 @testitem "Regularizer" begin
-    using GaussianSpectralDensities.Regularizers: Regularizer, shift, gap
+    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
 
     shift64, gap64 = 0.0, 0.5
     baregap64 = gap64 - shift64

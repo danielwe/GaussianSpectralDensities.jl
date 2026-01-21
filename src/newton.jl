@@ -1,10 +1,10 @@
 module Newton
 
-using StaticArrays: SVector, SMatrix, MVector, MMatrix
+using StaticArrays: MMatrix, MVector, SMatrix, SVector
 
 # TODO: Try with Enzyme.jl, it might actually be able to diff through the Workspace craze
 
-public NewtonException, newton, finite_difference_jacobian
+public NewtonException, finite_difference_jacobian, newton
 
 struct NewtonException <: Exception
     msg::String
@@ -97,10 +97,10 @@ end  # module Newton
 
 @testitem "newton Real" begin
     using GaussianSpectralDensities.Newton:
-        NewtonException, newton, finite_difference_jacobian
+        NewtonException, finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
-    using StaticArrays: SVector, SMatrix, Size
+    using StaticArrays: SMatrix, SVector, Size
 
     rtol_exponent = 2 // 5
     atol_exponent = 3 // 4
@@ -129,10 +129,10 @@ end
 
 @testitem "newton SVector" begin
     using GaussianSpectralDensities.Newton:
-        NewtonException, newton, finite_difference_jacobian
+        NewtonException, finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
-    using StaticArrays: SVector, SMatrix, Size
+    using StaticArrays: SMatrix, SVector, Size
 
     rtol_exponent = 2 // 5
     atol_exponent = 3 // 4

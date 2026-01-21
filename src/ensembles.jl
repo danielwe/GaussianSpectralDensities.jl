@@ -6,13 +6,13 @@ using ..MathHelpers:
     AbstractMatrixOrUniform,
     DiagonalOrUniform,
     alldiag,
+    converteltype,
     inunitdisc,
+    ldiv as mh_ldiv,
     mapdiag,
     phase,
-    converteltype,
-    sizedmatrix,
-    ldiv as mh_ldiv,
-    rdiv as mh_rdiv
+    rdiv as mh_rdiv,
+    sizedmatrix
 
 public MatrixEnsemble
 
@@ -71,7 +71,9 @@ struct MatrixEnsemble{
         if !alldiag(inunitdisc, T)
             throw(ArgumentError("all elements of T must lie in the unit disc"))
         end
-        RC = any(eltype(A) <: Complex for A in (M, L, R, T)) ? Complex{F} : F
+        # XXX: `local` is to silence an incorrect JETLS boxed capture warning. Remove when
+        # aviatesk/JETLS.jl#508 is closed.
+        local RC = any(eltype(A) <: Complex for A in (M, L, R, T)) ? Complex{F} : F
         M_RC, L_RC, R_RC = converteltype.(RC, (M, L, mapdiag(phase, T) * R))
         T_F = converteltype(F, mapdiag(abs, T))
         Li_M_Ri = sizedmatrix(converteltype(RC, mh_rdiv(mh_ldiv(L_RC, M_RC), R_RC)), T_F)
@@ -140,7 +142,7 @@ end
 @testitem "MatrixEnsemble with various array types" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
-    using LinearAlgebra: I, Diagonal
+    using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
     using StaticArrays: SMatrix, SVector
 
@@ -262,7 +264,7 @@ end
 @testitem "MatrixEnsemble errors" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
-    using LinearAlgebra: I, Diagonal
+    using LinearAlgebra: Diagonal, I
 
     Adata = ComplexF64[1.0 -1.0; 1.0 1.0]
     Ddata = Diagonal(ComplexF64[0.75, 0.25cispi(1//3)])

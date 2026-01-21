@@ -5,7 +5,7 @@ using LinearAlgebra: Diagonal, Factorization, Hermitian
 
 using ..Defaults: Defaults
 using ..Ensembles: MatrixEnsemble
-using ..Regularizers: Regularizer, shift, gap
+using ..Regularizers: Regularizer, gap, shift
 using ..MathHelpers:
     AnySArray,
     decompose,
@@ -22,7 +22,7 @@ using ..MathHelpers:
     psdmul!!,
     tr_normalized
 
-public Workspace, Q!, QQh!, P!, P_Li_Ri!, shift!, gap!, q_rhs!, k!, E!
+public E!, P!, P_Li_Ri!, Q!, QQh!, Workspace, gap!, k!, q_rhs!, shift!
 
 # Abstract supertype that can also be subtyped by GPU workspaces later
 abstract type AbstractWorkspace{F<:AbstractFloat} end
@@ -500,9 +500,9 @@ end  # module Workspaces
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: LocalResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
+    using GaussianSpectralDensities.Workspaces: E!, Workspace, gap!, k!, q_rhs!, shift!
 
-    using LinearAlgebra: I, Diagonal, Hermitian, eigmin, tr
+    using LinearAlgebra: Diagonal, Hermitian, I, eigmin, tr
     using SparseArrays: sparse
     using StaticArrays: SMatrix, SVector
 
@@ -579,9 +579,9 @@ end
 @testitem "Workspace errors" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: LocalResolventEquation
-    using GaussianSpectralDensities.Workspaces: Workspace, Q!
+    using GaussianSpectralDensities.Workspaces: Q!, Workspace
 
-    using LinearAlgebra: I, Diagonal
+    using LinearAlgebra: Diagonal, I
 
     A = ComplexF64[1 -1; 1 1]
     D = Diagonal(ComplexF64[0.75, 0.25cispi(1//3)])

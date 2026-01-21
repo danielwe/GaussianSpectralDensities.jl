@@ -4,7 +4,7 @@ using ..Ensembles: MatrixEnsemble
 using ..Regularizers: Regularizer
 
 public AbstractLocalResolventProblem,
-    LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
+    LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
 
 """
     LocalResolventEquation(ensemble::MatrixEnsemble, z, normalizeQ=false)
@@ -273,8 +273,8 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         AbstractLocalResolventProblem,
-        LocalResolventEquation,
         LocalRegularizerProblem,
+        LocalResolventEquation,
         LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
 
@@ -329,8 +329,8 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         AbstractLocalResolventProblem,
-        LocalResolventEquation,
         LocalRegularizerProblem,
+        LocalResolventEquation,
         LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
 

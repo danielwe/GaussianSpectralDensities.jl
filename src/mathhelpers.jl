@@ -5,16 +5,16 @@ module MathHelpers
 using Adapt: WrappedArray
 using ArnoldiMethod: ArnoldiMethod, partialschur
 using LinearAlgebra:
-    I,
     Bidiagonal,
     Cholesky,
     Diagonal,
     Hermitian,
+    I,
+    LAPACK,
     PosDefException,
     SymTridiagonal,
     Tridiagonal,
     UniformScaling,
-    LAPACK,
     cholesky,
     diagind,
     dot,
@@ -27,7 +27,7 @@ using LinearAlgebra:
 using LinearMaps: LinearMap
 using MappedArrays: mappedarray
 using SparseArrays: SparseArrays, SparseMatrixCSC, spdiagm
-using StaticArrays: SArray, SMatrix, SVector, StaticMatrix, @SVector
+using StaticArrays: @SVector, SArray, SMatrix, SVector, StaticMatrix
 
 public AbstractMatrixOrUniform,
     AnySArray,
@@ -36,22 +36,22 @@ public AbstractMatrixOrUniform,
     RealOrComplex,
     alldiag,
     converteltype,
-    decompose!!,
     decompose,
+    decompose!!,
     eigmin!!,
     hsdot_normalized,
     inunitdisc,
-    invert!!,
     invert,
-    ldiv!!,
+    invert!!,
     ldiv,
+    ldiv!!,
     mapdiag,
     muladd!!,
     muladd_diag!!,
     neg,
     phase,
-    psdmul!!,
     psdmul,
+    psdmul!!,
     rdiv,
     sizedmatrix,
     tr_normalized
@@ -362,14 +362,12 @@ Ignores `F` and forwards the call to `decompose(A; kwargs...)`. This provides a 
 factorization updating interface that also covers immutable factorization types.
 """
 function decompose!!(
-    F::Cholesky{E,<:SMatrix}, A::Hermitian{E,<:SMatrix}; kwargs...
+    ::Cholesky{E,<:SMatrix}, A::Hermitian{E,<:SMatrix}; kwargs...
 ) where {E}
     return decompose(A; kwargs...)
 end
 
-function decompose!!(
-    F::Diagonal{E,<:SVector}, A::Diagonal{E,<:SVector}; kwargs...
-) where {E}
+function decompose!!(::Diagonal{E,<:SVector}, A::Diagonal{E,<:SVector}; kwargs...) where {E}
     return decompose(A; kwargs...)
 end
 

@@ -3,11 +3,11 @@ module EquationSolvers
 using LinearAlgebra: LAPACKException, SingularException
 using StaticArrays: SVector
 
-using ..Newton: newton, NewtonException
+using ..Newton: NewtonException, newton
 using ..Problems: LocalRegularizerProblem, LocalTraceProblem
 using ..Regularizers: Regularizer
 using ..Solutions: LocalResolventSolution
-using ..Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
+using ..Workspaces: E!, Workspace, gap!, k!, q_rhs!, shift!
 
 public eqsolve!
 
@@ -26,7 +26,8 @@ function eqsolve! end
 function eqsolve!(ws::Workspace{F}, problem::LocalRegularizerProblem{F}) where {F}
     fq = let ws = ws, qscale = problem.qscale, eq = problem.eq, reg = problem.reg
         function fq(qv)
-            q = complex(qv...)
+            # avoid capturing q and reg from the outer function
+            local q = complex(qv...)
             dq = qscale * q_rhs!(ws, eq, qscale * q, reg) - q
             return SVector(real(dq), imag(dq))
         end
@@ -57,7 +58,9 @@ function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}) where {F}
             k = problem.k
 
             function fqreg(qregv)
-                q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], type)
+                # avoid capturing q and reg from the outer function
+                local q = complex(qregv[1], qregv[2])
+                local reg = Regularizer(qregv[3], type)
                 q_scaled = qscale * q
                 dq = qscale * q_rhs!(ws, eq, q_scaled, reg) - q
                 dk = k!(ws, eq, q_scaled, reg) - k
@@ -121,11 +124,11 @@ end  # module ResolventEquationSolvers
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
+        LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Workspaces: Workspace, shift!, gap!, q_rhs!, k!, E!
+    using GaussianSpectralDensities.Workspaces: E!, Workspace, gap!, k!, q_rhs!, shift!
 
-    using LinearAlgebra: I, Diagonal
+    using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
     using StaticArrays: SMatrix, SVector
 
@@ -189,7 +192,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
+        LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
 

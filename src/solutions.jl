@@ -66,7 +66,7 @@ end  # module Solutions
 @testitem "Solutions" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        LocalResolventEquation, LocalRegularizerProblem, LocalTraceProblem
+        LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: LocalResolventSolution
 

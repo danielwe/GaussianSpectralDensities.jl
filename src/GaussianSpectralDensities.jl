@@ -35,13 +35,13 @@ using TestItems: @testitem
 
 module Defaults
 
-    public trace_target,
-        regularizer_target_value,
-        regularizer_target_type,
-        q0,
-        regularizer_schedule_values,
+    public q0,
         regularizer_schedule_type,
-        symmetry_schedule_values
+        regularizer_schedule_values,
+        regularizer_target_type,
+        regularizer_target_value,
+        symmetry_schedule_values,
+        trace_target
 
     const trace_target = 1.0
     const regularizer_target_value = 0.0

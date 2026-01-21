@@ -3,7 +3,7 @@ module Objectives
 using ..Defaults: Defaults
 using ..Regularizers: Regularizer
 
-public AbstractObjective, TraceObjective, RegularizerObjective
+public AbstractObjective, RegularizerObjective, TraceObjective
 
 abstract type AbstractObjective{F<:Real} end
 
