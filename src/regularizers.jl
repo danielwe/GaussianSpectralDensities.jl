@@ -31,6 +31,13 @@ struct Regularizer{F<:Real}
     type::RegularizerType.T
 end
 
+function Base.:+(r1::Regularizer{F}, r2::Regularizer{F}) where {F}
+    if r1.type != r2.type
+        throw(ArgumentError("Cannot add Regularizers of different types"))
+    end
+    return Regularizer{F}(r1.value + r2.value, r1.type)
+end
+
 Regularizer(value::F, type) where {F} = Regularizer{F}(value, type)
 
 Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
@@ -38,6 +45,17 @@ Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
 ## Conversions
 ## ===========
 Base.convert(::Type{P}, r::Regularizer) where {P<:Regularizer} = (r isa P) ? r : P(r)
+
+## Arithmetic
+## ==========
+Base.:-(r::Regularizer{F}) where {F} = Regularizer{F}(-r.value, r.type)
+Base.:-(r1::Regularizer{F}, r2::Regularizer{F}) where {F} = r1 + (-r2)
+
+Base.:*(a::Real, r::Regularizer{F}) where {F} = Regularizer{F}(a * r.value, r.type)
+Base.:*(r::Regularizer, a::Real) = a * r
+
+Base.:/(r::Regularizer{F}, a::Real) where {F} = Regularizer{F}(r.value / a, r.type)
+Base.:\(a::Real, r::Regularizer{F}) where {F} = r / a
 
 """
     shift(reg::Regularizer, baregap::Number)
@@ -136,4 +154,44 @@ end
     using GaussianSpectralDensities.Regularizers: Regularizer
     @test_throws ArgumentError Regularizer(0.5, :foo)
     @test_throws "not a valid Regularizer" Regularizer(0.5, :foo)
+end
+
+@testitem "Regularizer arithmetic" begin
+    using GaussianSpectralDensities.Regularizers: Regularizer
+
+    @testset "$F" for F in [Float32, Float64]
+        # +
+        @test Regularizer{F}(0.25, :shift) + Regularizer{F}(0.5, :shift) ===
+            Regularizer{F}(0.75, :shift)
+        @test Regularizer{F}(0.25, :gap) + Regularizer{F}(0.5, :gap) ===
+            Regularizer{F}(0.75, :gap)
+        @test_throws ArgumentError Regularizer{F}(0.25, :shift) + Regularizer{F}(0.5, :gap)
+        @test_throws "different types" Regularizer{F}(0.25, :gap) +
+            Regularizer{F}(0.5, :shift)
+
+        # - (unary)
+        @test -Regularizer{F}(0.25, :shift) === Regularizer{F}(-0.25, :shift)
+        @test -Regularizer{F}(0.25, :gap) === Regularizer{F}(-0.25, :gap)
+
+        # - (binary)
+        @test Regularizer{F}(0.75, :shift) - Regularizer{F}(0.5, :shift) ===
+            Regularizer{F}(0.25, :shift)
+        @test Regularizer{F}(0.75, :gap) - Regularizer{F}(0.5, :gap) ===
+            Regularizer{F}(0.25, :gap)
+        @test_throws ArgumentError Regularizer{F}(0.75, :shift) - Regularizer{F}(0.5, :gap)
+        @test_throws "different types" Regularizer{F}(0.75, :gap) -
+            Regularizer{F}(0.5, :shift)
+
+        # *
+        @test 2 * Regularizer{F}(0.25, :shift) === Regularizer{F}(0.5, :shift)
+        @test Regularizer{F}(0.25, :shift) * 2 === Regularizer{F}(0.5, :shift)
+        @test 2 * Regularizer{F}(0.25, :gap) === Regularizer{F}(0.5, :gap)
+        @test Regularizer{F}(0.25, :gap) * 2 === Regularizer{F}(0.5, :gap)
+
+        # /\
+        @test Regularizer{F}(0.5, :shift) / 2 === Regularizer{F}(0.25, :shift)
+        @test Regularizer{F}(0.5, :gap) / 2 === Regularizer{F}(0.25, :gap)
+        @test 2 \ Regularizer{F}(0.5, :shift) === Regularizer{F}(0.25, :shift)
+        @test 2 \ Regularizer{F}(0.5, :gap) === Regularizer{F}(0.25, :gap)
+    end
 end
