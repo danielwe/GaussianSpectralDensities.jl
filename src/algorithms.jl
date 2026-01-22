@@ -604,7 +604,7 @@ end
                 @test all(s -> s.success, solutions)
 
                 # Schedule steps: index increases, not done yet
-                for i in 1:nschedule
+                @testset "state index = $i" for i in 1:nschedule
                     @test states[i].index == i
                     @test states[i].currentsolution === solutions[i]
                     @test !states[i].done
@@ -617,7 +617,7 @@ end
                 @test states[nschedule].final
 
                 # Each schedule step uses previous solution's q as initial guess
-                for i in 2:nschedule
+                @testset "solution index = $i" for i in 2:nschedule
                     @test solutions[i].problem.q0 == solutions[i - 1].q
                 end
 

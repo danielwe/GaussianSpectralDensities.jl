@@ -100,6 +100,8 @@ Common test patterns:
 
 In higher-level behavior tests, use type-enforcing constructors (e.g., `MatrixEnsemble{F}(...)`) to obtain correctly-typed objects. Intermediate variables used to assemble these don't need float-specific versions—the constructor handles conversion. This keeps setup code simple since constructor correctness is verified separately.
 
+Never use a plain `for` loop when the loop body contains a `@test` (or one of its siblings, like `@test_throws`). Such loops should always use the test set form: `@testset "$label" for ...`. This ensures that failing tests are printed with sufficient context to know in which iteration they failed.
+
 ## Commented Code
 
 There's substantial commented code from the old implementation. Don't worry about cleaning it up unless specifically asked—focus on making active code work and be well-tested.
