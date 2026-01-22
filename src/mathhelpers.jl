@@ -40,6 +40,7 @@ public AbstractMatrixOrUniform,
     decompose!!,
     eigmin!!,
     hsdot_normalized,
+    interpolate,
     inunitdisc,
     invert,
     invert!!,
@@ -92,6 +93,11 @@ inunitdisc(a::Number) = (abs2(a) <= 1)
 phase(a::Number) = (a == 0) ? one(a) : a / abs(a)  # like sign except when a == 0
 
 samesign(x::Number, y::Number) = (x * y > 0)  # TODO: is this good enough (Inf/NaN etc.)
+
+function interpolate(x, (x1, y1), (x2, y2))
+    (x1 == x2) && return (y1 + y2) / 2  # possibly non-standard, definitely useful
+    return (y1 * (x2 - x) + y2 * (x - x1)) / (x2 - x1)
+end
 
 function converteltype(::Type{E}, A) where {E}
     (E === eltype(A)) && return A

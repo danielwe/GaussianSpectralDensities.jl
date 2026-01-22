@@ -2,7 +2,7 @@ module Algorithms
 
 using ..Defaults: Defaults
 using ..EquationSolvers: eqsolve!
-using ..MathHelpers: samesign
+using ..MathHelpers: interpolate, samesign
 using ..Problems: AbstractLocalResolventProblem, LocalRegularizerProblem, LocalTraceProblem
 using ..Regularizers: Regularizer, RegularizerType
 using ..Solutions: LocalResolventSolution
@@ -95,9 +95,9 @@ end
 struct RegularizerScheduleState{
     F,SP<:LocalResolventSolution{F},SC<:LocalResolventSolution{F}
 } <: AbstractScheduleState{F}
-    index::Int
-    previoussolution::SP
     currentsolution::SC
+    previoussolution::SP
+    index::Int
     final::Bool
     done::Bool
 end
@@ -269,78 +269,75 @@ function step!(
 end
 
 function step!(
-    ws::Workspace{F},
-    problem::AbstractLocalResolventProblem{F},
-    alg::RegularizerSchedule{F},
-    state::Union{Nothing,RegularizerScheduleState{F}}=nothing,
+    ws::Workspace{F}, problem::AbstractLocalResolventProblem{F}, alg::RegularizerSchedule{F}
 ) where {F}
-    (!isnothing(state)) && state.done && return nothing
-
-    index = isnothing(state) ? firstindex(alg) : state.index + 1
-
-    if (!isnothing(state)) && state.final
-        fproblem = finalproblem(problem, state)
-        solution = eqsolve!(ws, fproblem)
-        return (
-            solution,
-            RegularizerScheduleState(index, state.currentsolution, solution, false, true),
-        )
-    end
-
-    step_q0 = isnothing(state) ? problem.q0 : state.currentsolution.q
-    stepproblem = LocalRegularizerProblem(problem.eq, alg[index], step_q0, problem.qscale)
-    stepsolution = eqsolve!(ws, stepproblem)
-    prevsolution = isnothing(state) ? stepsolution : state.currentsolution
-    done = isdone(problem, stepsolution)
-
-    final = if done
-        # TODO: hit in tests?
-        false
-    elseif (index == lastindex(alg))
-        true
-    else
-        didpasstarget(problem, stepsolution, prevsolution)
-    end
-
+    step_index = firstindex(alg)
+    step_q0 = problem.q0
+    firstsolution, exhausted, done = step_common!(ws, problem, alg, step_index, step_q0)
+    final = (!done) && exhausted
     return (
-        stepsolution,
-        RegularizerScheduleState(index, prevsolution, stepsolution, final, done),
+        firstsolution,
+        RegularizerScheduleState(firstsolution, firstsolution, step_index, final, done),
     )
 end
 
-function finalproblem(
-    problem::LocalRegularizerProblem{F}, state::AbstractScheduleState{F}
+function step!(
+    ws::Workspace{F},
+    problem::AbstractLocalResolventProblem{F},
+    alg::RegularizerSchedule{F},
+    state::RegularizerScheduleState{F},
 ) where {F}
-    # Linear interpolation between prev and curr, weighted by distance from target
-    prev, curr = state.previoussolution, state.currentsolution
-    target_regv, reg_type = problem.reg.value, Symbol(problem.reg.type)
-    prev_regv, curr_regv = getproperty(prev, reg_type), getproperty(curr, reg_type)
-    final_q0 = if curr_regv == prev_regv
-        # TODO: hit in tests
-        (prev.q + curr.q) / 2
-    else
-        dcurr_regv, dprev_regv = curr_regv - target_regv, target_regv - prev_regv
-        ((prev.q * dcurr_regv) + (curr.q * dprev_regv)) / (curr_regv - prev_regv)
+    state.done && return nothing
+    step_index = state.index + 1
+    currsolution = state.currentsolution
+    if state.final
+        finalproblem = final_problem(problem, currsolution, state.previoussolution)
+        finalsolution = eqsolve!(ws, finalproblem)
+        finalstate = ScheduleState(finalsolution, currsolution, step_index, false, true)
+        return finalsolution, finalstate
     end
+    step_q0 = currsolution.q
+    nextsolution, exhausted, done = step_common!(ws, problem, alg, step_index, step_q0)
+    final = (!done) && (exhausted || didpasstarget(problem, nextsolution, currsolution))
+    return (
+        nextsolution,
+        RegularizerScheduleState(nextsolution, currsolution, step_index, final, done),
+    )
+end
+
+function step_common!(
+    ws::Workspace{F},
+    problem::AbstractLocalResolventProblem{F},
+    alg::RegularizerSchedule{F},
+    step_index::Integer,
+    step_q0::Complex{F},
+) where {F}
+    step_reg = alg[step_index]
+    stepproblem = LocalRegularizerProblem(problem.eq, step_reg, step_q0, problem.qscale)
+    stepsolution = eqsolve!(ws, stepproblem)
+    return stepsolution, (step_index == lastindex(alg)), isdone(problem, stepsolution)
+end
+
+function finalproblem(
+    problem::LocalRegularizerProblem{F},
+    currsolution::LocalResolventSolution{F},
+    prevsolution::LocalResolventSolution{F},
+) where {F}
+    curr_regv, curr_q = getproperty(currsolution, Symbol(problem.reg.type)), currsolution.q
+    prev_regv, prev_q = getproperty(prevsolution, Symbol(problem.reg.type)), prevsolution.q
+    final_q0 = interpolate(problem.reg.value, (prev_regv, prev_q), (curr_regv, curr_q))
     return LocalRegularizerProblem(problem.eq, problem.reg, final_q0, problem.qscale)
 end
 
 function finalproblem(
-    problem::LocalTraceProblem{F}, state::AbstractScheduleState{F}
+    problem::LocalTraceProblem{F},
+    currsolution::LocalResolventSolution{F},
+    prevsolution::LocalResolventSolution{F},
 ) where {F}
-    # Linear interpolation between prev and curr, weighted by distance from target
-    prev, curr = state.previoussolution, state.currentsolution
-    final_reg0, final_q0 = if curr.k == prev.k
-        # TODO: hit in tests
-        ((prev.reg + curr.reg) / 2, (prev.q + curr.q) / 2)
-    else
-        dcurr_k, dprev_k = curr.k - problem.k, problem.k - prev.k
-        dk = curr.k - prev.k
-        (
-            ((prev.reg * dcurr_k) + (curr.reg * dprev_k)) / dk,
-            ((prev.q * dcurr_k) + (curr.q * dprev_k)) / dk,
-        )
-    end
+    curr_k, curr_reg, curr_q = currsolution.k, currsolution.reg, currsolution.q
+    prev_k, prev_reg, prev_q = prevsolution.k, prevsolution.reg, prevsolution.q
+    final_reg0 = interpolate(problem.k, (prev_k, prev_reg), (curr_k, curr_reg))
+    final_q0 = interpolate(problem.k, (prev_k, prev_q), (curr_k, curr_q))
     return LocalTraceProblem(problem.eq, problem.k, final_reg0, final_q0, problem.qscale)
 end
 
@@ -667,12 +664,12 @@ end
                 end
 
                 # Final step: solving for the actual target problem
-                final_solution = solutions[end]
-                final_state = states[end]
-                @test !final_state.final
-                @test final_state.done
-                @test final_solution.problem.reg == problemF.reg
-                @test getproperty(final_solution, type) == target_reg64.value
+                finalsolution = solutions[end]
+                finalstate = states[end]
+                @test !finalstate.final
+                @test finalstate.done
+                @test finalsolution.problem.reg == problemF.reg
+                @test getproperty(finalsolution, type) == target_reg64.value
             end
         end
     end
@@ -716,24 +713,24 @@ end
         @test all(s -> s.success, solutions)
 
         # Find where didpasstarget triggered (first state with final=true)
-        final_schedule_idx = findfirst(s -> s.final, states)
+        final_schedule_index = findfirst(s -> s.final, states)
 
         # nothing means a regular step landed directly on "done". We want to avoid this to
         # ensure we're exercising the final step codepath.
-        @test !isnothing(final_schedule_idx)
+        @test !isnothing(final_schedule_index)
 
         # There should only be one more step after reaching final
-        @test final_schedule_idx + 1 == lastindex(solutions)
+        @test final_schedule_index + 1 == lastindex(solutions)
 
         # Verify final was set because k crossed target, not schedule exhaustion
-        @test final_schedule_idx < length(algF)
+        @test final_schedule_index < length(algF)
 
         # Final step solves the actual LocalTraceProblem
-        final_solution = solutions[end]
-        final_state = states[end]
-        @test !final_state.final
-        @test final_state.done
-        @test final_solution.k == target_k64
+        finalsolution = solutions[end]
+        finalstate = states[end]
+        @test !finalstate.final
+        @test finalstate.done
+        @test finalsolution.k == target_k64
     end
 end
 
