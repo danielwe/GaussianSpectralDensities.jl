@@ -9,7 +9,7 @@ using ..Solutions: LocalResolventSolution
 using ..Workspaces: Workspace
 
 public AbstractAlgorithm,
-    AbstractSchedule, DirectSolve, RegularizerSchedule, SymmetrySchedule, initiallength
+    AbstractSchedule, DirectSolve, RegularizerSchedule, SymmetrySchedule
 
 abstract type AbstractAlgorithm end
 abstract type AbstractAlgorithmState end
@@ -30,14 +30,12 @@ DirectSolve(::DirectSolve) = DirectSolve()
 ## Traits, conversions
 ## ===================
 Base.length(::DirectSolve) = 0
-initiallength(::DirectSolve) = 0
 Base.convert(::Type{DirectSolve}, alg::DirectSolve) = alg
 Base.convert(::Type{AbstractAlgorithm}, alg::DirectSolve) = alg
 
 # Type tree
 # =========
 abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
-abstract type AbstractScheduleState{F<:AbstractFloat} <: AbstractAlgorithmState end
 
 ## Traits
 ## ======
@@ -92,16 +90,6 @@ struct RegularizerSchedule{F,U<:AbstractVector{F}} <: AbstractSchedule{F}
     end
 end
 
-struct RegularizerScheduleState{
-    F,SP<:LocalResolventSolution{F},SC<:LocalResolventSolution{F}
-} <: AbstractScheduleState{F}
-    currentsolution::SC
-    previoussolution::SP
-    index::Int
-    final::Bool
-    done::Bool
-end
-
 RegularizerSchedule(values, args...) = RegularizerSchedule{eltype(values)}(values, args...)
 
 function RegularizerSchedule()
@@ -116,8 +104,6 @@ end
 
 ## Traits, comparisons, conversions
 ## ================================
-initiallength(::RegularizerSchedule) = 0
-
 function Base.:(==)(a::A, b::A) where {A<:RegularizerSchedule}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
 end
@@ -140,13 +126,9 @@ Base.lastindex(alg::RegularizerSchedule) = lastindex(alg.values)
 
 """
     SymmetrySchedule()
-    SymmetrySchedule(values, initialalg=DirectSolve(), shiftmin=-Inf)
-    SymmetrySchedule{F}(
-        steps::Integer, initialalg=DirectSolve(), shiftmin=-Inf
-    ) where {F<:AbstractFloat}
-    SymmetrySchedule{F}(
-        values, initialalg=DirectSolve(), shiftmin=-Inf
-    ) where {F<:AbstractFloat}
+    SymmetrySchedule(values, shiftmin=-Inf)
+    SymmetrySchedule{F}(steps::Integer, shiftmin=-Inf) where {F<:AbstractFloat}
+    SymmetrySchedule{F}(values, shiftmin=-Inf) where {F<:AbstractFloat}
 
 Solve the average resolvent equation by annealing the degree of symmetry in the ensemble
 
@@ -168,9 +150,6 @@ of an `AbstractVector{<:Real}`; this can be useful if, for example, you want to 
 steps in an unstable region. An error is thrown if the schedule does not increase
 monotonically from 0 to 1.
 
-`initialalg` holds the algorithm that will be used to find the solution at ``μ = 0``. The
-default `DirectSolve` usually suffices here, but you can also use a `RegularizerSchedule`.
-
 The meaning of `shiftmin` is the same as in [`RegularizerSchedule`](@ref).
 
 The default value is
@@ -179,44 +158,19 @@ The default value is
 SymmetrySchedule(Defaults.symmetry_schedule_values)
 ```
 """
-struct SymmetrySchedule{
-    F,A<:Union{DirectSolve,RegularizerSchedule{F}},U<:AbstractVector{F}
-} <: AbstractSchedule{F}
+struct SymmetrySchedule{F,U<:AbstractVector{F}} <: AbstractSchedule{F}
     values::U
-    initialalg::A
     shiftmin::F
 
-    function SymmetrySchedule{F}(
-        values, initialalg=DirectSolve(), shiftmin=F(-Inf)
-    ) where {F}
+    function SymmetrySchedule{F}(values, shiftmin=F(-Inf)) where {F}
         if (first(values) != 0) || (last(values) != 1) || !monotonic(values)
             msg = "symmetry schedule must increase monotonically from 0 to 1"
             throw(ArgumentError(msg))
         end
         # map preserves ranges types etc. better than broadcasting
         values_ = (eltype(values) === F) ? values : map(F, values)
-        initialalg_ = if initialalg isa AbstractSchedule
-            convert(AbstractSchedule{F}, initialalg)
-        else
-            initialalg
-        end
-        return new{F,typeof(initialalg_),typeof(values_)}(values_, initialalg_, shiftmin)
+        return new{F,typeof(values_)}(values_, shiftmin)
     end
-end
-
-struct SymmetryScheduleState{
-    F,
-    S<:LocalResolventSolution{F},
-    IP<:Union{DirectSolve,LocalRegularizerProblem{F}},
-    IS<:Union{DirectSolveState,RegularizerScheduleState{F}},
-} <: AbstractScheduleState{F}
-    index::Int
-    currentsolution::S
-    final::Bool
-    done::Bool
-    initial::Bool
-    initialproblem::IP
-    initialstate::IS
 end
 
 function SymmetrySchedule{F}(steps::Integer, args...) where {F}
@@ -227,13 +181,11 @@ SymmetrySchedule(values, args...) = SymmetrySchedule{eltype(values)}(values, arg
 SymmetrySchedule() = SymmetrySchedule(Defaults.symmetry_schedule_values)
 
 function SymmetrySchedule{F}(alg::SymmetrySchedule) where {F}
-    return SymmetrySchedule{F}(alg.values, alg.initialalg, alg.shiftmin)
+    return SymmetrySchedule{F}(alg.values, alg.shiftmin)
 end
 
 ## Traits, comparisons, conversions
 ## ================================
-initiallength(alg::SymmetrySchedule) = length(alg.initialalg)
-
 function Base.:(==)(a::A, b::A) where {A<:SymmetrySchedule}
     return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
 end
@@ -246,12 +198,29 @@ function Base.convert(::Type{AbstractSchedule{F}}, alg::SymmetrySchedule) where 
     return convert(SymmetrySchedule{F}, alg)
 end
 
+## Indexing interface
+## ==================
+Base.getindex(alg::SymmetrySchedule, i) = alg.values[i]
+Base.firstindex(alg::SymmetrySchedule) = firstindex(alg.values)
+Base.lastindex(alg::SymmetrySchedule) = lastindex(alg.values)
+
 ## Helpers
 ## =======
 function monotonic(x)
     (length(x) == 1) && return true
     tail = @view x[(begin + 1):end]
     return (first(x) < first(tail)) && monotonic(tail)
+end
+
+## Shared iteration state for schedule algorithms
+## ==============================================
+struct ScheduleState{F,SP<:LocalResolventSolution{F},SC<:LocalResolventSolution{F}} <:
+       AbstractAlgorithmState
+    currentsolution::SC
+    previoussolution::SP
+    index::Int
+    final::Bool
+    done::Bool
 end
 
 ## Implementation
@@ -275,17 +244,15 @@ function step!(
     step_q0 = problem.q0
     firstsolution, exhausted, done = step_common!(ws, problem, alg, step_index, step_q0)
     final = (!done) && exhausted
-    return (
-        firstsolution,
-        RegularizerScheduleState(firstsolution, firstsolution, step_index, final, done),
-    )
+    firststate = ScheduleState(firstsolution, firstsolution, step_index, final, done)
+    return firstsolution, firststate
 end
 
 function step!(
     ws::Workspace{F},
     problem::AbstractLocalResolventProblem{F},
     alg::RegularizerSchedule{F},
-    state::RegularizerScheduleState{F},
+    state::ScheduleState{F},
 ) where {F}
     state.done && return nothing
     step_index = state.index + 1
@@ -299,10 +266,8 @@ function step!(
     step_q0 = currsolution.q
     nextsolution, exhausted, done = step_common!(ws, problem, alg, step_index, step_q0)
     final = (!done) && (exhausted || didpasstarget(problem, nextsolution, currsolution))
-    return (
-        nextsolution,
-        RegularizerScheduleState(nextsolution, currsolution, step_index, final, done),
-    )
+    nextstate = ScheduleState(nextsolution, currsolution, step_index, final, done)
+    return nextsolution, nextstate
 end
 
 function step_common!(
@@ -318,7 +283,7 @@ function step_common!(
     return stepsolution, (step_index == lastindex(alg)), isdone(problem, stepsolution)
 end
 
-function finalproblem(
+function final_problem(
     problem::LocalRegularizerProblem{F},
     currsolution::LocalResolventSolution{F},
     prevsolution::LocalResolventSolution{F},
@@ -329,7 +294,7 @@ function finalproblem(
     return LocalRegularizerProblem(problem.eq, problem.reg, final_q0, problem.qscale)
 end
 
-function finalproblem(
+function final_problem(
     problem::LocalTraceProblem{F},
     currsolution::LocalResolventSolution{F},
     prevsolution::LocalResolventSolution{F},
@@ -434,15 +399,13 @@ end
 end  # module Algorithms
 
 @testitem "DirectSolve" begin
-    using GaussianSpectralDensities.Algorithms:
-        AbstractAlgorithm, DirectSolve, initiallength
+    using GaussianSpectralDensities.Algorithms: AbstractAlgorithm, DirectSolve
 
     alg64 = DirectSolve()
 
     # Traits
     @test alg64 isa DirectSolve
     @test length(alg64) == 0
-    @test initiallength(alg64) == 0
 
     # Conversion
     @test DirectSolve(alg64) === DirectSolve()
@@ -451,8 +414,7 @@ end  # module Algorithms
 end
 
 @testitem "RegularizerSchedule" begin
-    using GaussianSpectralDensities.Algorithms:
-        AbstractSchedule, RegularizerSchedule, initiallength
+    using GaussianSpectralDensities.Algorithms: AbstractSchedule, RegularizerSchedule
     using GaussianSpectralDensities.Defaults: Defaults
 
     values64, type, shiftmin = 2.0 .^ (2:-1:-2), :gap, 0.0
@@ -461,7 +423,6 @@ end
     # Traits
     @test alg64 isa RegularizerSchedule{Float64}
     @test length(alg64) == length(values64)
-    @test initiallength(alg64) == 0
 
     # Defaults
     @test RegularizerSchedule() === RegularizerSchedule(
@@ -491,39 +452,37 @@ end
 
 @testitem "SymmetrySchedule" begin
     using GaussianSpectralDensities.Algorithms:
-        AbstractSchedule, RegularizerSchedule, SymmetrySchedule, initiallength
+        AbstractSchedule, RegularizerSchedule, SymmetrySchedule
     using GaussianSpectralDensities.Defaults: Defaults
 
     steps = 3
     values64, shiftmin = range(0.0, 1.0, steps), 0.0
-    initialalg = RegularizerSchedule()
 
-    alg64 = SymmetrySchedule(values64, initialalg, shiftmin)
+    alg64 = SymmetrySchedule(values64, shiftmin)
 
     # Traits
-    @test alg64 isa SymmetrySchedule{Float64,<:RegularizerSchedule{Float64}}
+    @test alg64 isa SymmetrySchedule{Float64}
     @test length(alg64) == length(values64)
-    @test initiallength(alg64) == length(initialalg)
 
     # All the signatures
-    @test SymmetrySchedule{Float64}(steps, initialalg, shiftmin) === alg64
+    @test SymmetrySchedule{Float64}(steps, shiftmin) === alg64
 
     # Defaults
     @test SymmetrySchedule() === SymmetrySchedule(Defaults.symmetry_schedule_values)
 
     @testset "$F" for F in [Float32, Float64]
         valuesF = map(F, values64)  # map preserves ranges types etc. better than broadcasting
-        algF = SymmetrySchedule(valuesF, initialalg, shiftmin)
+        algF = SymmetrySchedule(valuesF, shiftmin)
 
         # Floattype inferring constructor
-        @test algF isa SymmetrySchedule{F,<:RegularizerSchedule{F}}
+        @test algF isa SymmetrySchedule{F}
 
         # Floattype enforcing constructor
-        @test SymmetrySchedule{F}(values64, initialalg, shiftmin) == algF
-        @test SymmetrySchedule{Float64}(valuesF, initialalg, shiftmin) == alg64
+        @test SymmetrySchedule{F}(values64, shiftmin) == algF
+        @test SymmetrySchedule{Float64}(valuesF, shiftmin) == alg64
 
         # Upconvert algF properties to capture roundtrip truncation before equality testing
-        algF64 = SymmetrySchedule(map(Float64, algF.values), algF.initialalg, algF.shiftmin)
+        algF64 = SymmetrySchedule(map(Float64, algF.values), algF.shiftmin)
 
         # Floattype conversions
         @test convert(SymmetrySchedule{F}, alg64) == algF
@@ -592,8 +551,7 @@ end
 end
 
 @testitem "stepping RegularizerSchedule" begin
-    using GaussianSpectralDensities.Algorithms:
-        RegularizerSchedule, RegularizerScheduleState, step!
+    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         LocalRegularizerProblem, LocalResolventEquation
@@ -629,7 +587,7 @@ end
 
                 # Collect all solutions and states
                 solutions = LocalResolventSolution{F}[]
-                states = RegularizerScheduleState{F}[]
+                states = []
                 result = step!(wsF, problemF, algF)
                 while !isnothing(result)
                     solution, state = result
@@ -676,8 +634,7 @@ end
 end
 
 @testitem "stepping RegularizerSchedule with LocalTraceProblem" begin
-    using GaussianSpectralDensities.Algorithms:
-        RegularizerSchedule, RegularizerScheduleState, step!
+    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
@@ -700,7 +657,7 @@ end
         problemF = LocalTraceProblem(eqF, target_k64, algF[begin], q0_64)
 
         solutions = LocalResolventSolution{F}[]
-        states = RegularizerScheduleState{F}[]
+        states = []
         result = step!(wsF, problemF, algF)
         while !isnothing(result)
             solution, state = result
