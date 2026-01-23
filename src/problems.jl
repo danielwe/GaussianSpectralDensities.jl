@@ -98,9 +98,13 @@ function LocalRegularizerProblem{F}(problem::LocalRegularizerProblem) where {F}
 end
 
 function update(
-    problem::LocalRegularizerProblem{F}; init=problem.init, qscale=problem.qscale
+    problem::LocalRegularizerProblem{F};
+    eq=problem.eq,
+    reg=problem.reg,
+    init=problem.init,
+    qscale=problem.qscale,
 ) where {F}
-    return LocalRegularizerProblem{F}(problem.eq, problem.reg, init, qscale)
+    return LocalRegularizerProblem{F}(problem.eq, reg, init, qscale)
 end
 
 function Base.convert(
@@ -156,9 +160,13 @@ function LocalTraceProblem{F}(problem::LocalTraceProblem) where {F}
 end
 
 function update(
-    problem::LocalTraceProblem{F}; init=problem.init, qscale=problem.qscale
+    problem::LocalTraceProblem{F};
+    eq=problem.eq,
+    k=problem.k,
+    init=problem.init,
+    qscale=problem.qscale,
 ) where {F}
-    return LocalTraceProblem{F}(problem.eq, problem.k, init, qscale)
+    return LocalTraceProblem{F}(eq, k, init, qscale)
 end
 
 function Base.convert(::Type{P}, p::LocalTraceProblem) where {F,P<:LocalTraceProblem{F}}
@@ -308,6 +316,7 @@ end
     reg64 = Regularizer(0.5, :gap)
     reg_alt64 = Regularizer(0.5, :shift)
     k64, q0_64, qscale64 = 1.0, complex(eps(), eps()), 0.5
+    k_alt64 = 0.5
     init64 = (; reg=reg64, q=q0_64)
     init_alt64 = (; reg=reg_alt64, q=q0_64)
 
@@ -318,13 +327,16 @@ end
         regF = Regularizer(F(reg64.value), reg64.type)
         reg_altF = Regularizer(F(reg_alt64.value), reg64.type)
         kF = F(k64)
+        k_altF = F(k64)
         q0_F = Complex{F}(q0_64)
         qscaleF = F(qscale64)
         initF = (; reg=regF, q=q0_F)
         init_altF = (; reg=reg_altF, q=q0_F)
 
-        @testset "$(nameof(P))" for (P, param64, paramF) in [
-            (LocalRegularizerProblem, reg64, regF), (LocalTraceProblem, k64, kF)
+        @testset "$(nameof(P))" for (P, pname, param64, param_alt64, paramF, param_altF) in
+                                    [
+            (LocalRegularizerProblem, :reg, reg64, reg_alt64, regF, reg_altF),
+            (LocalTraceProblem, :k, k64, k_alt64, kF, k_altF),
         ]
             problem64 = P(eq64, param64, init64, qscale64)
             problemF = P(eqF, paramF, initF, qscaleF)
@@ -334,14 +346,16 @@ end
             @test problemF isa P{F}
 
             # Defaults
-            problem_alt64 = P(eq64, param64, init_alt64, 1)
-            problem_altF = P(eqF, paramF, init_altF, 1)
-            @test P(eq64, param64, init_alt64) === problem_alt64
-            @test P(eqF, paramF, init_altF) === problem_altF
+            problem_alt64 = P(eq64, param_alt64, init_alt64, 1)
+            problem_altF = P(eqF, param_altF, init_altF, 1)
+            @test P(eq64, param_alt64, init_alt64) === problem_alt64
+            @test P(eqF, param_altF, init_altF) === problem_altF
 
             # Update
-            @test update(problem64; init=init_alt64, qscale=1) === problem_alt64
-            @test update(problemF; init=init_altF, qscale=1) === problem_altF
+            @test problem_alt64 ===
+                update(problem64; pname => param_alt64, init=init_alt64, qscale=1)
+            @test problem_altF ===
+                update(problemF; pname => param_altF, init=init_altF, qscale=1)
 
             # Floattype inferring constructor
             @test problemF isa P{F}

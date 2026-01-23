@@ -2,7 +2,7 @@ module Algorithms
 
 using ..Defaults: Defaults
 using ..EquationSolvers: eqsolve!
-using ..MathHelpers: interpolate, samesign
+using ..MathHelpers: predictlinear, samesign
 using ..Problems:
     AbstractLocalResolventProblem, LocalRegularizerProblem, LocalTraceProblem, update
 using ..Regularizers: Regularizer, RegularizerType
@@ -20,7 +20,7 @@ abstract type AbstractAlgorithmState end
 ## Implicitly defines the required interface for each algorithm:
 ## - firstindex(::AbstractAlgorithm)
 ## - nextindex(::AbstractAlgorithm{F}, ::AbstractAlgorithmState{F})
-## - done(problem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
+## - done(::AbstractLocalResolventProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
 ## - stepproblem(index, ::AbstractLocalResolventProblem, ::AbstractAlgorithm)::AbstractLocalResolventProblem
 ## - stepproblem(index, ::AbstractLocalResolventProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::AbstractLocalResolventProblem
 ## - check(::LocalResolventSolution, ::AbstractAlgorithm)::LocalResolventSolution
@@ -70,6 +70,7 @@ This solution strategy can converge to the wrong branch when ``T ≠ 0``. A sche
 algorithm is recommended to mitigate this.
 """
 struct DirectSolve <: AbstractAlgorithm end
+struct DirectSolveState <: AbstractAlgorithmState end
 
 DirectSolve(::DirectSolve) = DirectSolve()
 
@@ -78,14 +79,9 @@ DirectSolve(::DirectSolve) = DirectSolve()
 Base.convert(::Type{DirectSolve}, alg::DirectSolve) = alg
 Base.convert(::Type{AbstractAlgorithm}, alg::DirectSolve) = alg
 
-# Indexing interface
-# ------------------
+# Interface
+# ---------
 firstindex(::DirectSolve) = nothing
-
-# State
-# -----
-struct DirectSolveState <: AbstractAlgorithmState end
-
 nextindex(::DirectSolve, ::DirectSolveState) = nothing
 done(::AbstractLocalResolventProblem, ::DirectSolve, ::DirectSolveState) = true
 
@@ -99,22 +95,94 @@ newstate(::Nothing, ::LocalResolventSolution, ::DirectSolve) = DirectSolveState(
 
 ## Schedule algorithms
 ## ===================
-## Required interface for each algorithm:
-## - (state::AbstractScheduleState).index::Integer
-## - (state::AbstractScheduleState{F}).shiftmin::F
+## Provided types:
+## - ScheduleState{F} with properties currsolution, prevsolution, index::Integer
 ## Provided methods:
-## - nextindex(::AbstractSchedule{F}, ::AbstractScheduleState{F})::Integer
+## - nextindex(::AbstractSchedule{F}, ::ScheduleState{F})::Integer
+## - stepproblem(::Integer, ::AbstractLocalResolventProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::AbstractLocalResolventProblem{F}
 ## - check(::LocalResolventSolution{F}, ::AbstractSchedule{F})::LocalResolventSolution{F}
+## - newstate(::Integer, ::LocalResolventSolution{F}, ::AbstractSchedule{F})::ScheduleState{F}
+## - newstate(::Integer, ::LocalResolventSolution{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::ScheduleState{F}
+## Bonus reusable functions:
+## - stepproblem_common(::Integer, ::AbstractLocalResolventProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::AbstractLocalResolventProblem{F}
+## - predictinit(::AbstractLocalResolventProblem{F}, ::LocalResolventSolution{F}, ::LocalResolventSolution{F})::AbstractLocalResolventProblem{F}
+#::Integer, ::AbstractLocalResolventProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::AbstractLocalResolventProblem{F}
+## Required interface for each implementation:
+## - done(::AbstractLocalResolventProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::Bool
+## - stepproblem(::Integer, ::AbstractLocalResolventProblem{F}, ::AbstractSchedule{F})::AbstractLocalResolventProblem{F}
 abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
-abstract type AbstractScheduleState{F<:AbstractFloat} <: AbstractAlgorithmState end
 
-function nextindex(::AbstractSchedule{F}, state::AbstractScheduleState{F}) where {F}
+struct ScheduleState{F,S<:LocalResolventSolution{F},P<:LocalResolventSolution{F}} <:
+       AbstractAlgorithmState
+    currsolution::S
+    prevsolution::P
+    index::Int
+end
+
+function nextindex(::AbstractSchedule{F}, state::ScheduleState{F}) where {F}
     return state.index + 1
+end
+
+function stepproblem(
+    index::Integer,
+    problem::AbstractLocalResolventProblem{F},
+    alg::AbstractSchedule{F},
+    state::ScheduleState{F},
+) where {F}
+    return stepproblem_common(index, problem, alg, state)
 end
 
 function check(solution::LocalResolventSolution{F}, alg::AbstractSchedule{F}) where {F}
     (solution.shift < alg.shiftmin) && return setfailed(solution)
     return solution
+end
+
+function newstate(
+    index::Integer, currsolution::LocalResolventSolution{F}, ::AbstractSchedule{F}
+) where {F}
+    return ScheduleState(currsolution, currsolution, index)
+end
+
+function newstate(
+    index::Integer,
+    currsolution::LocalResolventSolution{F},
+    ::AbstractSchedule{F},
+    state::ScheduleState{F},
+) where {F}
+    return ScheduleState(currsolution, state.currsolution, index)
+end
+
+function stepproblem_common(
+    index::Integer,
+    problem::AbstractLocalResolventProblem{F},
+    alg::AbstractSchedule{F},
+    state::ScheduleState{F},
+) where {F}
+    step_problem = stepproblem(index, problem, alg)
+    return predictinit(step_problem, state.currsolution, state.prevsolution)
+end
+
+function predictinit(
+    problem::LocalRegularizerProblem{F},
+    solution1::LocalResolventSolution{F},
+    solution2::LocalResolventSolution{F},
+) where {F}
+    reg_value1, q1 = getproperty(solution1, Symbol(problem.reg.type)), solution1.q
+    reg_value2, q2 = getproperty(solution2, Symbol(problem.reg.type)), solution2.q
+    init = (; q=predictlinear(problem.reg.value, (reg_value1, q1), (reg_value2, q2)))
+    return update(problem; init)
+end
+
+function predictinit(
+    problem::LocalTraceProblem{F},
+    solution1::LocalResolventSolution{F},
+    solution2::LocalResolventSolution{F},
+) where {F}
+    k1, reg1, q1 = solution1.k, solution1.reg, solution1.q
+    k2, reg2, q2 = solution2.k, solution2.reg, solution2.q
+    reg = predictlinear(problem.k, (k1, reg1), (k2, reg2))
+    q = predictlinear(problem.k, (k1, q1), (k2, q2))
+    return update(problem; init=(; reg, q))
 end
 
 """
@@ -194,34 +262,20 @@ function Base.convert(::Type{AbstractSchedule{F}}, alg::RegularizerSchedule) whe
     return convert(RegularizerSchedule{F}, alg)
 end
 
-# Indexing interface
-# ------------------
+# Interface
+# ---------
 Base.getindex(alg::RegularizerSchedule, i::Integer) = Regularizer(alg.values[i], alg.type)
 Base.firstindex(alg::RegularizerSchedule) = Base.firstindex(alg.values)
 Base.lastindex(alg::RegularizerSchedule) = Base.lastindex(alg.values)
 
-# State
-# -----
-struct RegularizerScheduleState{
-    F,S<:LocalResolventSolution{F},P<:LocalResolventSolution{F}
-} <: AbstractScheduleState{F}
-    currsolution::S
-    prevsolution::P
-    index::Int
-end
-
 function done(
-    problem::LocalTraceProblem{F},
-    ::RegularizerSchedule{F},
-    state::RegularizerScheduleState{F},
+    problem::LocalTraceProblem{F}, ::RegularizerSchedule{F}, state::ScheduleState{F}
 ) where {F}
     return (!state.currsolution.success) || (state.currsolution.k == problem.k)
 end
 
 function done(
-    problem::LocalRegularizerProblem{F},
-    ::RegularizerSchedule{F},
-    state::RegularizerScheduleState{F},
+    problem::LocalRegularizerProblem{F}, ::RegularizerSchedule{F}, state::ScheduleState{F}
 ) where {F}
     (!state.currsolution.success) && return true
     return getproperty(state.currsolution, Symbol(problem.reg.type)) == problem.reg.value
@@ -237,32 +291,16 @@ function stepproblem(
     index::Integer,
     problem::AbstractLocalResolventProblem{F},
     alg::RegularizerSchedule{F},
-    state::RegularizerScheduleState{F},
+    state::ScheduleState{F},
 ) where {F}
     if (state.index == lastindex(alg)) || didintercepttarget(problem, state)
-        return finalproblem(problem, state.currsolution, state.prevsolution)
+        return predictinit(problem, state.currsolution, state.prevsolution)
     end
-    q = state.currsolution.q
-    return LocalRegularizerProblem(problem.eq, alg[index], (; q), problem.qscale)
-end
-
-function newstate(
-    index::Integer, currsolution::LocalResolventSolution{F}, ::RegularizerSchedule{F}
-) where {F}
-    return RegularizerScheduleState(currsolution, currsolution, index)
-end
-
-function newstate(
-    index::Integer,
-    currsolution::LocalResolventSolution{F},
-    ::RegularizerSchedule{F},
-    state::RegularizerScheduleState{F},
-) where {F}
-    return RegularizerScheduleState(currsolution, state.currsolution, index)
+    return stepproblem_common(index, problem, alg, state)
 end
 
 function didintercepttarget(
-    problem::LocalRegularizerProblem{F}, state::RegularizerScheduleState{F}
+    problem::LocalRegularizerProblem{F}, state::ScheduleState{F}
 ) where {F}
     prev_regv = getproperty(state.prevsolution, Symbol(problem.reg.type))
     curr_regv = getproperty(state.currsolution, Symbol(problem.reg.type))
@@ -270,33 +308,10 @@ function didintercepttarget(
 end
 
 function didintercepttarget(
-    problem::LocalTraceProblem{F}, state::RegularizerScheduleState{F}
+    problem::LocalTraceProblem{F}, state::ScheduleState{F}
 ) where {F}
     prev_k, curr_k = state.prevsolution.k, state.currsolution.k
     return !samesign(curr_k - problem.k, prev_k - problem.k)
-end
-
-function finalproblem(
-    problem::LocalRegularizerProblem{F},
-    currsolution::LocalResolventSolution{F},
-    prevsolution::LocalResolventSolution{F},
-) where {F}
-    curr_regv, curr_q = getproperty(currsolution, Symbol(problem.reg.type)), currsolution.q
-    prev_regv, prev_q = getproperty(prevsolution, Symbol(problem.reg.type)), prevsolution.q
-    q = interpolate(problem.reg.value, (prev_regv, prev_q), (curr_regv, curr_q))
-    return update(problem; init=(; q))
-end
-
-function finalproblem(
-    problem::LocalTraceProblem{F},
-    currsolution::LocalResolventSolution{F},
-    prevsolution::LocalResolventSolution{F},
-) where {F}
-    curr_k, curr_reg, curr_q = currsolution.k, currsolution.reg, currsolution.q
-    prev_k, prev_reg, prev_q = prevsolution.k, prevsolution.reg, prevsolution.q
-    reg = interpolate(problem.k, (prev_k, prev_reg), (curr_k, curr_reg))
-    q = interpolate(problem.k, (prev_k, prev_q), (curr_k, curr_q))
-    return update(problem; init=(; reg, q))
 end
 
 """
@@ -373,8 +388,8 @@ function Base.convert(::Type{AbstractSchedule{F}}, alg::SymmetrySchedule) where 
     return convert(SymmetrySchedule{F}, alg)
 end
 
-# Indexing interface
-# ------------------
+# Interface
+# ---------
 Base.getindex(alg::SymmetrySchedule, i::Integer) = alg.values[i]
 Base.firstindex(alg::SymmetrySchedule) = Base.firstindex(alg.values)
 Base.lastindex(alg::SymmetrySchedule) = Base.lastindex(alg.values)
@@ -387,17 +402,8 @@ function monotonic(x)
     return (first(x) < first(tail)) && monotonic(tail)
 end
 
-# State
-# -----
-struct SymmetryScheduleState{F,S<:LocalResolventSolution{F}} <: AbstractScheduleState{F}
-    currsolution::S
-    index::Int
-end
-
 function done(
-    ::AbstractLocalResolventProblem{F},
-    alg::SymmetrySchedule{F},
-    state::SymmetryScheduleState{F},
+    ::AbstractLocalResolventProblem{F}, alg::SymmetrySchedule{F}, state::ScheduleState{F}
 ) where {F}
     return (!state.currsolution.success) || (state.index == lastindex(alg))
 end
@@ -406,25 +412,6 @@ function stepproblem(
     index::Integer, problem::AbstractLocalResolventProblem{F}, alg::SymmetrySchedule{F}
 ) where {F}
     return update(problem; qscale=alg[index] * problem.qscale)
-end
-
-function stepproblem(
-    index::Integer,
-    problem::AbstractLocalResolventProblem{F},
-    alg::SymmetrySchedule{F},
-    state::SymmetryScheduleState{F},
-) where {F}
-    init = (; reg=state.currsolution.reg, q=state.currsolution.q)
-    return update(problem; init, qscale=alg[index] * problem.qscale)
-end
-
-function newstate(
-    index::Integer,
-    currsolution::LocalResolventSolution{F},
-    ::SymmetrySchedule{F},
-    ::SymmetryScheduleState{F}...,
-) where {F}
-    return SymmetryScheduleState(currsolution, index)
 end
 
 end  # module Algorithms
@@ -542,7 +529,7 @@ end
     @test_throws "monotonic" SymmetrySchedule(range(1.0, 0.0, 3))
 end
 
-@testitem "stepping DirectSolve with LocalRegularizerProblem" begin
+@testitem "DirectSolve/LocalRegularizerProblem" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
@@ -586,7 +573,7 @@ end
     end
 end
 
-@testitem "stepping DirectSolve with LocalTraceProblem" begin
+@testitem "DirectSolve/LocalTraceProblem" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
@@ -625,9 +612,10 @@ end
     @test done(problem64, alg64, state64)
 end
 
-@testitem "stepping RegularizerSchedule with LocalRegularizerProblem" begin
+@testitem "RegularizerSchedule/LocalRegularizerProblem" begin
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.MathHelpers: isapproxlinear
     using GaussianSpectralDensities.Problems:
         LocalRegularizerProblem, LocalResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
@@ -690,10 +678,25 @@ end
                         @test states[i].currsolution === solutions[i]
                         @test !done(problemF, algF, states[i])
                         if i > firstindex(solutions)
-                            # Each schedule step uses previous solution's q as initial guess
-                            @test solutions[i].problem.init.q == solutions[i - 1].q
+                            # Each schedule step initialized by linear *polation from the
+                            # two previous solutions
+                            prob = solutions[i].problem
+                            sol1, sol2 = solutions[i - 1], solutions[max(i - 2, begin)]
+                            reg, q0 = prob.reg, prob.init.q
+                            reg1v, q1 = getproperty(sol1, Symbol(reg.type)), sol1.q
+                            reg2v, q2 = getproperty(sol2, Symbol(reg.type)), sol2.q
+                            @test isapproxlinear((reg.value, q0), (reg1v, q1), (reg2v, q2))
                         end
                     end
+
+                    # Final step initialized by linear *polation from the two previous
+                    # solutions
+                    prob = solutions[end].problem
+                    sol1, sol2 = solutions[end - 1], solutions[max(end - 2, begin)]
+                    reg, q0 = prob.reg, prob.init.q
+                    reg1v, q1 = getproperty(sol1, Symbol(reg.type)), sol1.q
+                    reg2v, q2 = getproperty(sol2, Symbol(reg.type)), sol2.q
+                    @test isapproxlinear((reg.value, q0), (reg1v, q1), (reg2v, q2))
 
                     # Final step solves the actual target problem
                     @test solutions[end].success
@@ -708,9 +711,10 @@ end
     end
 end
 
-@testitem "stepping RegularizerSchedule with LocalTraceProblem" begin
+@testitem "RegularizerSchedule/LocalTraceProblem" begin
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.MathHelpers: isapproxlinear
     using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -754,9 +758,32 @@ end
                 @test states[i].currsolution === solutions[i]
                 @test !done(problemF, algF, states[i])
                 if i > firstindex(solutions)
-                    # Each schedule step uses previous solution's q as initial guess
-                    @test solutions[i].problem.init.q == solutions[i - 1].q
+                    # Each schedule step initialized by linear *polation from the two
+                    # previous solutions
+                    prob = solutions[i].problem
+                    sol1, sol2 = solutions[i - 1], solutions[max(i - 2, begin)]
+                    reg, q0 = prob.reg, prob.init.q
+                    reg1v, q1 = getproperty(sol1, Symbol(reg.type)), sol1.q
+                    reg2v, q2 = getproperty(sol2, Symbol(reg.type)), sol2.q
+                    @test isapproxlinear((reg.value, q0), (reg1v, q1), (reg2v, q2))
                 end
+            end
+
+            # Final step initialized by linear *polation from the two previous solutions
+            # Could be either a trace problem or a regularizer problem
+            prob = solutions[end].problem
+            sol1, sol2 = solutions[end - 1], solutions[max(end - 2, begin)]
+            q0, q1, q2 = prob.init.q, sol1.q, sol2.q
+            if prob isa LocalTraceProblem
+                reg0 = prob.init.reg
+                k1, reg1v = sol1.k, getproperty(sol1, Symbol(reg0.type))
+                k2, reg2v = sol2.k, getproperty(sol2, Symbol(reg0.type))
+                @test isapproxlinear((prob.k, reg0.value), (k1, reg1v), (k2, reg2v))
+                @test isapproxlinear((prob.k, q0), (k1, q1), (k2, q2))
+            else
+                reg1v = getproperty(sol1, Symbol(prob.reg.type))
+                reg2v = getproperty(sol2, Symbol(prob.reg.type))
+                @test isapproxlinear((prob.reg.value, q0), (reg1v, q1), (reg2v, q2))
             end
 
             # Final step solves the actual LocalTraceProblem
@@ -773,9 +800,10 @@ end
     end
 end
 
-@testitem "stepping SymmetrySchedule with LocalRegularizerProblem" begin
+@testitem "SymmetrySchedule/LocalRegularizerProblem" begin
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.MathHelpers: isapproxlinear
     using GaussianSpectralDensities.Problems:
         LocalRegularizerProblem, LocalResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
@@ -818,7 +846,7 @@ end
                     result = step!(wsF, problemF, algF, state)
                 end
 
-                # solutions comprise schedule steps (no extra final step for symmetry schedule)
+                # solutions comprise schedule steps (no separate final step here)
                 @test length(solutions) == length(algF.values)
 
                 # Verify integrity of intermediate steps
@@ -828,10 +856,24 @@ end
                     @test states[i].currsolution === solutions[i]
                     @test !done(problemF, algF, states[i])
                     if i > firstindex(solutions)
-                        # Each schedule step uses previous solution's q as initial guess
-                        @test solutions[i].problem.init.q == solutions[i - 1].q
+                        # Each schedule step initialized by linear *polation from the two
+                        # previous solutions
+                        prob = solutions[i].problem
+                        sol1, sol2 = solutions[i - 1], solutions[max(i - 2, begin)]
+                        reg, q0 = prob.reg, prob.init.q
+                        reg1v, q1 = getproperty(sol1, Symbol(reg.type)), sol1.q
+                        reg2v, q2 = getproperty(sol2, Symbol(reg.type)), sol2.q
+                        @test isapproxlinear((reg.value, q0), (reg1v, q1), (reg2v, q2))
                     end
                 end
+
+                # Final step initialized by linear *polation from the two previous solutions
+                prob = solutions[end].problem
+                sol1, sol2 = solutions[end - 1], solutions[max(end - 2, begin)]
+                reg, q0 = prob.reg, prob.init.q
+                reg1v, q1 = getproperty(sol1, Symbol(reg.type)), sol1.q
+                reg2v, q2 = getproperty(sol2, Symbol(reg.type)), sol2.q
+                @test isapproxlinear((reg.value, q0), (reg1v, q1), (reg2v, q2))
 
                 # Final step solves the actual problem
                 @test solutions[end].success
@@ -845,9 +887,10 @@ end
     end
 end
 
-@testitem "stepping SymmetrySchedule with LocalTraceProblem" begin
+@testitem "SymmetrySchedule/LocalTraceProblem" begin
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.MathHelpers: isapproxlinear
     using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -890,10 +933,27 @@ end
             @test states[i].currsolution === solutions[i]
             @test !done(problemF, algF, states[i])
             if i > firstindex(solutions)
-                # Each schedule step uses previous solution's q as initial guess
-                @test solutions[i].problem.init.q == solutions[i - 1].q
+                # Each schedule step initialized by linear *polation from the two previous
+                # solutions
+                prob = solutions[i].problem
+                sol1, sol2 = solutions[i - 1], solutions[max(i - 2, begin)]
+                k, reg0, q0 = prob.k, prob.init.reg, prob.init.q
+                k1, reg1v, q1 = sol1.k, getproperty(sol1, Symbol(reg0.type)), sol1.q
+                k2, reg2v, q2 = sol2.k, getproperty(sol2, Symbol(reg0.type)), sol2.q
+                @test isapproxlinear((k, reg0.value), (k1, reg1v), (k2, reg2v))
+                @test isapproxlinear((k, q0), (k1, q1), (k2, q2))
             end
         end
+
+        # Final step initialized by linear *polation from the two previous solutions
+        # Could be either a trace problem or a regularizer problem
+        prob = solutions[end].problem
+        sol1, sol2 = solutions[end - 1], solutions[max(end - 2, begin)]
+        k, reg0, q0 = prob.k, prob.init.reg, prob.init.q
+        k1, reg1v, q1 = sol1.k, getproperty(sol1, Symbol(reg0.type)), sol1.q
+        k2, reg2v, q2 = sol2.k, getproperty(sol2, Symbol(reg0.type)), sol2.q
+        @test isapproxlinear((k, reg0.value), (k1, reg1v), (k2, reg2v))
+        @test isapproxlinear((k, q0), (k1, q1), (k2, q2))
 
         # Final step solves the actual problem
         @test solutions[end].success
@@ -908,9 +968,10 @@ end
     end
 end
 
-@testitem "stepping RegularizerSchedule aborted due to shiftmin" begin
+@testitem "RegularizerSchedule shiftmin abort" begin
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.MathHelpers: isapproxlinear
     using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -952,10 +1013,25 @@ end
             @test states[i].currsolution === solutions[i]
             @test !done(problemF, algF, states[i])
             if i > firstindex(solutions)
-                # Each schedule step uses previous solution's q as initial guess
-                @test solutions[i].problem.init.q == solutions[i - 1].q
+                # Each schedule step initialized by linear *polation from the two previous
+                # solutions
+                prob = solutions[i].problem
+                sol1, sol2 = solutions[i - 1], solutions[max(i - 2, begin)]
+                reg, q0 = prob.reg, prob.init.q
+                reg1v, q1 = getproperty(sol1, Symbol(reg.type)), sol1.q
+                reg2v, q2 = getproperty(sol2, Symbol(reg.type)), sol2.q
+                @test isapproxlinear((reg.value, q0), (reg1v, q1), (reg2v, q2))
             end
         end
+
+        # Final step initialized by linear *polation from the two previous solutions
+        # Shouldn't be a trace problem because we aborted before reaching the final step
+        prob = solutions[end].problem
+        sol1, sol2 = solutions[end - 1], solutions[max(end - 2, begin)]
+        reg, q0 = prob.reg, prob.init.q
+        reg1v, q1 = getproperty(sol1, Symbol(reg.type)), sol1.q
+        reg2v, q2 = getproperty(sol2, Symbol(reg.type)), sol2.q
+        @test isapproxlinear((reg.value, q0), (reg1v, q1), (reg2v, q2))
 
         # Final step failed due to shiftmin violation
         @test !solutions[end].success
@@ -964,9 +1040,10 @@ end
     end
 end
 
-@testitem "stepping SymmetrySchedule aborted due to shiftmin" begin
+@testitem "SymmetrySchedule shiftmin abort" begin
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.MathHelpers: isapproxlinear
     using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -1008,10 +1085,26 @@ end
             @test states[i].currsolution === solutions[i]
             @test !done(problemF, algF, states[i])
             if i > firstindex(solutions)
-                # Each schedule step uses previous solution's q as initial guess
-                @test solutions[i].problem.init.q == solutions[i - 1].q
+                # Each schedule step is initialized by linear *polation from the two
+                # previous solutions
+                prob = solutions[i].problem
+                sol1, sol2 = solutions[i - 1], solutions[max(i - 2, begin)]
+                k, reg0, q0 = prob.k, prob.init.reg, prob.init.q
+                k1, reg1v, q1 = sol1.k, getproperty(sol1, Symbol(reg0.type)), sol1.q
+                k2, reg2v, q2 = sol2.k, getproperty(sol2, Symbol(reg0.type)), sol2.q
+                @test isapproxlinear((k, reg0.value), (k1, reg1v), (k2, reg2v))
+                @test isapproxlinear((k, q0), (k1, q1), (k2, q2))
             end
         end
+
+        # Final step initialized by linear *polation from the two previous solutions
+        prob = solutions[end].problem
+        sol1, sol2 = solutions[end - 1], solutions[max(end - 2, begin)]
+        k, reg0, q0 = prob.k, prob.init.reg, prob.init.q
+        k1, reg1v, q1 = sol1.k, getproperty(sol1, Symbol(reg0.type)), sol1.q
+        k2, reg2v, q2 = sol2.k, getproperty(sol2, Symbol(reg0.type)), sol2.q
+        @test isapproxlinear((k, reg0.value), (k1, reg1v), (k2, reg2v))
+        @test isapproxlinear((k, q0), (k1, q1), (k2, q2))
 
         # Final step failed due to shiftmin violation
         @test !solutions[end].success

@@ -40,10 +40,10 @@ public AbstractMatrixOrUniform,
     decompose!!,
     eigmin!!,
     hsdot_normalized,
-    interpolate,
     inunitdisc,
     invert,
     invert!!,
+    isapproxlinear,
     ldiv,
     ldiv!!,
     mapdiag,
@@ -51,6 +51,7 @@ public AbstractMatrixOrUniform,
     muladd_diag!!,
     neg,
     phase,
+    predictlinear,
     psdmul,
     psdmul!!,
     rdiv,
@@ -94,9 +95,22 @@ phase(a::Number) = (a == 0) ? one(a) : a / abs(a)  # like sign except when a == 
 
 samesign(x::Number, y::Number) = (x * y > 0)  # TODO: is this good enough (Inf/NaN etc.)
 
-function interpolate(x, (x1, y1), (x2, y2))
-    (x1 == x2) && return (y1 + y2) / 2  # possibly non-standard, definitely useful
+function predictlinear(x, (x1, y1), (x2, y2))
+    if x1 == x2
+        # fall back to piecewise constant predictor; perhaps non-standard, definitely useful
+        if x < x1
+            return y1
+        elseif x == x1
+            return (y1 + y2) / 2
+        else
+            return y2
+        end
+    end
     return (y1 * (x2 - x) + y2 * (x - x1)) / (x2 - x1)
+end
+
+function isapproxlinear((x, y), (x1, y1), (x2, y2); kwargs...)
+    return isapprox((y2 - y) * (x1 - x), (y1 - y) * (x2 - x); kwargs...)
 end
 
 function converteltype(::Type{E}, A) where {E}
