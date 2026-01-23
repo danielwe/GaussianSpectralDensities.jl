@@ -537,7 +537,7 @@ end
     @test_throws "monotonic" SymmetrySchedule(range(1.0, 0.0, 3))
 end
 
-@testitem "stepping DirectSolve" begin
+@testitem "stepping DirectSolve with LocalRegularizerProblem" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, done, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
@@ -552,8 +552,8 @@ end
     A64data = ComplexF64[1 -1; 1 1]
     D64data = ComplexF64[0.75, 0.25cispi(1//3)]
     z64 = -(2.0 + im) / 4
-    q0_64 = (1.0 - im) / 2
-    reg_shift64 = Regularizer(0.25, :shift)
+    init64 = (; q=(1.0 - im) / 2)
+    reg64 = Regularizer(0.25, :shift)
 
     @testset "$label" for (label, A64, D64) in [
         ("Array", A64data, Diagonal(D64data)),
@@ -563,15 +563,61 @@ end
         ensemble64 = MatrixEnsemble(A64, I, I, D64)
         eq64 = LocalResolventEquation(ensemble64, z64)
         ws64 = Workspace(ensemble64)
-        problem64 = LocalRegularizerProblem(eq64, reg_shift64, (; q=q0_64))
+        problem64 = LocalRegularizerProblem(eq64, reg64, init64)
 
         alg64 = DirectSolve()
         solution64, state64 = step!(ws64, problem64, alg64)
-        @test done(problem64, alg64, state64)
+
+        # Stops after one iteration
         @test nothing === step!(ws64, problem64, alg64, state64)
+
+        # Solves the actual target problem
+        @test solution64.success
+        @test solution64.problem.eq == problem64.eq
         @test solution64.problem.reg == problem64.reg
-        @test getproperty(solution64, Symbol(reg_shift64.type)) == reg_shift64.value
+        @test solution64.problem.qscale == problem64.qscale
+        @test getproperty(solution64, Symbol(reg64.type)) == reg64.value
+        @test done(problem64, alg64, state64)
     end
+end
+
+@testitem "stepping DirectSolve with LocalTraceProblem" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve, done, step!
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Workspaces: Workspace
+
+    using LinearAlgebra: Diagonal, I
+    using SparseArrays: sparse
+    using StaticArrays: SMatrix, SVector
+
+    z64 = 0.5 + 0.5im
+    init64 = (; reg=Regularizer(1.0, :shift), q=complex(0.1))
+
+    k64_target = 1.0
+
+    ensemble64 = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq64 = LocalResolventEquation(ensemble64, z64)
+    ws64 = Workspace(ensemble64)
+    problem64 = LocalTraceProblem(eq64, k64_target, init64)
+
+    alg64 = DirectSolve()
+    solution64, state64 = step!(ws64, problem64, alg64)
+
+    # Stops after one iteration
+    @test nothing === step!(ws64, problem64, alg64, state64)
+
+    # Solves the actual target problem
+    @test solution64.success
+    @test solution64.problem.eq == problem64.eq
+    # We don't check solution64.problem.k == problem64.k because it may happen
+    # that we land on the solution during a regular step and never take the final,
+    # in which case solution64.problem would be a LocalRegularizerProblem, not a
+    # LocalTraceProblem, and thus won't have a .k property.
+    @test solution64.problem.qscale == problem64.qscale
+    @test solution64.k ≈ k64_target
+    @test done(problem64, alg64, state64)
 end
 
 @testitem "stepping RegularizerSchedule with LocalRegularizerProblem" begin
@@ -589,56 +635,69 @@ end
     A64data = ComplexF64[1 -1; 1 1]
     D64data = ComplexF64[0.75, 0.25cispi(1//3)]
     z64 = -(2.0 + im) / 4
-    q0_64 = complex(1.0)
+    init64 = (; q=complex(1.0))
 
     schedule_values64 = [4.0, 2.0, 1.0, 0.5]
+    target_value64 = 0.25
 
-    @testset "Regularizer type = $type" for type in [:shift, :gap]
-        target_reg64 = Regularizer(0.25, type)
+    @testset "Target regularizer type = $reg_type_target" for reg_type_target in
+                                                              [:shift, :gap]
+        reg64_target = Regularizer(target_value64, reg_type_target)
 
-        @testset "$label" for (label, A64, D64) in [
-            ("Array", A64data, Diagonal(D64data)),
-            ("SArray", SMatrix{2,2}(A64data), Diagonal(SVector{2}(D64data))),
-            ("SparseMatrixCSC", sparse(A64data), Diagonal(D64data)),
-        ]
-            @testset "$F" for F in [Float32, Float64]
-                ensembleF = MatrixEnsemble{F}(A64, I, I, D64)
-                eqF = LocalResolventEquation(ensembleF, z64)
-                wsF = Workspace(ensembleF)
-                problemF = LocalRegularizerProblem(eqF, target_reg64, (; q=q0_64))
-                algF = RegularizerSchedule{F}(schedule_values64, type)
+        @testset "Schedule regularizer type = $reg_type_schedule" for reg_type_schedule in
+                                                                      [:shift, :gap]
+            @testset "$label" for (label, A64, D64) in [
+                ("Array", A64data, Diagonal(D64data)),
+                ("SArray", SMatrix{2,2}(A64data), Diagonal(SVector{2}(D64data))),
+                ("SparseMatrixCSC", sparse(A64data), Diagonal(D64data)),
+            ]
+                @testset "$F" for F in [Float32, Float64]
+                    ensembleF = MatrixEnsemble{F}(A64, I, I, D64)
+                    eqF = LocalResolventEquation(ensembleF, z64)
+                    wsF = Workspace(ensembleF)
+                    problemF = LocalRegularizerProblem(eqF, reg64_target, init64)
+                    algF = RegularizerSchedule{F}(schedule_values64, reg_type_schedule)
 
-                # Collect all solutions and states
-                solutions = []
-                states = []
-                result = step!(wsF, problemF, algF)
-                while !isnothing(result)
-                    solution, state = result
-                    push!(solutions, solution)
-                    push!(states, state)
-                    result = step!(wsF, problemF, algF, state)
-                end
-
-                # solutions comprise schedule steps + final step to target
-                @test length(solutions) == length(algF.values) + 1
-
-                # All solutions should succeed
-                @test all(s -> s.success, solutions)
-
-                # Verify integrity of intermediate steps
-                @testset "index = $i" for i in eachindex(states, solutions)[begin:(end - 1)]
-                    @test states[i].index == i
-                    @test states[i].currsolution === solutions[i]
-                    @test !done(problemF, algF, states[i])
-                    if i > firstindex(solutions)
-                        # Each schedule step uses previous solution's q as initial guess
-                        @test solutions[i].problem.init.q == solutions[i - 1].q
+                    # Collect all solutions and states
+                    solutions = []
+                    states = []
+                    result = step!(wsF, problemF, algF)
+                    while !isnothing(result)
+                        solution, state = result
+                        push!(solutions, solution)
+                        push!(states, state)
+                        result = step!(wsF, problemF, algF, state)
                     end
-                end
 
-                # Final step solves the actual target problem
-                @test done(problemF, algF, states[end])
-                @test getproperty(solutions[end], type) ≈ target_reg64.value
+                    # In most cases, solutions comprise all schedule steps and the final
+                    # step to the target. The exception is (target, schedule) == (:shift,
+                    # :gap), in which the solution may be intersected before exhausting the
+                    # schedule, triggering an early final step.
+                    if (reg_type_target, reg_type_schedule) != (:shift, :gap)
+                        @test length(solutions) == length(algF.values) + 1
+                    end
+
+                    # Verify integrity of intermediate steps
+                    @testset "index = $i" for i in
+                                              eachindex(states, solutions)[begin:(end - 1)]
+                        @test solutions[i].success
+                        @test states[i].index == i
+                        @test states[i].currsolution === solutions[i]
+                        @test !done(problemF, algF, states[i])
+                        if i > firstindex(solutions)
+                            # Each schedule step uses previous solution's q as initial guess
+                            @test solutions[i].problem.init.q == solutions[i - 1].q
+                        end
+                    end
+
+                    # Final step solves the actual target problem
+                    @test solutions[end].success
+                    @test solutions[end].problem.eq == problemF.eq
+                    @test solutions[end].problem.reg == problemF.reg
+                    @test solutions[end].problem.qscale == problemF.qscale
+                    @test getproperty(solutions[end], reg_type_target) ≈ reg64_target.value
+                    @test done(problemF, algF, states[end])
+                end
             end
         end
     end
@@ -656,46 +715,55 @@ end
     z64 = 0.5 + 0.5im
     q0_64 = complex(0.1)
 
-    target_k64 = 1.0
-    alg64 = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625], :shift)
+    schedule_values64 = [4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625]
+    k64_target = 1.0
 
-    @testset "$F" for F in [Float32, Float64]
-        ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.5I)
-        eqF = LocalResolventEquation(ensembleF, z64)
-        wsF = Workspace(ensembleF)
-        algF = RegularizerSchedule{F}(alg64)
-        problemF = LocalTraceProblem(eqF, target_k64, (; reg=algF[begin], q=q0_64))
+    @testset "Schedule regularizer type = $reg_type" for reg_type in [:shift, :gap]
+        alg64 = RegularizerSchedule(schedule_values64, reg_type)
 
-        solutions = []
-        states = []
-        result = step!(wsF, problemF, algF)
-        while !isnothing(result)
-            solution, state = result
-            push!(solutions, solution)
-            push!(states, state)
-            result = step!(wsF, problemF, algF, state)
-        end
+        @testset "$F" for F in [Float32, Float64]
+            ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.5I)
+            eqF = LocalResolventEquation(ensembleF, z64)
+            wsF = Workspace(ensembleF)
+            algF = RegularizerSchedule{F}(alg64)
+            problemF = LocalTraceProblem(eqF, k64_target, (; reg=algF[begin], q=q0_64))
 
-        # Stepping should terminate before exhaustion as k crosses target
-        @test length(solutions) < length(algF.values) + 1
-
-        # All solutions should succeed
-        @test all(s -> s.success, solutions)
-
-        # Verify integrity of intermediate steps
-        @testset "index = $i" for i in eachindex(states, solutions)[begin:(end - 1)]
-            @test states[i].index == i
-            @test states[i].currsolution === solutions[i]
-            @test !done(problemF, algF, states[i])
-            if i > firstindex(solutions)
-                # Each schedule step uses previous solution's q as initial guess
-                @test solutions[i].problem.init.q == solutions[i - 1].q
+            solutions = []
+            states = []
+            result = step!(wsF, problemF, algF)
+            while !isnothing(result)
+                solution, state = result
+                push!(solutions, solution)
+                push!(states, state)
+                result = step!(wsF, problemF, algF, state)
             end
-        end
 
-        # Final step solves the actual LocalTraceProblem
-        @test done(problemF, algF, states[end])
-        @test solutions[end].k ≈ target_k64
+            # Stepping should terminate before exhaustion as k crosses target
+            @test length(solutions) < length(algF.values) + 1
+
+            # Verify integrity of intermediate steps
+            @testset "index = $i" for i in eachindex(states, solutions)[begin:(end - 1)]
+                @test solutions[i].success
+                @test states[i].index == i
+                @test states[i].currsolution === solutions[i]
+                @test !done(problemF, algF, states[i])
+                if i > firstindex(solutions)
+                    # Each schedule step uses previous solution's q as initial guess
+                    @test solutions[i].problem.init.q == solutions[i - 1].q
+                end
+            end
+
+            # Final step solves the actual LocalTraceProblem
+            @test solutions[end].success
+            @test solutions[end].problem.eq == problemF.eq
+            # We don't check solutions[end].problem.k == problemF.k because it may happen
+            # that we land on the solution during a regular step and never take the final,
+            # in which case solutions[end].problem would be a LocalRegularizerProblem, not a
+            # LocalTraceProblem, and thus won't have a .k property.
+            @test solutions[end].problem.qscale == problemF.qscale
+            @test solutions[end].k ≈ k64_target
+            @test done(problemF, algF, states[end])
+        end
     end
 end
 
@@ -714,12 +782,12 @@ end
     A64data = ComplexF64[1 -1; 1 1]
     D64data = ComplexF64[0.75, 0.25cispi(1//3)]
     z64 = -(2.0 + im) / 4
-    q0_64 = complex(1.0)
+    init64 = (; q=complex(1.0))
 
     nsteps = 3
 
-    @testset "Regularizer type = $type" for type in [:shift, :gap]
-        target_reg64 = Regularizer(0.25, type)
+    @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
+        reg64_target = Regularizer(0.25, reg_type)
 
         @testset "$label" for (label, A64, D64) in [
             ("Array", A64data, Diagonal(D64data)),
@@ -730,7 +798,7 @@ end
                 ensembleF = MatrixEnsemble{F}(A64, I, I, D64)
                 eqF = LocalResolventEquation(ensembleF, z64)
                 wsF = Workspace(ensembleF)
-                problemF = LocalRegularizerProblem(eqF, target_reg64, (; q=q0_64))
+                problemF = LocalRegularizerProblem(eqF, reg64_target, init64)
                 algF = SymmetrySchedule{F}(nsteps)
 
                 # Collect all solutions and states
@@ -747,11 +815,9 @@ end
                 # solutions comprise schedule steps (no extra final step for symmetry schedule)
                 @test length(solutions) == length(algF.values)
 
-                # All solutions should succeed
-                @test all(s -> s.success, solutions)
-
                 # Verify integrity of intermediate steps
                 @testset "index = $i" for i in eachindex(states, solutions)[begin:(end - 1)]
+                    @test solutions[i].success
                     @test states[i].index == i
                     @test states[i].currsolution === solutions[i]
                     @test !done(problemF, algF, states[i])
@@ -762,10 +828,77 @@ end
                 end
 
                 # Final step solves the actual problem
+                @test solutions[end].success
+                @test solutions[end].problem.eq == problemF.eq
+                @test solutions[end].problem.reg == problemF.reg
+                @test solutions[end].problem.qscale == problemF.qscale
+                @test getproperty(solutions[end], reg_type) ≈ reg64_target.value
                 @test done(problemF, algF, states[end])
-                @test getproperty(solutions[end], type) ≈ target_reg64.value
             end
         end
+    end
+end
+
+@testitem "stepping SymmetrySchedule with LocalTraceProblem" begin
+    using GaussianSpectralDensities.Algorithms: SymmetrySchedule, done, step!
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Workspaces: Workspace
+
+    using LinearAlgebra: Diagonal, I
+    using SparseArrays: sparse
+    using StaticArrays: SMatrix, SVector
+
+    z64 = 0.5 + 0.5im
+    init64 = (; reg=Regularizer(1.0, :shift), q=complex(0.1))
+
+    nsteps = 3
+    k64_target = 1.0
+
+    @testset "$F" for F in [Float32, Float64]
+        ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.5I)
+        eqF = LocalResolventEquation(ensembleF, z64)
+        wsF = Workspace(ensembleF)
+        problemF = LocalTraceProblem(eqF, k64_target, init64)
+        algF = SymmetrySchedule{F}(nsteps)
+
+        # Collect all solutions and states
+        solutions = []
+        states = []
+        result = step!(wsF, problemF, algF)
+        while !isnothing(result)
+            solution, state = result
+            push!(solutions, solution)
+            push!(states, state)
+            result = step!(wsF, problemF, algF, state)
+        end
+
+        # solutions comprise schedule steps (no extra final step for symmetry schedule)
+        @test length(solutions) == length(algF.values)
+
+        # Verify integrity of intermediate steps
+        @testset "index = $i" for i in eachindex(states, solutions)[begin:(end - 1)]
+            @test solutions[i].success
+            @test states[i].index == i
+            @test states[i].currsolution === solutions[i]
+            @test !done(problemF, algF, states[i])
+            if i > firstindex(solutions)
+                # Each schedule step uses previous solution's q as initial guess
+                @test solutions[i].problem.init.q == solutions[i - 1].q
+            end
+        end
+
+        # Final step solves the actual problem
+        @test solutions[end].success
+        @test solutions[end].problem.eq == problemF.eq
+        # We don't check solutions[end].problem.k == problemF.k because it may happen
+        # that we land on the solution during a regular step and never take the final,
+        # in which case solutions[end].problem would be a LocalRegularizerProblem, not a
+        # LocalTraceProblem, and thus won't have a .k property.
+        @test solutions[end].problem.qscale == problemF.qscale
+        @test solutions[end].k ≈ k64_target
+        @test done(problemF, algF, states[end])
     end
 end
 

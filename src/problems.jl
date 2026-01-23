@@ -45,6 +45,12 @@ function LocalResolventEquation{F}(eq::LocalResolventEquation) where {F}
     return LocalResolventEquation{F}(eq.ensemble, eq.z, eq.normalizeQ)
 end
 
+## Comparisons, conversions
+## ========================
+function Base.:(==)(a::E, b::E) where {E<:LocalResolventEquation}
+    return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
+end
+
 function Base.convert(
     ::Type{P}, eq::LocalResolventEquation
 ) where {F,P<:LocalResolventEquation{F}}
@@ -261,7 +267,7 @@ end  # module Problems
     @test eq64 isa LocalResolventEquation{Float64}
 
     # Defaults
-    @test LocalResolventEquation(ensemble64, z64) ===
+    @test LocalResolventEquation(ensemble64, z64) ==
         LocalResolventEquation(ensemble64, z64, false)
 
     @testset "$F" for F in [Float32, Float64]
@@ -273,14 +279,14 @@ end  # module Problems
         @test eqF isa LocalResolventEquation{F}
 
         # Floattype enforcing constructor
-        @test LocalResolventEquation{F}(ensemble64, z64, normalizeQ) === eqF
-        @test LocalResolventEquation{Float64}(ensembleF, zF, normalizeQ) === eq64
+        @test LocalResolventEquation{F}(ensemble64, z64, normalizeQ) == eqF
+        @test LocalResolventEquation{Float64}(ensembleF, zF, normalizeQ) == eq64
 
         # Floattype conversions
-        @test convert(LocalResolventEquation{F}, eq64) === eqF
-        @test convert(LocalResolventEquation{Float64}, eqF) === eq64
-        @test LocalResolventEquation{F}(eq64) === eqF
-        @test LocalResolventEquation{Float64}(eqF) === eq64
+        @test convert(LocalResolventEquation{F}, eq64) == eqF
+        @test convert(LocalResolventEquation{Float64}, eqF) == eq64
+        @test LocalResolventEquation{F}(eq64) == eqF
+        @test LocalResolventEquation{Float64}(eqF) == eq64
     end
 end
 
