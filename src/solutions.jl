@@ -3,7 +3,7 @@ module Solutions
 using ..Problems: AbstractLocalResolventProblem
 using ..Regularizers: Regularizer
 
-public LocalResolventSolution
+public LocalResolventSolution, setfailed
 
 """
     LocalResolventSolution(
@@ -65,16 +65,20 @@ function Base.convert(
     return (s isa P) ? s : LocalResolventSolution{F}(s)
 end
 
-end  # module Solutions
+## Accessors
+## =========
+function setfailed(s::LocalResolventSolution)
+    return LocalResolventSolution(s.problem, s.q, s.reg, s.shift, s.gap, s.k, s.E, false)
+end
 
-# TODO: consider adding accessor methods instead of letting consumers rely on propery access
+end  # module Solutions
 
 @testitem "Solutions" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: LocalResolventSolution
+    using GaussianSpectralDensities.Solutions: LocalResolventSolution, setfailed
 
     using LinearAlgebra: I
 
@@ -110,6 +114,10 @@ end  # module Solutions
             solutionF = LocalResolventSolution(
                 problemF, q0_F, regF, regF.value, regF.value, kF, EF, true
             )
+
+            # Accessors
+            @test solutionF.success
+            @test !setfailed(solutionF).success
 
             # Floattype inferring constructor
             @test solutionF isa LocalResolventSolution{F}

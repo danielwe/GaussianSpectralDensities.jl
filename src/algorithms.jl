@@ -6,7 +6,7 @@ using ..MathHelpers: interpolate, samesign
 using ..Problems:
     AbstractLocalResolventProblem, LocalRegularizerProblem, LocalTraceProblem, update
 using ..Regularizers: Regularizer, RegularizerType
-using ..Solutions: LocalResolventSolution
+using ..Solutions: LocalResolventSolution, setfailed
 using ..Workspaces: Workspace
 
 public AbstractAlgorithm,
@@ -21,10 +21,11 @@ abstract type AbstractAlgorithmState end
 ## - firstindex(::AbstractAlgorithm)
 ## - nextindex(::AbstractAlgorithm{F}, ::AbstractAlgorithmState{F})
 ## - done(problem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
-## - step_problem(index, problem, ::AbstractAlgorithm)::AbstractLocalResolventProblem
-## - step_problem(index, problem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::AbstractLocalResolventProblem
-## - newstate(index, currsolution, ::AbstractAlgorithm)::AbstractAlgorithmState
-## - newstate(index, currsolution, ::AbstractAlgorithm, ::AbstractAlgorithmState)::AbstractAlgorithmState
+## - stepproblem(index, ::AbstractLocalResolventProblem, ::AbstractAlgorithm)::AbstractLocalResolventProblem
+## - stepproblem(index, ::AbstractLocalResolventProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::AbstractLocalResolventProblem
+## - check(::LocalResolventSolution, ::AbstractAlgorithm)::LocalResolventSolution
+## - newstate(index, ::LocalResolventSolution, ::AbstractAlgorithm)::AbstractAlgorithmState
+## - newstate(index, ::LocalResolventSolution, ::AbstractAlgorithm, ::AbstractAlgorithmState)::AbstractAlgorithmState
 function step!(
     ws::Workspace{F}, problem::AbstractLocalResolventProblem{F}, alg::AbstractAlgorithm
 ) where {F}
@@ -49,7 +50,7 @@ function step_common!(
     state::AbstractAlgorithmState...,
 ) where {F}
     currproblem = stepproblem(index, problem, alg, state...)
-    currsolution = eqsolve!(ws, currproblem)
+    currsolution = check(eqsolve!(ws, currproblem), alg)
     return currsolution, newstate(index, currsolution, alg, state...)
 end
 
@@ -92,19 +93,28 @@ function stepproblem(::Nothing, problem::AbstractLocalResolventProblem, ::Direct
     return problem
 end
 
+check(solution::LocalResolventSolution, ::DirectSolve) = solution
+
 newstate(::Nothing, ::LocalResolventSolution, ::DirectSolve) = DirectSolveState()
 
 ## Schedule algorithms
 ## ===================
 ## Required interface for each algorithm:
 ## - (state::AbstractScheduleState).index::Integer
+## - (state::AbstractScheduleState{F}).shiftmin::F
 ## Provided methods:
 ## - nextindex(::AbstractSchedule{F}, ::AbstractScheduleState{F})::Integer
+## - check(::LocalResolventSolution{F}, ::AbstractSchedule{F})::LocalResolventSolution{F}
 abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
 abstract type AbstractScheduleState{F<:AbstractFloat} <: AbstractAlgorithmState end
 
 function nextindex(::AbstractSchedule{F}, state::AbstractScheduleState{F}) where {F}
     return state.index + 1
+end
+
+function check(solution::LocalResolventSolution{F}, alg::AbstractSchedule{F}) where {F}
+    (solution.shift < alg.shiftmin) && return setfailed(solution)
+    return solution
 end
 
 """
@@ -205,7 +215,7 @@ function done(
     ::RegularizerSchedule{F},
     state::RegularizerScheduleState{F},
 ) where {F}
-    return state.currsolution.k == problem.k
+    return (!state.currsolution.success) || (state.currsolution.k == problem.k)
 end
 
 function done(
@@ -213,6 +223,7 @@ function done(
     ::RegularizerSchedule{F},
     state::RegularizerScheduleState{F},
 ) where {F}
+    (!state.currsolution.success) && return true
     return getproperty(state.currsolution, Symbol(problem.reg.type)) == problem.reg.value
 end
 
@@ -388,7 +399,7 @@ function done(
     alg::SymmetrySchedule{F},
     state::SymmetryScheduleState{F},
 ) where {F}
-    return state.index == lastindex(alg)
+    return (!state.currsolution.success) || (state.index == lastindex(alg))
 end
 
 function stepproblem(
@@ -415,12 +426,6 @@ function newstate(
 ) where {F}
     return SymmetryScheduleState(currsolution, index)
 end
-
-# function abort(
-#     alg::AbstractSchedule{F}, currsolution::LocalResolventSolution{F}
-# ) where {F}
-#     return (currsolution.shift < alg.shiftmin)
-# end
 
 end  # module Algorithms
 
@@ -728,6 +733,7 @@ end
             algF = RegularizerSchedule{F}(alg64)
             problemF = LocalTraceProblem(eqF, k64_target, (; reg=algF[begin], q=q0_64))
 
+            # Collect all solutions and states
             solutions = []
             states = []
             result = step!(wsF, problemF, algF)
@@ -902,98 +908,114 @@ end
     end
 end
 
-# @testitem "stepping RegularizerSchedule abort" begin
-#     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, abort, step!
-#     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-#     using GaussianSpectralDensities.Problems:
-#         LocalRegularizerProblem, LocalResolventEquation
-#     using GaussianSpectralDensities.Regularizers: Regularizer
-#     using GaussianSpectralDensities.Workspaces: Workspace
-#
-#     using LinearAlgebra: I
-#
-#     ensemble = MatrixEnsemble{Float64}(I, I, I, I)
-#     eq = LocalResolventEquation(ensemble, 0.0im)
-#     ws = Workspace(ensemble)
-#
-#     # Schedule with shiftmin that will be violated
-#     schedule_values = [4.0, 2.0, 1.0, 0.5]
-#     shiftmin = 1.0
-#     alg = RegularizerSchedule(schedule_values, :shift, shiftmin)
-#
-#     target_reg = Regularizer(0.1, :shift)
-#     problem = LocalRegularizerProblem(eq, target_reg, complex(0.1))
-#
-#     solution, state = step!(ws, problem, alg)
-#
-#     # When solution's shift goes below shiftmin, abort should return true
-#     # We test the abort function directly with a solution that has low shift
-#     @test abort(alg, solution) == (solution.shift < shiftmin)
-# end
-#
-# @testitem "isdone and didpasstarget" begin
-#     using GaussianSpectralDensities.Algorithms: isdone, didpasstarget
-#     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-#     using GaussianSpectralDensities.Problems:
-#         LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
-#     using GaussianSpectralDensities.Regularizers: Regularizer
-#     using GaussianSpectralDensities.Solutions: LocalResolventSolution
-#
-#     using LinearAlgebra: I
-#
-#     ensemble = MatrixEnsemble{Float64}(I, I, I, I)
-#     eq = LocalResolventEquation(ensemble, 0.0im)
-#
-#     @testset "LocalRegularizerProblem type=$type" for type in [:shift, :gap]
-#         target_value = 1.0
-#         reg = Regularizer(target_value, type)
-#         problem = LocalRegularizerProblem(eq, reg, complex(0.1))
-#
-#         # Create mock solutions with different shift/gap values
-#         make_solution =
-#             (shift, gap) -> LocalResolventSolution(
-#                 problem, true, complex(0.1), reg, shift, gap, 1.0, complex(0.5)
-#             )
-#
-#         if type === :shift
-#             # isdone: solution.shift == target
-#             @test isdone(problem, make_solution(target_value, 2.0))
-#             @test !isdone(problem, make_solution(target_value + 0.1, 2.0))
-#
-#             # didpasstarget: solution.shift <= target (overshot or hit)
-#             @test didpasstarget(problem, make_solution(target_value, 2.0))
-#             @test didpasstarget(problem, make_solution(target_value - 0.1, 2.0))
-#             @test !didpasstarget(problem, make_solution(target_value + 0.1, 2.0))
-#         else  # :gap
-#             # isdone: solution.gap == target
-#             @test isdone(problem, make_solution(0.5, target_value))
-#             @test !isdone(problem, make_solution(0.5, target_value + 0.1))
-#
-#             # didpasstarget: solution.gap <= target
-#             @test didpasstarget(problem, make_solution(0.5, target_value))
-#             @test didpasstarget(problem, make_solution(0.5, target_value - 0.1))
-#             @test !didpasstarget(problem, make_solution(0.5, target_value + 0.1))
-#         end
-#     end
-#
-#     @testset "LocalTraceProblem" begin
-#         target_k = 1.0
-#         reg = Regularizer(0.5, :shift)
-#         problem = LocalTraceProblem(eq, target_k, reg, complex(0.1))
-#
-#         make_solution =
-#             k -> LocalResolventSolution(
-#                 problem, true, complex(0.1), reg, 0.5, 0.5, k, complex(0.5)
-#             )
-#
-#         # isdone: solution.k == target
-#         @test isdone(problem, make_solution(target_k))
-#         @test !isdone(problem, make_solution(target_k + 0.1))
-#         @test !isdone(problem, make_solution(target_k - 0.1))
-#
-#         # didpasstarget: solution.k >= target
-#         @test didpasstarget(problem, make_solution(target_k))
-#         @test didpasstarget(problem, make_solution(target_k + 0.1))
-#         @test !didpasstarget(problem, make_solution(target_k - 0.1))
-#     end
-# end
+@testitem "stepping RegularizerSchedule aborted due to shiftmin" begin
+    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, done, step!
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Workspaces: Workspace
+
+    using LinearAlgebra: Diagonal, I
+
+    # z outside Ginibre support => negative shift needed to reach k = 1.0
+    z64 = 1.0 + 1.0im
+    q0_64 = complex(0.1)
+
+    alg64 = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625], :gap, 0)
+    k64_target = 1.0
+
+    @testset "$F" for F in [Float32, Float64]
+        ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.0I)
+        eqF = LocalResolventEquation(ensembleF, z64)
+        wsF = Workspace(ensembleF)
+        algF = RegularizerSchedule{F}(alg64)
+        problemF = LocalTraceProblem(eqF, k64_target, (; reg=algF[begin], q=q0_64))
+
+        # Collect all solutions and states
+        solutions = []
+        states = []
+        result = step!(wsF, problemF, algF)
+        while !isnothing(result)
+            solution, state = result
+            push!(solutions, solution)
+            push!(states, state)
+            result = step!(wsF, problemF, algF, state)
+        end
+
+        # Stepping should terminate before exhaustion due to failure
+        @test length(solutions) < length(algF.values) + 1
+
+        # Verify integrity of intermediate steps
+        @testset "index = $i" for i in eachindex(states, solutions)[begin:(end - 1)]
+            @test solutions[i].success
+            @test states[i].index == i
+            @test states[i].currsolution === solutions[i]
+            @test !done(problemF, algF, states[i])
+            if i > firstindex(solutions)
+                # Each schedule step uses previous solution's q as initial guess
+                @test solutions[i].problem.init.q == solutions[i - 1].q
+            end
+        end
+
+        # Final step failed due to shiftmin violation
+        @test !solutions[end].success
+        @test solutions[end].shift < algF.shiftmin
+        @test done(problemF, algF, states[end])
+    end
+end
+
+@testitem "stepping SymmetrySchedule aborted due to shiftmin" begin
+    using GaussianSpectralDensities.Algorithms: SymmetrySchedule, done, step!
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: LocalResolventEquation, LocalTraceProblem
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Workspaces: Workspace
+
+    using LinearAlgebra: Diagonal, I
+
+    # z inside Ginibre but outside Girko support => negative shift needed to reach k = 1.0
+    z64 = 0.25 + 0.75im
+    init64 = (; reg=Regularizer(1.0, :shift), q=complex(0.1))
+
+    nsteps = 5
+    k64_target = 1.0
+
+    @testset "$F" for F in [Float32, Float64]
+        ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.75I)
+        eqF = LocalResolventEquation(ensembleF, z64)
+        wsF = Workspace(ensembleF)
+        problemF = LocalTraceProblem(eqF, k64_target, init64)
+        algF = SymmetrySchedule{F}(nsteps, 0)
+
+        # Collect all solutions and states
+        solutions = []
+        states = []
+        result = step!(wsF, problemF, algF)
+        while !isnothing(result)
+            solution, state = result
+            push!(solutions, solution)
+            push!(states, state)
+            result = step!(wsF, problemF, algF, state)
+        end
+
+        # Stepping should terminate before exhaustion due to failure
+        @test length(solutions) < length(algF.values)
+
+        # Verify integrity of intermediate steps
+        @testset "index = $i" for i in eachindex(states, solutions)[begin:(end - 1)]
+            @test solutions[i].success
+            @test states[i].index == i
+            @test states[i].currsolution === solutions[i]
+            @test !done(problemF, algF, states[i])
+            if i > firstindex(solutions)
+                # Each schedule step uses previous solution's q as initial guess
+                @test solutions[i].problem.init.q == solutions[i - 1].q
+            end
+        end
+
+        # Final step failed due to shiftmin violation
+        @test !solutions[end].success
+        @test solutions[end].shift < algF.shiftmin
+        @test done(problemF, algF, states[end])
+    end
+end
