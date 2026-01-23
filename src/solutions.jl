@@ -6,8 +6,12 @@ using ..Regularizers: Regularizer
 public LocalResolventSolution
 
 """
-    LocalResolventSolution(problem::AbstractLocalResolventProblem, q, shift, gap, k, E)
-    LocalResolventSolution{F}(problem::AbstractLocalResolventProblem, q, shift, gap, k, E)
+    LocalResolventSolution(
+        problem::AbstractLocalResolventProblem, q, shift, gap, k, E, success
+    )
+    LocalResolventSolution{F}(
+        problem::AbstractLocalResolventProblem, q, shift, gap, k, E, success
+    )
 
 Represent a solution of an averaged resolvent equation at a point in the complex plane
 
@@ -17,40 +21,40 @@ problem. Use the function `eqsolve!` to obtain a consistent `LocalResolventSolut
 # Arguments
 
   - `problem`: the averaged resolvent equation problem
-  - `success`: whether the solution was successful
   - `q`: value of the self-consistently determined parameter ``q``
   - `shift`: value of the regularizer shift ``γ²``
   - `gap`: value of the regularized gap `eigmin(QQ†) + γ²`
   - `k`: value of the normalized trace ``\\tr[(QQ^† + γ²I)⁻¹] / N``.
   - `E`: value of the normalized trace of the resolvent ``\\tr[Q^†(QQ^† + γ²I)⁻¹] / N``
+  - `success`: whether the solution was successful
 """
 struct LocalResolventSolution{F,P<:AbstractLocalResolventProblem{F}}
     problem::P
-    success::Bool
     q::Complex{F}
     reg::Regularizer{F}
     shift::F
     gap::F
     k::F
     E::Complex{F}
+    success::Bool
 
     function LocalResolventSolution{F}(
-        problem::P, success, q, reg, shift, gap, k, E
+        problem::P, q, reg, shift, gap, k, E, success
     ) where {F,P}
         problemF = convert(AbstractLocalResolventProblem{F}, problem)
-        return new{F,typeof(problemF)}(problemF, success, q, reg, shift, gap, k, E)
+        return new{F,typeof(problemF)}(problemF, q, reg, shift, gap, k, E, success)
     end
 end
 
 function LocalResolventSolution(
-    problem::AbstractLocalResolventProblem{F}, success, q, reg, shift, gap, k, E
+    problem::AbstractLocalResolventProblem{F}, q, reg, shift, gap, k, E, success
 ) where {F}
-    return LocalResolventSolution{F}(problem, success, q, reg, shift, gap, k, E)
+    return LocalResolventSolution{F}(problem, q, reg, shift, gap, k, E, success)
 end
 
 function LocalResolventSolution{F}(s::LocalResolventSolution) where {F}
     sF = LocalResolventSolution{F}(
-        s.problem, s.success, s.q, s.reg, s.shift, s.gap, s.k, s.E
+        s.problem, s.q, s.reg, s.shift, s.gap, s.k, s.E, s.success
     )
     return sF
 end
@@ -63,6 +67,8 @@ end
 
 end  # module Solutions
 
+# TODO: consider adding accessor methods instead of letting consumers rely on propery access
+
 @testitem "Solutions" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
@@ -72,36 +78,37 @@ end  # module Solutions
 
     using LinearAlgebra: I
 
-    ensemble64, z64, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, false
-    eq64 = LocalResolventEquation(ensemble64, z64, normalizeQ)
-    reg_value64, reg_type = 0.5, :gap
-    reg64 = Regularizer(reg_value64, reg_type)
-    k64, q64, qscale64, E64 = 1.0, complex(eps(), eps()), 1.0, 0.5 - im
+    ensemble64, z64 = MatrixEnsemble(I, I, I, I), 0.0im
+    eq64 = LocalResolventEquation(ensemble64, z64)
+    reg64 = Regularizer(0.5, :gap)
+    k64, q0_64, qscale64, E64 = 1.0, complex(eps(), eps()), 1.0, 0.5 - im
+    init64 = (; reg=reg64, q=q0_64)
 
-    @testset "$(nameof(P))" for (P, params64) in
-                                [(LocalRegularizerProblem, ()), (LocalTraceProblem, (k64,))]
-        problem64 = P(eq64, params64..., reg64, q64, qscale64)
+    @testset "$F" for F in [Float32, Float64]
+        ensembleF = MatrixEnsemble{F}(I, I, I, I)
+        zF = F(z64)
+        eqF = LocalResolventEquation(ensembleF, zF)
+        regF = Regularizer(F(reg64.value), reg64.type)
+        kF, qscaleF = F.((k64, qscale64))
+        q0_F, EF = Complex{F}.((q0_64, E64))
+        initF = (; reg=regF, q=q0_F)
 
-        solution64 = LocalResolventSolution(
-            problem64, true, q64, reg64, reg_value64, reg_value64, k64, E64
-        )
+        @testset "$(nameof(P))" for (P, param64, paramF) in [
+            (LocalRegularizerProblem, reg64, regF), (LocalTraceProblem, k64, kF)
+        ]
+            problem64 = P(eq64, param64, init64, qscale64)
 
-        # Traits
-        @test solution64 isa LocalResolventSolution{Float64}
+            solution64 = LocalResolventSolution(
+                problem64, q0_64, reg64, reg64.value, reg64.value, k64, E64, true
+            )
 
-        @testset "$F" for F in [Float32, Float64]
-            ensembleF = MatrixEnsemble{F}(I, I, I, I)
-            zF = F(z64)
-            eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
-            reg_valueF = F(reg_value64)
-            regF = Regularizer(reg_valueF, reg_type)
-            kF, qscaleF = F.((k64, qscale64))
-            qF, EF = Complex{F}.((q64, E64))
-            paramsF = F.(params64)
-            problemF = P(eqF, paramsF..., regF, qF, qscaleF)
+            # Traits
+            @test solution64 isa LocalResolventSolution{Float64}
+
+            problemF = P(eqF, paramF, initF, qscaleF)
 
             solutionF = LocalResolventSolution(
-                problemF, true, qF, regF, reg_valueF, reg_valueF, kF, EF
+                problemF, q0_F, regF, regF.value, regF.value, kF, EF, true
             )
 
             # Floattype inferring constructor
@@ -109,10 +116,10 @@ end  # module Solutions
 
             # Floattype enforcing constructor
             @test LocalResolventSolution{F}(
-                problem64, true, q64, reg64, reg_value64, reg_value64, k64, E64
+                problem64, q0_64, reg64, reg64.value, reg64.value, k64, E64, true
             ) === solutionF
             @test LocalResolventSolution{Float64}(
-                problemF, true, qF, regF, reg_valueF, reg_valueF, kF, EF
+                problemF, q0_F, regF, regF.value, regF.value, kF, EF, true
             ) === solution64
 
             # Floattype conversions

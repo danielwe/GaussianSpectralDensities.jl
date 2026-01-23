@@ -32,14 +32,15 @@ function eqsolve!(ws::Workspace{F}, problem::LocalRegularizerProblem{F}) where {
             return SVector(real(dq), imag(dq))
         end
     end
-    q0v = SVector(real(problem.q0), imag(problem.q0))
+    q0 = problem.init.q
+    q0v = SVector(real(q0), imag(q0))
     local qv, niters, success
     try
         qv, niters = newton(fq, q0v)
         success = true
     catch e
         (e isa ConvergenceException) || rethrow()
-        qv, niters = problem.q0, -1
+        qv, niters = q0v, -1
         success = false
     end
     # TODO: use logging instead
@@ -50,9 +51,10 @@ function eqsolve!(ws::Workspace{F}, problem::LocalRegularizerProblem{F}) where {
 end
 
 function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}) where {F}
+    reg0, q0 = problem.init.reg, problem.init.q
     fqreg =
         let ws = ws,
-            type = problem.reg0.type,
+            type = reg0.type,
             qscale = problem.qscale,
             eq = problem.eq,
             k = problem.k
@@ -67,7 +69,7 @@ function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}) where {F}
                 return SVector(real(dq), imag(dq), dk)
             end
         end
-    qreg0v = SVector(real(problem.q0), imag(problem.q0), problem.reg0.value)
+    qreg0v = SVector(real(q0), imag(q0), reg0.value)
     local qregv, niters, success
     try
         qregv, niters = newton(fqreg, qreg0v)
@@ -79,7 +81,7 @@ function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}) where {F}
     end
     # TODO: use logging instead
     # print_niters(niters, verbosity)
-    q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], problem.reg0.type)
+    q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], reg0.type)
     return make_resolvent_solution(ws, problem, success, q, reg, problem.k)
 end
 
@@ -88,7 +90,7 @@ function make_resolvent_solution(ws, problem, success, q, reg, k)
     shift = shift!(ws, problem.eq, q_scaled, reg)
     gap = gap!(ws, problem.eq, q_scaled, reg)
     E = E!(ws, problem.eq, q_scaled, reg)
-    return LocalResolventSolution(problem, success, q, reg, shift, gap, k, E)
+    return LocalResolventSolution(problem, q, reg, shift, gap, k, E, success)
 end
 
 ## Attic
@@ -157,9 +159,11 @@ end  # module ResolventEquationSolvers
                 @testset "Regularizer type = $type" for type in [:shift, :gap]
                     reg = Regularizer(reg_value, type)
 
+                    init = (; reg, q=q0)
+
                     @testset "$(nameof(typeof(problemF)))" for (problemF, param) in [
-                        (LocalRegularizerProblem(eqF, reg, q0, qscale), :reg)
-                        (LocalTraceProblem(eqF, k, reg, q0, qscale), :k)
+                        (LocalRegularizerProblem(eqF, reg, init, qscale), :reg)
+                        (LocalTraceProblem(eqF, k, init, qscale), :k)
                     ]
                         solF = eqsolve!(wsF, problemF)
 
@@ -207,14 +211,14 @@ end
     zerogap = Regularizer(0.0, :gap)
 
     @testset "$(nameof(typeof(problem)))" for (problem, reg) in [
-        (LocalRegularizerProblem(eq, zeroshift, q0), zeroshift),
-        (LocalTraceProblem(eq, k, zerogap, q0), zerogap),
+        (LocalRegularizerProblem(eq, zeroshift, (; q=q0)), zeroshift),
+        (LocalTraceProblem(eq, k, (; reg=zerogap, q=q0)), zerogap),
     ]
         sol = eqsolve!(ws, problem)
 
         @test !sol.success
         @test sol.problem === problem
-        @test sol.q === problem.q0
+        @test sol.q === problem.init.q
         @test sol.reg === reg
     end
 end

@@ -4,7 +4,7 @@ using ..Ensembles: MatrixEnsemble
 using ..Regularizers: Regularizer
 
 public AbstractLocalResolventProblem,
-    LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
+    LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem, update
 
 """
     LocalResolventEquation(ensemble::MatrixEnsemble, z, normalizeQ=false)
@@ -54,38 +54,47 @@ end
 abstract type AbstractLocalResolventProblem{F<:AbstractFloat,E<:LocalResolventEquation{F}} end
 
 """
-    LocalRegularizerProblem(eq::LocalResolventEquation, reg, q0, qscale=1)
-    LocalRegularizerProblem{F}(eq, reg, q0, qscale) where {F}
+    LocalRegularizerProblem(eq::LocalResolventEquation, reg, init, qscale=1)
+    LocalRegularizerProblem{F}(eq, reg, init, qscale) where {F}
     LocalRegularizerProblem{F}(problem::LocalRegularizerProblem) where {F}
 
 Specify the problem of finding ``q`` given a regularizer in the averaged resolvent equation
 
-`q0` is a starting guess for `q`. `qscale` is an overall scaling factor for the degree of
-symmetry given by `eq.ensemble.T`. This parameter is inserted by hand into the equations to
-facilitate a solution strategy where the symmetry is annealed from below.
+`init.q` is a starting guess for `q`, and `init` can be anything as long as it has the
+property `q` and this can be converted to the appropriate type. `qscale` is an overall
+scaling factor for the degree of symmetry given by `eq.ensemble.T`. This parameter is
+inserted by hand into the equations to facilitate a solution strategy where the symmetry is
+annealed from below.
 """
 struct LocalRegularizerProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     eq::E
     reg::Regularizer{F}
-    q0::Complex{F}
+    init::@NamedTuple{q::Complex{F}}
     qscale::F
 
-    function LocalRegularizerProblem{F}(eq, reg, q0, qscale) where {F}
+    function LocalRegularizerProblem{F}(eq, reg, init, qscale) where {F}
         _checkqscale(qscale)
         eqF = LocalResolventEquation{F}(eq)
-        return new{F,typeof(eqF)}(eqF, reg, q0, qscale)
+        init_filtered = (; q=init.q)
+        return new{F,typeof(eqF)}(eqF, reg, init_filtered, qscale)
     end
 end
 
 function LocalRegularizerProblem(
-    eq::LocalResolventEquation{F}, reg, q0, qscale=one(F)
+    eq::LocalResolventEquation{F}, reg, init, qscale=one(F)
 ) where {F}
-    # TODO: make q0 optional, use large shift asymptotics to calculate default value
-    return LocalRegularizerProblem{F}(eq, reg, q0, qscale)
+    # TODO: make init.q optional, use large shift asymptotics to calculate default value
+    return LocalRegularizerProblem{F}(eq, reg, init, qscale)
 end
 
 function LocalRegularizerProblem{F}(problem::LocalRegularizerProblem) where {F}
-    return LocalRegularizerProblem{F}(problem.eq, problem.reg, problem.q0, problem.qscale)
+    return LocalRegularizerProblem{F}(problem.eq, problem.reg, problem.init, problem.qscale)
+end
+
+function update(
+    problem::LocalRegularizerProblem{F}; init=problem.init, qscale=problem.qscale
+) where {F}
+    return LocalRegularizerProblem{F}(problem.eq, problem.reg, init, qscale)
 end
 
 function Base.convert(
@@ -101,45 +110,49 @@ function Base.convert(
 end
 
 """
-    LocalTraceProblem(eq::LocalResolventEquation, k, reg0, q0, qscale=1)
-    LocalTraceProblem{F}(eq, k, reg0, q0, qscale) where {F}
+    LocalTraceProblem(eq::LocalResolventEquation, k, init, qscale=1)
+    LocalTraceProblem{F}(eq, k, init, qscale) where {F}
     LocalTraceProblem{F}(problem::LocalTraceProblem) where {F}
 
 Specify the problem of finding ``γ²,q`` given ``k`` in the averaged resolvent equation
 
 Here, ``k`` is the target value of the normalized trace ``k = \\tr[(QQ^† + γ²I)⁻¹] / N``.
 
-`reg0` and `q0` are starting guesses for ``γ²,q``. The initial guess for the regularizer can
-be specified in terms of either `Regularizer` type. `qscale` is an overall scaling factor
-for the degree of symmetry given by `eq.ensemble.T`. This parameter is inserted by hand into
-the equations to facilitate a solution strategy where the symmetry is annealed from below.
+`init.reg` and `init.q` are starting guesses for ``γ²,q``, and `init` can be anything as
+long as it has these two properties property `q` and they can be converted to the
+appropriate types. The initial guess for the regularizer can be specified in terms of either
+`Regularizer` type. `qscale` is an overall scaling factor for the degree of symmetry given
+by `eq.ensemble.T`. This parameter is inserted by hand into the equations to facilitate a
+solution strategy where the symmetry is annealed from below.
 """
 struct LocalTraceProblem{F,E} <: AbstractLocalResolventProblem{F,E}
     eq::E
     k::F
-    reg0::Regularizer{F}
-    q0::Complex{F}
+    init::@NamedTuple{reg::Regularizer{F}, q::Complex{F}}
     qscale::F
 
-    function LocalTraceProblem{F}(eq, k, reg0, q0, qscale) where {F}
+    function LocalTraceProblem{F}(eq, k, init, qscale) where {F}
         _checkqscale(qscale)
         eqF = LocalResolventEquation{F}(eq)
-        return new{F,typeof(eqF)}(eqF, k, reg0, q0, qscale)
+        init_filtered = (; reg=init.reg, q=init.q)
+        return new{F,typeof(eqF)}(eqF, k, init_filtered, qscale)
     end
 end
 
-function LocalTraceProblem(
-    eq::LocalResolventEquation{F}, k, reg0, q0, qscale=one(F)
-) where {F}
-    # TODO: make q0 optional, use large shift asymptotics to calculate default value
-    return LocalTraceProblem{F}(eq, k, reg0, q0, qscale)
+function LocalTraceProblem(eq::LocalResolventEquation{F}, k, init, qscale=one(F)) where {F}
+    # TODO: make init.q optional, use large shift asymptotics to calculate default value
+    return LocalTraceProblem{F}(eq, k, init, qscale)
 end
 
 function LocalTraceProblem{F}(problem::LocalTraceProblem) where {F}
-    p = LocalTraceProblem{F}(
-        problem.eq, problem.k, problem.reg0, problem.q0, problem.qscale
-    )
+    p = LocalTraceProblem{F}(problem.eq, problem.k, problem.init, problem.qscale)
     return p
+end
+
+function update(
+    problem::LocalTraceProblem{F}; init=problem.init, qscale=problem.qscale
+) where {F}
+    return LocalTraceProblem{F}(problem.eq, problem.k, init, qscale)
 end
 
 function Base.convert(::Type{P}, p::LocalTraceProblem) where {F,P<:LocalTraceProblem{F}}
@@ -277,44 +290,59 @@ end
         AbstractLocalResolventProblem,
         LocalRegularizerProblem,
         LocalResolventEquation,
-        LocalTraceProblem
+        LocalTraceProblem,
+        update
     using GaussianSpectralDensities.Regularizers: Regularizer
 
     using LinearAlgebra: I
 
-    ensemble64, z64, normalizeQ = MatrixEnsemble(I, I, I, I), 0.0im, false
-    eq64 = LocalResolventEquation(ensemble64, z64, normalizeQ)
-    reg_value64, reg_type = 0.5, :gap
-    reg64 = Regularizer(reg_value64, reg_type)
-    k, q, qscale = 1.0, complex(eps(), eps()), 1.0
+    ensemble64 = MatrixEnsemble(I, I, I, I)
+    z64 = 0.0im
+    eq64 = LocalResolventEquation(ensemble64, z64)
+    reg64 = Regularizer(0.5, :gap)
+    reg_alt64 = Regularizer(0.5, :shift)
+    k64, q0_64, qscale64 = 1.0, complex(eps(), eps()), 0.5
+    init64 = (; reg=reg64, q=q0_64)
+    init_alt64 = (; reg=reg_alt64, q=q0_64)
 
-    @testset "$(nameof(P))" for (P, params64) in
-                                [(LocalRegularizerProblem, ()), (LocalTraceProblem, (k,))]
-        problem64 = P(eq64, params64..., reg64, q, qscale)
+    @testset "$F" for F in [Float32, Float64]
+        ensembleF = MatrixEnsemble{F}(I, I, I, I)
+        zF = F(z64)
+        eqF = LocalResolventEquation(ensembleF, zF)
+        regF = Regularizer(F(reg64.value), reg64.type)
+        reg_altF = Regularizer(F(reg_alt64.value), reg64.type)
+        kF = F(k64)
+        q0_F = Complex{F}(q0_64)
+        qscaleF = F(qscale64)
+        initF = (; reg=regF, q=q0_F)
+        init_altF = (; reg=reg_altF, q=q0_F)
 
-        # Traits
-        @test problem64 isa P{Float64}
+        @testset "$(nameof(P))" for (P, param64, paramF) in [
+            (LocalRegularizerProblem, reg64, regF), (LocalTraceProblem, k64, kF)
+        ]
+            problem64 = P(eq64, param64, init64, qscale64)
+            problemF = P(eqF, paramF, initF, qscaleF)
 
-        # Defaults
-        @test P(eq64, params64..., reg64, q) === P(eq64, params64..., reg64, q, 1)
+            # Traits
+            @test problem64 isa P{Float64}
+            @test problemF isa P{F}
 
-        @testset "$F" for F in [Float32, Float64]
-            ensembleF = MatrixEnsemble{F}(I, I, I, I)
-            zF = F(z64)
-            eqF = LocalResolventEquation(ensembleF, zF, normalizeQ)
-            reg_valueF = F(reg_value64)
-            regF = Regularizer(reg_valueF, reg_type)
-            qF = Complex{F}(q)
-            qscaleF = F(qscale)
-            paramsF = F.(params64)
-            problemF = P(eqF, paramsF..., regF, qF, qscaleF)
+            # Defaults
+            problem_alt64 = P(eq64, param64, init_alt64, 1)
+            problem_altF = P(eqF, paramF, init_altF, 1)
+            @test P(eq64, param64, init_alt64) === problem_alt64
+            @test P(eqF, paramF, init_altF) === problem_altF
+
+            # Update
+            @test update(problem64; init=init_alt64, qscale=1) === problem_alt64
+            @test update(problemF; init=init_altF, qscale=1) === problem_altF
 
             # Floattype inferring constructor
             @test problemF isa P{F}
 
             # Floattype enforcing constructor
-            @test P{F}(eq64, params64..., reg64, q, qscale) === problemF
-            @test P{Float64}(eqF, paramsF..., regF, qF, qscaleF) === problem64
+            @test P{F}(eq64, param64, init64, qscale64) === problemF
+            @test P{Float64}(eqF, paramF, initF, qscaleF) === problem64
 
             # Floattype conversions
             @test convert(P{F}, problem64) === problemF
@@ -340,13 +368,14 @@ end
 
     eq = LocalResolventEquation(MatrixEnsemble(I, I, I, I), 0.0im, false)
     reg = Regularizer(0.5, :gap)
-    k, q = 1.0, complex(eps(), eps())
+    init = (; reg, q=complex(eps(), eps()))
+    k = 1.0
 
     # qscale ∈ [0, 1]
-    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, -0.1)
-    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, 1.1)
-    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, q, 0.5im)
-    @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, -0.1)
-    @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, 1.1)
-    @test_throws ArgumentError LocalTraceProblem(eq, k, reg, q, 0.5im)
+    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, init, -0.1)
+    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, init, 1.1)
+    @test_throws ArgumentError LocalRegularizerProblem(eq, reg, init, 0.5im)
+    @test_throws ArgumentError LocalTraceProblem(eq, k, init, -0.1)
+    @test_throws ArgumentError LocalTraceProblem(eq, k, init, 1.1)
+    @test_throws ArgumentError LocalTraceProblem(eq, k, init, 0.5im)
 end
