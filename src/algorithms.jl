@@ -2,7 +2,7 @@ module Algorithms
 
 using ..Defaults: Defaults
 using ..EquationSolvers: eqsolve!
-using ..MathHelpers: predictlinear, samesign
+using ..MathHelpers: monotonic, predictlinear, samesign
 using ..Problems:
     AbstractLocalResolventProblem, LocalRegularizerProblem, LocalTraceProblem, update
 using ..Regularizers: Regularizer, RegularizerType
@@ -197,7 +197,8 @@ convergence to the correct solution branch, and schedule a gradual decay to appr
 true solution along this branch.
 
 The parameter `values` should be a vector of numerical values, and `type` is the type of
-regularizer, see [`Regularizer`](@ref) for details.
+regularizer, see [`Regularizer`](@ref) for details. An error is thrown if the values do not
+monotonically decrease.
 
 The final step of the algorithm is a direct solve of the averaged resolvent problem. This
 either happens at the end of the prescribed schedule or when intersecting the target during
@@ -230,7 +231,12 @@ struct RegularizerSchedule{F,U<:AbstractVector{F}} <: AbstractSchedule{F}
     function RegularizerSchedule{F}(values, type, shiftmin=F(-Inf)) where {F}
         # map preserves ranges types etc. better than broadcasting
         values_ = (eltype(values) === F) ? values : map(F, values)
-        return new{F,typeof(values_)}(values_, type, shiftmin)
+        schedule = new{F,typeof(values_)}(values_, type, shiftmin)
+        # Validate post-instantiation in case the original values was a single-use iterator
+        if !monotonic(Iterators.reverse(schedule.values))
+            throw(ArgumentError("regularizer schedule must decrease monotonically"))
+        end
+        return schedule
     end
 end
 
@@ -353,13 +359,18 @@ struct SymmetrySchedule{F,U<:AbstractVector{F}} <: AbstractSchedule{F}
     shiftmin::F
 
     function SymmetrySchedule{F}(values, shiftmin=F(-Inf)) where {F}
-        if (first(values) != 0) || (last(values) != 1) || !monotonic(values)
-            msg = "symmetry schedule must increase monotonically from 0 to 1"
-            throw(ArgumentError(msg))
-        end
         # map preserves ranges types etc. better than broadcasting
         values_ = (eltype(values) === F) ? values : map(F, values)
-        return new{F,typeof(values_)}(values_, shiftmin)
+        schedule = new{F,typeof(values_)}(values_, shiftmin)
+        # Validate post-instantiation in case the original values was a single-use iterator
+        if (
+            (first(schedule.values) != 0) ||
+            (last(schedule.values) != 1) ||
+            !monotonic(schedule.values)
+        )
+            throw(ArgumentError("symmetry schedule must increase monotonically 0 to 1"))
+        end
+        return schedule
     end
 end
 
@@ -393,14 +404,6 @@ end
 Base.getindex(alg::SymmetrySchedule, i::Integer) = alg.values[i]
 Base.firstindex(alg::SymmetrySchedule) = Base.firstindex(alg.values)
 Base.lastindex(alg::SymmetrySchedule) = Base.lastindex(alg.values)
-
-# Helpers
-# -------
-function monotonic(x)
-    (length(x) == 1) && return true
-    tail = @view x[(begin + 1):end]
-    return (first(x) < first(tail)) && monotonic(tail)
-end
 
 function done(
     ::AbstractLocalResolventProblem{F}, alg::SymmetrySchedule{F}, state::ScheduleState{F}
@@ -509,8 +512,8 @@ end
     end
 end
 
-@testitem "SymmetrySchedule errors" begin
-    using GaussianSpectralDensities.Algorithms: SymmetrySchedule
+@testitem "*Schedule errors" begin
+    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, SymmetrySchedule
 
     # Doesn't start at 0
     @test_throws ArgumentError SymmetrySchedule([0.2, 0.6, 1.0])
@@ -527,6 +530,10 @@ end
     @test_throws "monotonic" SymmetrySchedule([0.0, 0.67, 0.33, 1.0])
     @test_throws ArgumentError SymmetrySchedule(range(1.0, 0.0, 3))
     @test_throws "monotonic" SymmetrySchedule(range(1.0, 0.0, 3))
+    @test_throws ArgumentError RegularizerSchedule([1.0, 0.33, 0.67, 0.0], :shift)
+    @test_throws "monotonic" RegularizerSchedule([1.0, 0.33, 0.67, 0.0], :gap)
+    @test_throws ArgumentError RegularizerSchedule(range(0.0, 1.0, 3), :shift)
+    @test_throws "monotonic" RegularizerSchedule(range(0.0, 1.0, 3), :gap)
 end
 
 @testitem "DirectSolve/LocalRegularizerProblem" begin

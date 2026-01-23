@@ -47,6 +47,7 @@ public AbstractMatrixOrUniform,
     ldiv,
     ldiv!!,
     mapdiag,
+    monotonic,
     muladd!!,
     muladd_diag!!,
     neg,
@@ -88,6 +89,18 @@ mapdiag(f, A::UniformScaling) = UniformScaling(f(A.λ))
 
 alldiag(f, A::Diagonal) = all(f, A.diag)
 alldiag(f, A::UniformScaling) = f(A.λ)
+
+function monotonic(x)
+    isempty(x) && return true
+    x1, tail... = x
+    return monotonic_inner(x1, tail)
+end
+
+function monotonic_inner(x1, tail)  # not public
+    isempty(tail) && return true
+    x2, tail2... = tail
+    return (x1 < x2) && monotonic_inner(x2, tail2)
+end
 
 inunitdisc(a::Number) = (abs2(a) <= 1)
 
