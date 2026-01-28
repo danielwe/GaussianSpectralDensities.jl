@@ -13,7 +13,7 @@ The core task is solving self-consistent nonlinear equations for the averaged re
 julia --startup-file=no --project=@. -e 'using Pkg; Pkg.test()'
 
 # Run specific testitems filtered by name and/or file (requires TestEnv installed in the base environment)
-julia --startup-file=no --check-bounds=yes --warn-overwrite=yes --depwarn=yes --project=@. -e 'cd(joinpath(dirname(Base.active_project()), "test")); using TestEnv; TestEnv.activate(); using TestItemRunner; @run_package_tests filter=ti->(ti.name=="testitem name" && endswith(ti.filename, "source_file.jl"))'
+julia --startup-file=no --check-bounds=yes --warn-overwrite=yes --depwarn=yes --project=@. -e 'cd(joinpath(dirname(Base.active_project()), "test")); using TestEnv; TestEnv.activate(); using TestItemRunner; @run_package_tests filter=ti -> (ti.name == "testitem name") && endswith(ti.filename, "source_file.jl")'
 
 # Run tests with coverage (requires CoverageTools installed in the @nvim-coverage shared environment)
 # Step 0: start with a clean slate, run:
@@ -44,22 +44,25 @@ Active modules (in dependency order):
 1. `Newton` — Generic Newton solver with finite-difference Jacobian
 1. `EquationSolvers` — `eqsolve!` implementations for problem types
 1. `Algorithms` — Solution strategies: `DirectSolve`, `RegularizerSchedule`, `SymmetrySchedule`
+1. `Solvers` — User-facing `Solver` and `Solution` types with CommonSolve.jl interface
 
 ## Architecture Patterns
 
 ### Submodule structure
 
-Each file defines a `module` and ends with `@testitem` blocks (TestItems.jl). Tests are colocated with code.
+Each file defines a `module` followed by `@testitem` blocks (TestItems.jl). Tests are colocated with code but placed after the module's closing `end`.
 
 This is a more explicitly modular structure than is typical in Julia, but in this project, we prefer tight encapsulation of each type tree and a limited but well-defined public interface to go with it, keeping the top-level module scope free of private helper functions. This also means we don't need to mark private helper functions with an underscore prefix---we just don't mark them public.
 
 ### Real/float type parameterization
 
-Most numeric types are parameterized by `F<:AbstractFloat`, though some have the more general allowance `F<:Real`. Constructors support:
+Most numeric types are parameterized by `F<:AbstractFloat`, though some have the more general allowance `F<:Real`. Internal types (used behind the scenes) typically support multiple constructor patterns for type adaptation:
 
 - Type-inferring: `Foo(args...)` infers `F` from the first argument
 - Type-enforcing: `Foo{F}(args...)` converts to specified precision; typically an inner constructor enforcing invariants
 - Copy-converting: `Foo{F}(foo::Foo)` for precision conversion; also often an inner constructor to bypass parts of the type-enforcing constructor that are redundant when working with an existing instance
+
+User-facing types (like those in `Solvers`) may have simpler constructor patterns since precision conversion is less critical at the API boundary.
 
 ### Array type flexibility
 
@@ -86,7 +89,7 @@ Algorithms implement an iterator-like interface via `step!`:
 - `ptrace` not `k`
 - `greens` not `E`
 
-Functions ending in `!` mutate their first argument (Julia convention). Functions ending in `!!` may or may not mutate depending on array type (e.g., StaticArrays can't be mutated), and they always return the result such that mutating and non-mutating methods can be used identically (e.g., it's always `z = foo!!(x, y)`, whereby you always end up with the desired result in `z`, but `z === x` if and only if the call hits a mutating method).
+Functions ending in `!` mutate their first argument (Julia convention). Functions ending in `!!` may or may not mutate depending on array type (e.g., StaticArrays can't be mutated), and they always return the result such that mutating and non-mutating methods can be used identically (e.g., it's always `z = foo!!(x, y)`, whereby you always end up with the desired result in `z`; however, `z === x` if and only if the call hits a mutating method).
 
 ## Key Types
 
@@ -99,12 +102,14 @@ Functions ending in `!` mutate their first argument (Julia convention). Function
 | `ResolventSolution{F}`  | Solution with `q, shift, gap, ptrace, greens` |
 | `Workspace{F}`          | Cached intermediate computations              |
 | `Regularizer{F}`        | Value + type (`:shift` or `:gap`)             |
+| `Solver{F}`             | User-facing solver with iteration interface   |
+| `Solution{F}`           | Final result with trace history               |
 
 ## Testing
 
 Tests use TestItems.jl for isolation. Each `@testitem` block is independent—no global state leakage.
 
-Common test patterns:
+Common test patterns for internal modules:
 
 - Test across `Float32` and `Float64`
 - Test across array types: `Array`, `SArray`, `SparseMatrixCSC`
@@ -113,7 +118,9 @@ Common test patterns:
 
 In higher-level behavior tests, use type-enforcing constructors (e.g., `MatrixEnsemble{F}(...)`) to obtain correctly-typed objects. Intermediate variables used to assemble these don't need float-specific versions—the constructor handles conversion. This keeps setup code simple since constructor correctness is verified separately.
 
-Do not use a plain `for` loop when the loop body contains a `@test` (or one of its siblings, like `@test_throws`). Such loops should always use the test set form: `@testset "$label" for ...`. This ensures that failing tests are printed with sufficient context to know in which iteration they failed.
+User-facing modules (like `Solvers`) focus more on API behavior and less on exhaustive type/precision conversion testing.
+
+Do not use a plain `for` loop when the loop body contains a `@test` or another test macro, like `@test_throws`. Such loops should always use the test set form: `@testset "$label" for ...`. This ensures that failing tests are printed with sufficient context to know in which iteration they failed.
 
 ## Commented Code
 
