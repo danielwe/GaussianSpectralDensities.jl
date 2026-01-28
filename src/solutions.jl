@@ -1,140 +1,134 @@
 module Solutions
 
-using ..Problems: AbstractLocalResolventProblem
-using ..Regularizers: Regularizer
+using ..Problems: ResolventEquation
+using ..Workspaces: Workspace, gap!, greens!, ptrace!, shift!
 
-public LocalResolventSolution, setfailed
+using ..ArrayTools: ArrayTools
+
+public ResolventSolution
 
 """
-    LocalResolventSolution(
-        problem::AbstractLocalResolventProblem, q, shift, gap, k, E, success
-    )
-    LocalResolventSolution{F}(
-        problem::AbstractLocalResolventProblem, q, shift, gap, k, E, success
-    )
+    ResolventSolution(eq::ResolventEquation q, reg; workspace=Workspace(eq.ensemble))
+    ResolventSolution{F}(eq::ResolventEquation q, reg, workspace::Workspace{F})
 
 Represent a solution of an averaged resolvent equation at a point in the complex plane
 
-The constructor does not verify that the parameters form a consistent solution of the given
-problem. Use the function `eqsolve!` to obtain a consistent `LocalResolventSolution`.
+The constructor does not verify that the given values solve for a particular objective. Use
+the function `eqsolve!` for that. It does, however, calculate self-consistent values for all
+the derived quantities contained in the struct.
 
 # Arguments
 
-  - `problem`: the averaged resolvent equation problem
-  - `q`: value of the self-consistently determined parameter ``q``
-  - `shift`: value of the regularizer shift ``γ²``
-  - `gap`: value of the regularized gap `eigmin(QQ†) + γ²`
-  - `k`: value of the normalized trace ``\\tr[(QQ^† + γ²I)⁻¹] / N``.
-  - `E`: value of the normalized trace of the resolvent ``\\tr[Q^†(QQ^† + γ²I)⁻¹] / N``
-  - `success`: whether the solution was successful
+  - `eq`: the resolvent equation
+  - `q`: value of the parameter ``q``
+  - `reg` value of the regularizer
+  - `workspace`: workspace used to compute derived quantities
 """
-struct LocalResolventSolution{F,P<:AbstractLocalResolventProblem{F}}
-    problem::P
+struct ResolventSolution{F,E<:ResolventEquation{F}}
+    eq::E
     q::Complex{F}
-    reg::Regularizer{F}
     shift::F
     gap::F
-    k::F
-    E::Complex{F}
+    ptrace::F
+    greens::Complex{F}
     success::Bool
 
-    function LocalResolventSolution{F}(
-        problem::P, q, reg, shift, gap, k, E, success
-    ) where {F,P}
-        problemF = convert(AbstractLocalResolventProblem{F}, problem)
-        return new{F,typeof(problemF)}(problemF, q, reg, shift, gap, k, E, success)
+    function common(::Type{F}, eq, q, shift, gap, trace, greens, success) where {F}
+        eqF = convert(ResolventEquation{F}, eq)
+        return new{F,typeof(eqF)}(eqF, q, shift, gap, trace, greens, success)
+    end
+
+    function ResolventSolution{F}(eq, q, reg, workspace) where {F}
+        shift = shift!(workspace, eq, q, reg)
+        gap = gap!(workspace, eq, q, reg)
+        ptrace = ptrace!(workspace, eq, q, reg)
+        greens = greens!(workspace, eq, q, reg)
+        success = all(isfinite, (shift, gap, ptrace, greens)) && (shift >= eq.shiftmin)
+        return common(F, eq, q, shift, gap, ptrace, greens, success)
+    end
+
+    function ResolventSolution{F}(s::ResolventSolution) where {F}
+        return common(F, s.eq, s.q, s.shift, s.gap, s.ptrace, s.greens, s.success)
     end
 end
 
-function LocalResolventSolution(
-    problem::AbstractLocalResolventProblem{F}, q, reg, shift, gap, k, E, success
+function ResolventSolution(
+    eq::ResolventEquation{F}, q, reg; workspace=Workspace(eq.ensemble)
 ) where {F}
-    return LocalResolventSolution{F}(problem, q, reg, shift, gap, k, E, success)
+    return ResolventSolution{F}(eq, q, reg, workspace)
 end
 
-function LocalResolventSolution{F}(s::LocalResolventSolution) where {F}
-    sF = LocalResolventSolution{F}(
-        s.problem, s.q, s.reg, s.shift, s.gap, s.k, s.E, s.success
-    )
-    return sF
+## Conversions
+## ===========
+function Base.convert(::Type{P}, s::ResolventSolution) where {F,P<:ResolventSolution{F}}
+    return (s isa P) ? s : ResolventSolution{F}(s)
 end
 
-function Base.convert(
-    ::Type{P}, s::LocalResolventSolution
-) where {F,P<:LocalResolventSolution{F}}
-    return (s isa P) ? s : LocalResolventSolution{F}(s)
-end
-
-## Accessors
-## =========
-function setfailed(s::LocalResolventSolution)
-    return LocalResolventSolution(s.problem, s.q, s.reg, s.shift, s.gap, s.k, s.E, false)
+function ArrayTools.adaptrealtype(::Type{F}, eq::ResolventSolution) where {F}
+    return convert(ResolventSolution{F}, eq)
 end
 
 end  # module Solutions
 
 @testitem "Solutions" begin
+    using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
+    using GaussianSpectralDensities.Problems: ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: LocalResolventSolution, setfailed
+    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
 
-    ensemble64, z64 = MatrixEnsemble(I, I, I, I), 0.0im
-    eq64 = LocalResolventEquation(ensemble64, z64)
+    ensemble64 = MatrixEnsemble(I, I, I, I / 2)
+    ws64 = Workspace(ensemble64)
+    z64 = 0.0im
+    sscale = 2 // 3
+    eq64 = ResolventEquation(ensemble64, z64; sscale)
     reg64 = Regularizer(0.5, :gap)
-    k64, q0_64, qscale64, E64 = 1.0, complex(eps(), eps()), 1.0, 0.5 - im
-    init64 = (; reg=reg64, q=q0_64)
+    q64 = complex(eps(), eps())
 
     @testset "$F" for F in [Float32, Float64]
-        ensembleF = MatrixEnsemble{F}(I, I, I, I)
+        ensembleF = MatrixEnsemble{F}(I, I, I, I / 2)
+        wsF = Workspace(ensembleF)
         zF = F(z64)
-        eqF = LocalResolventEquation(ensembleF, zF)
+        eqF = ResolventEquation(ensembleF, zF; sscale)
         regF = Regularizer(F(reg64.value), reg64.type)
-        kF, qscaleF = F.((k64, qscale64))
-        q0_F, EF = Complex{F}.((q0_64, E64))
-        initF = (; reg=regF, q=q0_F)
+        qF = Complex{F}(q64)
 
-        @testset "$(nameof(P))" for (P, param64, paramF) in [
-            (LocalRegularizerProblem, reg64, regF), (LocalTraceProblem, k64, kF)
-        ]
-            problem64 = P(eq64, param64, init64, qscale64)
+        solution64 = ResolventSolution(eq64, q64, reg64)
 
-            solution64 = LocalResolventSolution(
-                problem64, q0_64, reg64, reg64.value, reg64.value, k64, E64, true
-            )
+        # Traits
+        @test solution64 isa ResolventSolution{Float64}
+        @test solution64.success
 
-            # Traits
-            @test solution64 isa LocalResolventSolution{Float64}
+        # Floattype inferring constructor
+        solutionF = ResolventSolution(eqF, qF, regF)
+        @test solutionF isa ResolventSolution{F}
 
-            problemF = P(eqF, paramF, initF, qscaleF)
+        # Declaring failure
+        @test !ResolventSolution(eqF, oftype(qF, NaN), regF).success
 
-            solutionF = LocalResolventSolution(
-                problemF, q0_F, regF, regF.value, regF.value, kF, EF, true
-            )
+        eq_impossibleF = ResolventEquation(ensembleF, zF; sscale, shiftmin=Inf)
+        solution_impossibleF = ResolventSolution(eq_impossibleF, qF, regF)
+        @test !solution_impossibleF.success
 
-            # Accessors
-            @test solutionF.success
-            @test !setfailed(solutionF).success
+        # Floattype enforcing constructor
+        solutionF_64 = ResolventSolution{Float64}(eqF, qF, regF, wsF)
+        solution64_F = ResolventSolution{F}(eq64, q64, reg64, ws64)
+        @test solutionF_64 isa ResolventSolution{Float64}
+        @test solution64_F isa ResolventSolution{F}
 
-            # Floattype inferring constructor
-            @test solutionF isa LocalResolventSolution{F}
+        # Declaring failure
+        @test !ResolventSolution{Float64}(eqF, oftype(qF, NaN), regF, wsF).success
+        @test !ResolventSolution{F}(eq64, oftype(q64, NaN), reg64, ws64).success
 
-            # Floattype enforcing constructor
-            @test LocalResolventSolution{F}(
-                problem64, q0_64, reg64, reg64.value, reg64.value, k64, E64, true
-            ) === solutionF
-            @test LocalResolventSolution{Float64}(
-                problemF, q0_F, regF, regF.value, regF.value, kF, EF, true
-            ) === solution64
-
-            # Floattype conversions
-            @test convert(LocalResolventSolution{F}, solution64) === solutionF
-            @test convert(LocalResolventSolution{Float64}, solutionF) === solution64
-            @test LocalResolventSolution{F}(solution64) === solutionF
-            @test LocalResolventSolution{Float64}(solutionF) === solution64
-        end
+        # Floattype conversions
+        @test ResolventSolution{F}(solution64) === solutionF
+        @test ResolventSolution{Float64}(solutionF) === solutionF_64
+        @test convert(ResolventSolution{F}, solution64) === solutionF
+        @test convert(ResolventSolution{Float64}, solutionF) === solutionF_64
+        @test adaptrealtype(F, solution64) === solutionF
+        @test adaptrealtype(Float64, solutionF) === solutionF_64
     end
 end

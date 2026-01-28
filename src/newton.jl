@@ -96,11 +96,9 @@ relative_increment(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional con
 end  # module Newton
 
 @testitem "newton Real" begin
-    using GaussianSpectralDensities.Newton:
-        NewtonException, finite_difference_jacobian, newton
+    using GaussianSpectralDensities.Newton: finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
-    using StaticArrays: SMatrix, SVector, Size
 
     rtol_exponent = 2 // 5
     atol_exponent = 3 // 4
@@ -128,8 +126,7 @@ end  # module Newton
 end
 
 @testitem "newton SVector" begin
-    using GaussianSpectralDensities.Newton:
-        NewtonException, finite_difference_jacobian, newton
+    using GaussianSpectralDensities.Newton: finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
     using StaticArrays: SMatrix, SVector, Size

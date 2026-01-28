@@ -1,4 +1,6 @@
+#=
 module Objectives
+# NOTE: I don't think we need this module anymore
 
 using ..Defaults: Defaults
 using ..Regularizers: Regularizer
@@ -157,3 +159,4 @@ end
         @test RegularizerObjective{Float64}(objectiveF) === objective64
     end
 end
+=#

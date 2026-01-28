@@ -2,6 +2,8 @@ module Regularizers
 
 using EnumX: @enumx
 
+using ..ArrayTools: ArrayTools
+
 public Regularizer, RegularizerType, gap, shift
 
 @enumx RegularizerType::UInt8 shift gap
@@ -31,13 +33,6 @@ struct Regularizer{F<:Real}
     type::RegularizerType.T
 end
 
-function Base.:+(r1::Regularizer{F}, r2::Regularizer{F}) where {F}
-    if r1.type != r2.type
-        throw(ArgumentError("Cannot add Regularizers of different types"))
-    end
-    return Regularizer{F}(r1.value + r2.value, r1.type)
-end
-
 Regularizer(value::F, type) where {F} = Regularizer{F}(value, type)
 
 Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
@@ -45,20 +40,10 @@ Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
 ## Conversions
 ## ===========
 Base.convert(::Type{P}, r::Regularizer) where {P<:Regularizer} = (r isa P) ? r : P(r)
-
-## Arithmetic
-## ==========
-Base.:-(r::Regularizer{F}) where {F} = Regularizer{F}(-r.value, r.type)
-Base.:-(r1::Regularizer{F}, r2::Regularizer{F}) where {F} = r1 + (-r2)
-
-Base.:*(a::Real, r::Regularizer{F}) where {F} = Regularizer{F}(a * r.value, r.type)
-Base.:*(r::Regularizer, a::Real) = a * r
-
-Base.:/(r::Regularizer{F}, a::Real) where {F} = Regularizer{F}(r.value / a, r.type)
-Base.:\(a::Real, r::Regularizer{F}) where {F} = r / a
+ArrayTools.adaptrealtype(::Type{F}, r::Regularizer) where {F} = convert(Regularizer{F}, r)
 
 """
-    shift(reg::Regularizer, baregap::Number)
+    shift(reg::Regularizer, baregap::Real)
     shift(reg::Regularizer, () -> baregap)
 
 Get the regularizer shift ``γ²`` given a Regularizer and the bare gap `eigmin(QQ†)`
@@ -67,14 +52,14 @@ Get the regularizer shift ``γ²`` given a Regularizer and the bare gap `eigmin(
 latter is useful for deferring any computation necessary to only be invoked if needed, that
 is, if the regularizer type of `reg` is `:gap`.
 """
-function shift(reg::Regularizer, baregap)
+function shift(reg::Regularizer{F}, baregap) where {F}
     (reg.type === RegularizerType.shift) && return reg.value
-    (baregap isa Number) && return reg.value - baregap
-    return reg.value - baregap()
+    bg = (baregap isa Real) ? baregap : baregap()
+    return F(reg.value - bg)::F
 end
 
 """
-    gap(reg::Regularizer, baregap::Number)
+    gap(reg::Regularizer, baregap::Real)
     gap(reg::Regularizer, () -> baregap)
 
 Get the regularized gap `eigmin(QQ†) + γ²` given a Regularizer and the bare gap `eigmin(QQ†)`
@@ -83,26 +68,16 @@ Get the regularized gap `eigmin(QQ†) + γ²` given a Regularizer and the bare 
 latter is useful for deferring any computation necessary to only be invoked if needed, that
 is, if the regularizer type of `reg` is `:shift`.
 """
-function gap(reg::Regularizer, baregap)
+function gap(reg::Regularizer{F}, baregap) where {F}
     (reg.type === RegularizerType.gap) && return reg.value
-    (baregap isa Number) && return reg.value + baregap
-    return reg.value + baregap()
+    bg = (baregap isa Real) ? baregap : baregap()
+    return F(reg.value + bg)::F
 end
-
-#=
-## solution score
-## ==============
-
-function score(solution, r::Regularizer)
-    for reg in instances(Regularizers.T)
-        (r.type === reg) && return score(getproperty(solution, reg), r.value)
-    end
-end
-=#
 
 end  # module Regularizers
 
 @testitem "Regularizer" begin
+    using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
 
     shift64, gap64 = 0.0, 0.5
@@ -118,25 +93,29 @@ end  # module Regularizers
         shiftF, gapF, baregapF = F.((shift64, gap64, baregap64))
         reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
 
-        # Floattype inferring constructor
+        # Realtype inferring constructor
         @test reg_shiftF isa Regularizer{F}
         @test reg_gapF isa Regularizer{F}
 
-        # Floattype enforcing constructor
+        # Realtype enforcing constructor
         @test Regularizer{F}(shift64, :shift) === reg_shiftF
         @test Regularizer{F}(gap64, :gap) === reg_gapF
         @test Regularizer{Float64}(shiftF, :shift) === reg_shift64
         @test Regularizer{Float64}(gapF, :gap) === reg_gap64
 
-        # Floattype conversions
-        @test convert(Regularizer{F}, reg_shift64) === reg_shiftF
-        @test convert(Regularizer{F}, reg_gap64) === reg_gapF
-        @test convert(Regularizer{Float64}, reg_shiftF) === reg_shift64
-        @test convert(Regularizer{Float64}, reg_gapF) === reg_gap64
+        # Realtype conversions
         @test Regularizer{F}(reg_shift64) === reg_shiftF
         @test Regularizer{F}(reg_gap64) === reg_gapF
         @test Regularizer{Float64}(reg_shiftF) === reg_shift64
         @test Regularizer{Float64}(reg_gapF) === reg_gap64
+        @test convert(Regularizer{F}, reg_shift64) === reg_shiftF
+        @test convert(Regularizer{F}, reg_gap64) === reg_gapF
+        @test convert(Regularizer{Float64}, reg_shiftF) === reg_shift64
+        @test convert(Regularizer{Float64}, reg_gapF) === reg_gap64
+        @test adaptrealtype(F, reg_shift64) === reg_shiftF
+        @test adaptrealtype(F, reg_gap64) === reg_gapF
+        @test adaptrealtype(Float64, reg_shiftF) === reg_shift64
+        @test adaptrealtype(Float64, reg_gapF) === reg_gap64
 
         # Interface
         @test shift(reg_shiftF, baregapF) === shiftF
@@ -154,44 +133,4 @@ end
     using GaussianSpectralDensities.Regularizers: Regularizer
     @test_throws ArgumentError Regularizer(0.5, :foo)
     @test_throws "not a valid Regularizer" Regularizer(0.5, :foo)
-end
-
-@testitem "Regularizer arithmetic" begin
-    using GaussianSpectralDensities.Regularizers: Regularizer
-
-    @testset "$F" for F in [Float32, Float64]
-        # +
-        @test Regularizer{F}(0.25, :shift) + Regularizer{F}(0.5, :shift) ===
-            Regularizer{F}(0.75, :shift)
-        @test Regularizer{F}(0.25, :gap) + Regularizer{F}(0.5, :gap) ===
-            Regularizer{F}(0.75, :gap)
-        @test_throws ArgumentError Regularizer{F}(0.25, :shift) + Regularizer{F}(0.5, :gap)
-        @test_throws "different types" Regularizer{F}(0.25, :gap) +
-            Regularizer{F}(0.5, :shift)
-
-        # - (unary)
-        @test -Regularizer{F}(0.25, :shift) === Regularizer{F}(-0.25, :shift)
-        @test -Regularizer{F}(0.25, :gap) === Regularizer{F}(-0.25, :gap)
-
-        # - (binary)
-        @test Regularizer{F}(0.75, :shift) - Regularizer{F}(0.5, :shift) ===
-            Regularizer{F}(0.25, :shift)
-        @test Regularizer{F}(0.75, :gap) - Regularizer{F}(0.5, :gap) ===
-            Regularizer{F}(0.25, :gap)
-        @test_throws ArgumentError Regularizer{F}(0.75, :shift) - Regularizer{F}(0.5, :gap)
-        @test_throws "different types" Regularizer{F}(0.75, :gap) -
-            Regularizer{F}(0.5, :shift)
-
-        # *
-        @test 2 * Regularizer{F}(0.25, :shift) === Regularizer{F}(0.5, :shift)
-        @test Regularizer{F}(0.25, :shift) * 2 === Regularizer{F}(0.5, :shift)
-        @test 2 * Regularizer{F}(0.25, :gap) === Regularizer{F}(0.5, :gap)
-        @test Regularizer{F}(0.25, :gap) * 2 === Regularizer{F}(0.5, :gap)
-
-        # /\
-        @test Regularizer{F}(0.5, :shift) / 2 === Regularizer{F}(0.25, :shift)
-        @test Regularizer{F}(0.5, :gap) / 2 === Regularizer{F}(0.25, :gap)
-        @test 2 \ Regularizer{F}(0.5, :shift) === Regularizer{F}(0.25, :shift)
-        @test 2 \ Regularizer{F}(0.5, :gap) === Regularizer{F}(0.25, :gap)
-    end
 end

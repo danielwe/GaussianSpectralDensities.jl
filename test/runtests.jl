@@ -6,7 +6,7 @@ using TestItemRunner
     using Aqua: test_all
     test_all(
         GaussianSpectralDensities;
-        # XXX: Temporary until the rest of the code is revived
+        # FIXME: Temporary until the rest of the code is revived
         stale_deps=false,
     )
 end
@@ -47,10 +47,13 @@ end
     test_all_qualified_accesses_are_public(
         GaussianSpectralDensities;
         ignore=(
-            :CHOLMOD,  # SparseArrays.jl
-            :LM,       # ArnoldiMethod.jl
-            :potrf!,   # LinearAlgebra.LAPACK
-            :potri!,   # LinearAlgebra.LAPACK
+            # TODO: figure out if this can be specialized per module rather than blanket
+            # ignoring any binding with a given name
+            :CHOLMOD,     # SparseArrays.jl
+            :LM,          # ArnoldiMethod.jl
+            :sym_uplo,    # LinearAlgebra
+            :potrf!,      # LinearAlgebra.LAPACK
+            :potri!,      # LinearAlgebra.LAPACK
         ),
         allow_internal_accesses=false,
     )

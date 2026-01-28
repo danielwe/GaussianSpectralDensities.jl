@@ -49,17 +49,17 @@ module Defaults
     const q0 = ComplexF64(sqrt(eps(Float32)))
     const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
     const regularizer_schedule_type = :gap
-    const symmetry_schedule_values = range(0, 1, 11)
+    const symmetry_schedule_values = 0:0.1:1
 # const regularizer_init = Regularizer(1.0, :gap)
 # const margin = 0.1
 
 end
 
-include("mathhelpers.jl")
+include("arraytools.jl")
+include("mathtools.jl")
 # include("matrix_utils.jl")
 include("ensembles.jl")
 include("regularizers.jl")
-include("objectives.jl")
 include("problems.jl")
 include("workspaces.jl")
 include("solutions.jl")

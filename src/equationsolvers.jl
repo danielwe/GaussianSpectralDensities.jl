@@ -4,131 +4,90 @@ using LinearAlgebra: LAPACKException, SingularException
 using StaticArrays: SVector
 
 using ..Newton: NewtonException, newton
-using ..Problems: LocalRegularizerProblem, LocalTraceProblem
+using ..Problems: PTraceProblem, RegularizerProblem
 using ..Regularizers: Regularizer
-using ..Solutions: LocalResolventSolution
-using ..Workspaces: E!, Workspace, gap!, k!, q_rhs!, shift!
+using ..Solutions: ResolventSolution
+using ..Workspaces: Workspace, ptrace!, qFP!
 
 public eqsolve!
 
 const ConvergenceException = Union{NewtonException,SingularException,LAPACKException}
 
 """
-    eqsolve!(ws::Workspace{F}, problem::LocalRegularizerProblem{F}) where {F}
-    eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}) where {F}
+    eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}) where {F}
+    eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}) where {F}
 
 Solve an averaged resolvent equation at a point in the complex plane
 
-Returns a `LocalResolventSolution`.
+Returns a `ResolventSolution`.
 """
 function eqsolve! end
 
-function eqsolve!(ws::Workspace{F}, problem::LocalRegularizerProblem{F}) where {F}
-    fq = let ws = ws, qscale = problem.qscale, eq = problem.eq, reg = problem.reg
+function eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}) where {F}
+    (; reg) = problem
+    fq = let ws = ws, eq = problem.eq, reg = reg
         function fq(qv)
-            # avoid capturing q and reg from the outer function
+            # avoid capturing q from the outer function
             local q = complex(qv...)
-            dq = qscale * q_rhs!(ws, eq, qscale * q, reg) - q
+            dq = qFP!(ws, eq, q, reg) - q
             return SVector(real(dq), imag(dq))
         end
     end
     q0 = problem.init.q
     q0v = SVector(real(q0), imag(q0))
-    local qv, niters, success
-    try
+    # NOTE: niters is unused at the moment, but will be used for logging, so don't remove
+    qv, niters = try
         qv, niters = newton(fq, q0v)
-        success = true
     catch e
         (e isa ConvergenceException) || rethrow()
-        qv, niters = q0v, -1
-        success = false
+        toNaN.(q0v), -1
     end
-    # TODO: use logging instead
+    # FIXME: use logging instead
     # print_niters(niters, verbosity)
-    q, reg = complex(qv...), problem.reg
-    k = k!(ws, problem.eq, problem.qscale * q, reg)
-    return make_resolvent_solution(ws, problem, success, q, reg, k)
+    q = complex(qv...)
+    return ResolventSolution(problem.eq, q, reg; workspace=ws)
 end
 
-function eqsolve!(ws::Workspace{F}, problem::LocalTraceProblem{F}) where {F}
-    reg0, q0 = problem.init.reg, problem.init.q
-    fqreg =
-        let ws = ws,
-            type = reg0.type,
-            qscale = problem.qscale,
-            eq = problem.eq,
-            k = problem.k
-
-            function fqreg(qregv)
-                # avoid capturing q and reg from the outer function
-                local q = complex(qregv[1], qregv[2])
-                local reg = Regularizer(qregv[3], type)
-                q_scaled = qscale * q
-                dq = qscale * q_rhs!(ws, eq, q_scaled, reg) - q
-                dk = k!(ws, eq, q_scaled, reg) - k
-                return SVector(real(dq), imag(dq), dk)
-            end
+function eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}) where {F}
+    reg0 = problem.init.reg
+    fqreg = let ws = ws, reg_type = reg0.type, eq = problem.eq, ptrace = problem.ptrace
+        function fqreg(qregv)
+            # avoid capturing reg and q from the outer function
+            local reg = Regularizer(qregv[1], reg_type)
+            local q = complex(qregv[2], qregv[3])
+            dptrace = ptrace!(ws, eq, q, reg) - ptrace
+            dq = qFP!(ws, eq, q, reg) - q
+            return SVector(dptrace, real(dq), imag(dq))
         end
-    qreg0v = SVector(real(q0), imag(q0), reg0.value)
-    local qregv, niters, success
-    try
-        qregv, niters = newton(fqreg, qreg0v)
-        success = true
+    end
+    q0 = problem.init.q
+    qreg0v = SVector(reg0.value, real(q0), imag(q0))
+    # NOTE: niters is unused at the moment, but will be used for logging, so don't remove
+    qregv, niters = try
+        newton(fqreg, qreg0v)
     catch e
         (e isa ConvergenceException) || rethrow()
-        qregv, niters = qreg0v, -1
-        success = false
+        toNaN.(qreg0v), -1
     end
-    # TODO: use logging instead
+    # FIXME: use logging instead
     # print_niters(niters, verbosity)
-    q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], reg0.type)
-    return make_resolvent_solution(ws, problem, success, q, reg, problem.k)
+    reg, q = Regularizer(qregv[1], reg0.type), complex(qregv[2], qregv[3])
+    return ResolventSolution(problem.eq, q, reg; workspace=ws)
 end
 
-function make_resolvent_solution(ws, problem, success, q, reg, k)
-    q_scaled = problem.qscale * q
-    shift = shift!(ws, problem.eq, q_scaled, reg)
-    gap = gap!(ws, problem.eq, q_scaled, reg)
-    E = E!(ws, problem.eq, q_scaled, reg)
-    return LocalResolventSolution(problem, q, reg, shift, gap, k, E, success)
-end
+toNaN(::F) where {F<:AbstractFloat} = F(NaN)
+toNaN(::Complex{F}) where {F<:AbstractFloat} = complex(F(NaN), F(NaN))
 
-## Attic
-## =====
-# function qj!(
-#     problem::LocalSpectralProblem{NormalizeQ, <:Any, <:Fixγ²}, q, ws
-# ) where {NormalizeQ}
-#     T = problem.ensemble.T
-#     P = P!(problem, q, ws)
-#     PQ = PQ!(problem, q, ws)
-#     QᴴPQ = QᴴPQ!(problem, q, ws)
-#     df_dq = trTAᴴTB(T, PQ, PQ')  # Tr[(TQᴴP)²]
-#     df_dq⁺ = trTAᴴTB(T, QᴴPQ, P)  # Tr[TQᴴPQTP]
-#     if NormalizeQ
-#         QP = QP!(problem, q, ws)
-#         QPQ = QPQ!(problem, q, ws)
-#         df_dq += trTAᴴTB(T, QPQ, P)  # Tr[TQᴴPQᴴTP]
-#         df_dq⁺ += trTAᴴTB(T, PQ, QP)  # Tr[TQᴴPTQP]
-#         df_dq /= 2
-#         df_dq⁺ /= 2
-#     end
-#     df_dq⁺ -= trT²A(T, P)  # Tr[T²P]
-#     μ²N⁻¹ = problem.μ^2 / problem.ensemble.N
-#     df_dq = muladd(df_dq, μ²N⁻¹, -one(q))
-#     df_dq⁺ *= μ²N⁻¹
-#     return df_dq, df_dq⁺
-# end
-
-end  # module ResolventEquationSolvers
+end  # module EquationSolvers
 
 @testitem "eqsolve!" begin
     using GaussianSpectralDensities.Defaults: Defaults
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
+        PTraceProblem, RegularizerProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Workspaces: E!, Workspace, gap!, k!, q_rhs!, shift!
+    using GaussianSpectralDensities.Workspaces: Workspace, qFP!
 
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -136,8 +95,8 @@ end  # module ResolventEquationSolvers
 
     Adata = [1 0.1im; 0 -1]
     Ddata = [0.75, 0.25cispi(1 // 3)]
-    z, qscale = complex(0.8), 0.5
-    k, q0 = 0.01, Defaults.q0
+    z, sscale = complex(0.8), 2 // 3
+    ptrace, q0 = 0.01, Defaults.q0
     reg_value = 0.5
 
     @testset "$label" for (label, A, D) in [
@@ -147,44 +106,38 @@ end  # module ResolventEquationSolvers
     ]
         @testset "$F" for F in [Float32, Float64]
             @testset "$signature" for (signature, ensembleF) in [
-                ("(I, I, I, I)", MatrixEnsemble{F}(I, I, I, I)),
-                ("(A, I, I, I)", MatrixEnsemble{F}(A, I, I, I)),
-                ("(I, A, I, I)", MatrixEnsemble{F}(I, A, I, I)),
-                ("(I, I, A, I)", MatrixEnsemble{F}(I, I, A, I)),
+                ("(I, I, I, I / 2)", MatrixEnsemble{F}(I, I, I, I / 2)),
+                ("(A, I, I, I / 2)", MatrixEnsemble{F}(A, I, I, I / 2)),
+                ("(I, A, I, I / 2)", MatrixEnsemble{F}(I, A, I, I / 2)),
+                ("(I, I, A, I / 2)", MatrixEnsemble{F}(I, I, A, I / 2)),
                 ("(I, I, I, D)", MatrixEnsemble{F}(I, I, I, D)),
             ]
                 wsF = Workspace(ensembleF)
-                eqF = LocalResolventEquation(ensembleF, z)
+                eqF = ResolventEquation(ensembleF, z; sscale)
 
-                @testset "Regularizer type = $type" for type in [:shift, :gap]
-                    reg = Regularizer(reg_value, type)
+                @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
+                    reg = Regularizer(reg_value, reg_type)
 
                     init = (; reg, q=q0)
 
-                    @testset "$(nameof(typeof(problemF)))" for (problemF, param) in [
-                        (LocalRegularizerProblem(eqF, reg, init, qscale), :reg)
-                        (LocalTraceProblem(eqF, k, init, qscale), :k)
+                    @testset "$(nameof(P))" for (P, obj) in [
+                        (RegularizerProblem, reg), (PTraceProblem, ptrace)
                     ]
+                        problemF = P(eqF, obj, init)
                         solF = eqsolve!(wsF, problemF)
 
                         @test solF.success
-                        @test solF.problem === problemF
-                        @test getproperty(solF, param) === getproperty(problemF, param)
+                        @test solF.eq === eqF
 
-                        pqscale = problemF.qscale
-                        sol_q_scaled = pqscale * solF.q
-                        q = pqscale * q_rhs!(wsF, problemF.eq, sol_q_scaled, solF.reg)
-                        shift = shift!(wsF, problemF.eq, sol_q_scaled, solF.reg)
-                        gap = gap!(wsF, problemF.eq, sol_q_scaled, solF.reg)
-                        k = k!(wsF, problemF.eq, sol_q_scaled, solF.reg)
-                        E = E!(wsF, problemF.eq, sol_q_scaled, solF.reg)
+                        solF_reg = Regularizer(getproperty(solF, reg_type), reg_type)
 
                         tol = 10eps(F)^(3 // 4)
-                        @test solF.q ≈ q rtol = tol atol = tol
-                        @test solF.shift ≈ shift rtol = tol atol = tol
-                        @test solF.gap ≈ gap rtol = tol atol = tol
-                        @test solF.k ≈ k rtol = tol atol = tol
-                        @test solF.E ≈ E rtol = tol atol = tol
+                        if problemF isa RegularizerProblem
+                            @test solF_reg.value === F(reg.value)
+                        else
+                            @test solF.ptrace ≈ problemF.ptrace rtol=tol atol=tol
+                        end
+                        @test qFP!(wsF, eqF, solF.q, solF_reg) ≈ solF.q rtol=tol atol=tol
                     end
                 end
             end
@@ -196,29 +149,27 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        LocalRegularizerProblem, LocalResolventEquation, LocalTraceProblem
+        PTraceProblem, RegularizerProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
 
     # engineer a singular equation
-    k, z, q0 = 1.0, 0.1, 0.1
+    ptrace, z, q0 = 1.0, 0.1, 0.1
     ensemble = MatrixEnsemble(0I, I, I, 0.5I)
     ws = Workspace(ensemble)
-    eq = LocalResolventEquation(ensemble, z)
+    eq = ResolventEquation(ensemble, z)
     zeroshift = Regularizer(0.0, :shift)
     zerogap = Regularizer(0.0, :gap)
 
     @testset "$(nameof(typeof(problem)))" for (problem, reg) in [
-        (LocalRegularizerProblem(eq, zeroshift, (; q=q0)), zeroshift),
-        (LocalTraceProblem(eq, k, (; reg=zerogap, q=q0)), zerogap),
+        (RegularizerProblem(eq, zeroshift, (; q=q0)), zeroshift),
+        (PTraceProblem(eq, ptrace, (; reg=zerogap, q=q0)), zerogap),
     ]
         sol = eqsolve!(ws, problem)
 
+        @test sol.eq === problem.eq
         @test !sol.success
-        @test sol.problem === problem
-        @test sol.q === problem.init.q
-        @test sol.reg === reg
     end
 end
