@@ -75,7 +75,6 @@ mutable struct Workspace{
     TP<:Union{Diagonal{F},Hermitian{<:Complex}},
     TP_Li_Ri<:AbstractMatrix{<:Number},
 } <: AbstractWorkspace{F}
-    # TODO: overload `setproperty!` to ensure `clean` is always in sync
     const eq::TE
     z::Complex{F}
     q::Complex{F}
@@ -129,6 +128,28 @@ mutable struct Workspace{
     end
 end
 
+# Private clean state management: use setfield! to bypass setproperty! restrictions
+function set_clean!(ws::Workspace, value::Clean.T)
+    setfield!(ws, :clean, value)
+    return nothing
+end
+
+function Base.setproperty!(ws::W, name::Symbol, value) where {W<:Workspace}
+    if name === :clean
+        throw(FieldError(W, name))
+    elseif name === :z
+        set_clean!(ws, Clean.none)
+    elseif name === :q
+        set_clean!(ws, min(ws.clean, Clean.G0i))
+    elseif name === :reg
+        set_clean!(ws, min(ws.clean, Clean.QQh))
+    end
+    # Replicate the default convert logic
+    T = fieldtype(W, name)
+    valueT = (value isa T) ? value : convert(T, value)
+    return setfield!(ws, name, valueT)
+end
+
 ## Auxiliary matrix getters
 ## ==============
 # TODO: delete this if the need never arises
@@ -148,18 +169,17 @@ end
 function set_G0i_params(ws::Workspace{F}, z) where {F}
     (ws.z == z) && return nothing
     ws.z = z
-    ws.clean = Clean.none
     return nothing
 end
 
 function update_G0i(ws::Workspace)
     (ws.clean >= Clean.G0i) && return nothing
     (; Li_Ri, Li_M_Ri) = ws.eq.ensemble
-    ws.G0i = muladd!!(ws.G0i, ws.z, Li_Ri, minus(Li_M_Ri))
+    setfield!(ws, :G0i, muladd!!(ws.G0i, ws.z, Li_Ri, minus(Li_M_Ri)))
     if !(ws.Q isa Diagonal)
-        ws.Q = copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
+        ws.Q, copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
     end
-    ws.clean = Clean.G0i
+    set_clean!(ws, Clean.G0i)
     return nothing
 end
 
@@ -178,7 +198,6 @@ function set_Q_params(ws::Workspace{F}, z, q) where {F}
     set_G0i_params(ws, z)
     (ws.q == q) && return nothing
     ws.q = q
-    ws.clean = min(ws.clean, Clean.G0i)
     return nothing
 end
 
@@ -186,7 +205,7 @@ function update_Q(ws::Workspace)
     (ws.clean >= Clean.Q) && return nothing
     update_G0i(ws)
     ws.Q = muladd_diagonal!!(ws.Q, -ws.q, ws.eq.ensemble.S, ws.G0i)
-    ws.clean = Clean.Q
+    set_clean!(ws, Clean.Q)
     return nothing
 end
 
@@ -216,7 +235,7 @@ function update_QQh(ws::Workspace)
         ws.QQh = herk!!(ws.QQh, ws.Q', 1 // 2, 1 // 2)
     end
     ws.baregap = eigmin!!(ws.Pi_fact, ws.QQh)
-    ws.clean = Clean.QQh
+    set_clean!(ws, Clean.QQh)
     return nothing
 end
 
@@ -238,7 +257,6 @@ function set_Pi_fact_params(ws::Workspace{F}, z, q, reg) where {F}
     set_QQh_params(ws, z, q)
     (ws.reg == reg) && return nothing
     ws.reg = reg
-    ws.clean = min(ws.clean, Clean.QQh)
     return nothing
 end
 
@@ -246,7 +264,7 @@ function update_Pi_fact(ws::Workspace)
     (ws.clean >= Clean.Pi_fact) && return nothing
     update_QQh(ws)
     ws.Pi_fact = decompose!!(ws.Pi_fact, ws.QQh; shift=shift(ws.reg, ws.baregap))
-    ws.clean = Clean.Pi_fact
+    set_clean!(ws, Clean.Pi_fact)
     return nothing
 end
 
@@ -273,7 +291,7 @@ function update_P(ws::Workspace)
     ((ws.clean & Clean.P) >= Clean.P) && return nothing
     update_Pi_fact(ws)
     ws.P = inverse!!(ws.P, ws.Pi_fact)
-    ws.clean |= Clean.P
+    set_clean!(ws, ws.clean | Clean.P)
     return nothing
 end
 
@@ -297,7 +315,7 @@ function update_P_Li_Ri(ws::Workspace)
     ((ws.clean & Clean.P_Li_Ri) >= Clean.P_Li_Ri) && return nothing
     update_Pi_fact(ws)
     ws.P_Li_Ri = ldiv!!(ws.Pi_fact, copy!!(ws.P_Li_Ri, ws.eq.ensemble.Li_Ri))
-    ws.clean |= Clean.P_Li_Ri
+    set_clean!(ws, ws.clean | Clean.P_Li_Ri)
     return nothing
 end
 
@@ -379,7 +397,7 @@ end  # module Workspaces
     using GaussianSpectralDensities.Problems: ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces:
-        Workspace, gap!, greens!, ptrace!, qFP!, shift!
+        Clean, Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
     using LinearAlgebra: Diagonal, Hermitian, I, eigmin, tr
     using SparseArrays: sparse
@@ -388,30 +406,31 @@ end  # module Workspaces
     A64data = ComplexF64[1 -1; 1 1]
     D64data = ComplexF64[0.75, 0.25cispi(1//3)]
 
-    z64 = -(2.0 + im) / 4
-    q64 = (1.0 - im) / 2
+    # No need to fuss about eltypes for the rest, constructors take care of it
+    z = -(2.0 + im) / 4
+    q = (1.0 - im) / 2
     sscale = 2 // 3
-    qscaled64 = sscale * q64
+    qscaled = sscale * q
 
-    shift64 = 0.25
-    gap64 = 0.5
+    shift = 0.25
+    gap = 0.5
+    reg_shift, reg_gap = Regularizer(0.25, :shift), Regularizer(0.5, :gap)
 
-    # These are just used for comparison, so we don't fuss about eltypes and array types
     Dabs = Diagonal([0.75, 0.25])
     Dphase = Diagonal([1.0, cispi(1 // 3)])
 
-    # Ground truth; only for comparison, so we don't fuss about eltypes
+    # Ground truth
     R_actual = Dphase
     Li_Ri = map(conj, Dphase)
     S_actual = Dabs
-    G0i = (z64 * I - A64data) / R_actual
-    Q = G0i - qscaled64 * S_actual
+    G0i = (z * I - A64data) / R_actual
+    Q = G0i - qscaled * S_actual
 
     @testset "normalizeQ = $normalizeQ" for normalizeQ in [false, true]
         # Ground truth; only for comparison, so we don't fuss about eltypes
         QQh = normalizeQ ? ((Q * Q') + (Q' * Q)) / 2 : Q * Q'
         baregap = eigmin(Hermitian(QQh))
-        Pshift, Pgap = inv(QQh + shift64 * I), inv(QQh + (gap64 - baregap) * I)
+        Pshift, Pgap = inv(QQh + shift * I), inv(QQh + (gap - baregap) * I)
         qFP_shift = tr(S_actual * Q' * Pshift) / 2
         qFP_gap = tr(S_actual * Q' * Pgap) / 2
         ptrace_shift, ptrace_gap = tr(Pshift) / 2, tr(Pgap) / 2
@@ -420,10 +439,6 @@ end  # module Workspaces
         @testset "$F" for F in [Float32, Float64]
             AFdata = map(Complex{F}, A64data)
             DFdata = map(Complex{F}, D64data)
-
-            zF, qscaledF = Complex{F}.((z64, qscaled64))
-            shiftF, gapF = F.((shift64, gap64))
-            reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
 
             @testset "$label" for (label, AF, DF) in [
                 ("Array", AFdata, Diagonal(DFdata)),
@@ -436,20 +451,23 @@ end  # module Workspaces
 
                 @test wsF isa Workspace{F}
 
-                @test shift!(wsF, zF, qscaledF, reg_shiftF) ≈ reg_shiftF.value
-                @test shift!(wsF, zF, qscaledF, reg_gapF) ≈ reg_gapF.value - baregap
+                @test shift!(wsF, z, qscaled, reg_shift) ≈ reg_shift.value
+                @test shift!(wsF, z, qscaled, reg_gap) ≈ reg_gap.value - baregap
 
-                @test gap!(wsF, zF, qscaledF, reg_shiftF) ≈ reg_shiftF.value + baregap
-                @test gap!(wsF, zF, qscaledF, reg_gapF) ≈ reg_gapF.value
+                @test gap!(wsF, z, qscaled, reg_shift) ≈ reg_shift.value + baregap
+                @test gap!(wsF, z, qscaled, reg_gap) ≈ reg_gap.value
 
-                @test qFP!(wsF, zF, qscaledF, reg_shiftF) ≈ qFP_shift
-                @test qFP!(wsF, zF, qscaledF, reg_gapF) ≈ qFP_gap
+                @test qFP!(wsF, z, qscaled, reg_shift) ≈ qFP_shift
+                @test qFP!(wsF, z, qscaled, reg_gap) ≈ qFP_gap
 
-                @test ptrace!(wsF, zF, qscaledF, reg_shiftF) ≈ ptrace_shift
-                @test ptrace!(wsF, zF, qscaledF, reg_gapF) ≈ ptrace_gap
+                @test ptrace!(wsF, z, qscaled, reg_shift) ≈ ptrace_shift
+                @test ptrace!(wsF, z, qscaled, reg_gap) ≈ ptrace_gap
 
-                @test greens!(wsF, zF, qscaledF, reg_shiftF) ≈ greens_shift
-                @test greens!(wsF, zF, qscaledF, reg_gapF) ≈ greens_gap
+                @test greens!(wsF, z, qscaled, reg_shift) ≈ greens_shift
+                @test greens!(wsF, z, qscaled, reg_gap) ≈ greens_gap
+
+                # clean not settable
+                @test_throws FieldError wsF.clean = Clean.none
             end
         end
     end
