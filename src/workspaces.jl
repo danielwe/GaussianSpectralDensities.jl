@@ -44,9 +44,9 @@ abstract type AbstractWorkspace{F<:AbstractFloat} end
 #
 # We use an enum to keep track of this so we only recalculate what is necessary. Note that
 # since P and P_L_int_Ri are independent, we can treat their subspace as a bitfield: When
-# Pi_fact is clean, the third bit is set and the first two bits indicate whether each of P
-# and P_Li_Ri are also clean. See comments within the enum definition.
-@enumx Clean::UInt8 begin
+# Pi_fact is valid, the third bit is set and the first two bits indicate whether each of P
+# and P_Li_Ri are also valid. See comments within the enum definition.
+@enumx Valid::UInt8 begin
     none = 0
     G0i = 1
     Q = 2
@@ -57,8 +57,8 @@ abstract type AbstractWorkspace{F<:AbstractFloat} end
     all = 7      # 0b111
 end
 
-Base.:|(a::Clean.T, b::Clean.T) = Clean.T(UInt8(a) | UInt8(b))
-Base.:&(a::Clean.T, b::Clean.T) = Clean.T(UInt8(a) & UInt8(b))
+Base.:|(a::Valid.T, b::Valid.T) = Valid.T(UInt8(a) | UInt8(b))
+Base.:&(a::Valid.T, b::Valid.T) = Valid.T(UInt8(a) & UInt8(b))
 
 """
     Workspace(eq::ResolventEquation)
@@ -86,7 +86,7 @@ mutable struct Workspace{
     P::TP
     P_Li_Ri::TP_Li_Ri
     baregap::F
-    clean::Clean.T
+    valid::Valid.T
     # PQ::TQ
     # QP::TQ
     # PLi_Ri_or_QPQ::Matrix{Complex{F}}
@@ -119,7 +119,7 @@ mutable struct Workspace{
             P,
             P_Li_Ri,
             baregap,
-            Clean.all,
+            Valid.all,
             # PQ,
             # QhPQ,
             # QPQ_PLi_Ri,
@@ -128,21 +128,21 @@ mutable struct Workspace{
     end
 end
 
-# Private clean state management: use setfield! to bypass setproperty! restrictions
-function set_clean!(ws::Workspace, value::Clean.T)
-    setfield!(ws, :clean, value)
+# Private validity management: use setfield! to bypass setproperty! restrictions
+function set_valid!(ws::Workspace, value::Valid.T)
+    setfield!(ws, :valid, value)
     return nothing
 end
 
 function Base.setproperty!(ws::W, name::Symbol, value) where {W<:Workspace}
-    if name === :clean
+    if name === :valid
         throw(FieldError(W, name))
     elseif name === :z
-        set_clean!(ws, Clean.none)
+        set_valid!(ws, Valid.none)
     elseif name === :q
-        set_clean!(ws, min(ws.clean, Clean.G0i))
+        set_valid!(ws, min(ws.valid, Valid.G0i))
     elseif name === :reg
-        set_clean!(ws, min(ws.clean, Clean.QQh))
+        set_valid!(ws, min(ws.valid, Valid.QQh))
     end
     # Replicate the default convert logic
     T = fieldtype(W, name)
@@ -173,13 +173,13 @@ function set_G0i_params!(ws::Workspace{F}, z) where {F}
 end
 
 function update_G0i!(ws::Workspace)
-    (ws.clean >= Clean.G0i) && return nothing
+    (ws.valid >= Valid.G0i) && return nothing
     (; Li_Ri, Li_M_Ri) = ws.eq.ensemble
     setfield!(ws, :G0i, muladd!!(ws.G0i, ws.z, Li_Ri, minus(Li_M_Ri)))
     if !(ws.Q isa Diagonal)
         ws.Q, copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
     end
-    set_clean!(ws, Clean.G0i)
+    set_valid!(ws, Valid.G0i)
     return nothing
 end
 
@@ -202,10 +202,10 @@ function set_Q_params!(ws::Workspace{F}, z, q) where {F}
 end
 
 function update_Q!(ws::Workspace)
-    (ws.clean >= Clean.Q) && return nothing
+    (ws.valid >= Valid.Q) && return nothing
     update_G0i!(ws)
     ws.Q = muladd_diagonal!!(ws.Q, -ws.q, ws.eq.ensemble.S, ws.G0i)
-    set_clean!(ws, Clean.Q)
+    set_valid!(ws, Valid.Q)
     return nothing
 end
 
@@ -228,14 +228,14 @@ function set_QQh_params!(ws::Workspace{F}, z, q) where {F}
 end
 
 function update_QQh!(ws::Workspace)
-    (ws.clean >= Clean.QQh) && return nothing
+    (ws.valid >= Valid.QQh) && return nothing
     update_Q!(ws)
     ws.QQh = herk!!(ws.QQh, ws.Q)
     if (!(ws.Q isa Diagonal)) && ws.eq.normalizeQ
         ws.QQh = herk!!(ws.QQh, ws.Q', 1 // 2, 1 // 2)
     end
     ws.baregap = eigmin!!(ws.Pi_fact, ws.QQh)
-    set_clean!(ws, Clean.QQh)
+    set_valid!(ws, Valid.QQh)
     return nothing
 end
 
@@ -261,10 +261,10 @@ function set_Pi_fact_params!(ws::Workspace{F}, z, q, reg) where {F}
 end
 
 function update_Pi_fact!(ws::Workspace)
-    (ws.clean >= Clean.Pi_fact) && return nothing
+    (ws.valid >= Valid.Pi_fact) && return nothing
     update_QQh!(ws)
     ws.Pi_fact = decompose!!(ws.Pi_fact, ws.QQh; shift=shift(ws.reg, ws.baregap))
-    set_clean!(ws, Clean.Pi_fact)
+    set_valid!(ws, Valid.Pi_fact)
     return nothing
 end
 
@@ -287,11 +287,11 @@ function set_P_params!(ws::Workspace{F}, z, q, reg) where {F}
 end
 
 function update_P!(ws::Workspace)
-    # The states of P and P_Li_Ri are a bitfield, see Clean comments
-    ((ws.clean & Clean.P) >= Clean.P) && return nothing
+    # The states of P and P_Li_Ri are a bitfield, see Valid comments
+    ((ws.valid & Valid.P) >= Valid.P) && return nothing
     update_Pi_fact!(ws)
     ws.P = inverse!!(ws.P, ws.Pi_fact)
-    set_clean!(ws, ws.clean | Clean.P)
+    set_valid!(ws, ws.valid | Valid.P)
     return nothing
 end
 
@@ -311,11 +311,11 @@ end
 set_P_Li_Ri_params!(ws, z, q, reg) = set_Pi_fact_params!(ws, z, q, reg)
 
 function update_P_Li_Ri!(ws::Workspace)
-    # The states of P and P_Li_Ri are a bitfield, see Clean comments
-    ((ws.clean & Clean.P_Li_Ri) >= Clean.P_Li_Ri) && return nothing
+    # The states of P and P_Li_Ri are a bitfield, see Valid comments
+    ((ws.valid & Valid.P_Li_Ri) >= Valid.P_Li_Ri) && return nothing
     update_Pi_fact!(ws)
     ws.P_Li_Ri = ldiv!!(ws.Pi_fact, copy!!(ws.P_Li_Ri, ws.eq.ensemble.Li_Ri))
-    set_clean!(ws, ws.clean | Clean.P_Li_Ri)
+    set_valid!(ws, ws.valid | Valid.P_Li_Ri)
     return nothing
 end
 
@@ -397,7 +397,7 @@ end  # module Workspaces
     using GaussianSpectralDensities.Problems: ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces:
-        Clean, Workspace, gap!, greens!, ptrace!, qFP!, shift!
+        Valid, Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
     using LinearAlgebra: Diagonal, Hermitian, I, eigmin, tr
     using SparseArrays: sparse
@@ -466,8 +466,8 @@ end  # module Workspaces
                 @test greens!(wsF, z, qscaled, reg_shift) ≈ greens_shift
                 @test greens!(wsF, z, qscaled, reg_gap) ≈ greens_gap
 
-                # clean not settable
-                @test_throws FieldError wsF.clean = Clean.none
+                # valid not settable
+                @test_throws FieldError wsF.valid = Valid.none
             end
         end
     end

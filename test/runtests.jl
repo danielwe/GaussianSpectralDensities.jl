@@ -20,7 +20,7 @@ end
     # ExplicitImports.jl chokes on EnumX modules
     const enumx_modules = (
         GaussianSpectralDensities.Regularizers.RegularizerType,
-        GaussianSpectralDensities.Workspaces.Clean,
+        GaussianSpectralDensities.Workspaces.Valid,
     )
 
     test_no_implicit_imports(GaussianSpectralDensities; allow_unanalyzable=enumx_modules)
