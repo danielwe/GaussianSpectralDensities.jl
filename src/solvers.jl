@@ -3,7 +3,7 @@ module Solvers
 using CommonSolve: CommonSolve
 using StructArrays: StructArray
 
-using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms
+using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, statetype
 using ..Problems: AbstractResolventProblem
 using ..Solutions: PointSolution
 using ..Workspaces: Workspace
@@ -16,12 +16,13 @@ mutable struct Solver{
     P<:AbstractResolventProblem{F},
     A<:AbstractAlgorithm,
     T<:StructArray{PointSolution{F}},
+    S<:AbstractAlgorithmState,
 }
     const ws::W
     const problem::P
     const algorithm::A
     const trace::T
-    state::Union{Nothing,AbstractAlgorithmState}
+    state::Union{Nothing,S}
 
     function Solver{F}(
         problem::AbstractResolventProblem, algorithm::AbstractAlgorithm
@@ -30,9 +31,8 @@ mutable struct Solver{
         algorithmF = adaptrealtype(F, algorithm)
         wsF = Workspace(problemF.eq)
         traceF = StructArray(PointSolution{F}[])
-        return new{F,typeof.((wsF, problemF, algorithmF))...,typeof(traceF)}(
-            wsF, problemF, algorithmF, traceF, nothing
-        )
+        W, P, A, T = typeof.((wsF, problemF, algorithmF, traceF))
+        return new{F,W,P,A,T,statetype(A)}(wsF, problemF, algorithmF, traceF, nothing)
     end
 end
 
@@ -41,15 +41,11 @@ function Solver(problem::AbstractResolventProblem{F}, algorithm) where {F}
 end
 
 struct Solution{
-    F,
-    P<:AbstractResolventProblem{F},
-    A<:AbstractAlgorithm,
-    S<:PointSolution{F},
-    T<:StructArray{S},
+    F,P<:AbstractResolventProblem{F},A<:AbstractAlgorithm,T<:StructArray{PointSolution{F}}
 }
     problem::P
     algorithm::A
-    solution::S
+    solution::PointSolution{F}
     trace::T
 
     function Solution(solver::Solver{F}) where {F}
@@ -58,7 +54,7 @@ struct Solution{
         end
         (; problem, algorithm, trace) = solver
         solution = trace[end]
-        return new{F,typeof(problem),typeof(algorithm),typeof(solution),typeof(trace)}(
+        return new{F,typeof(problem),typeof(algorithm),typeof(trace)}(
             problem, algorithm, solution, trace
         )
     end

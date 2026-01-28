@@ -18,6 +18,7 @@ public AbstractAlgorithm,
     RegularizerSchedule,
     SymmetrySchedule,
     isdone,
+    statetype,
     step!
 
 abstract type AbstractAlgorithm end
@@ -32,6 +33,7 @@ abstract type AbstractAlgorithmState end
 ## - isdone(::AbstractResolventProblem, ::SomeAlgorithm, ::SomeAlgorithmState)::Bool
 ## - stepproblem(index, ::AbstractResolventProblem, ::SomeAlgorithm[, ::SomeAlgorithmState])::AbstractResolventProblem
 ## - newstate(index, ::AbstractResolventProblem, ::PointSolution, ::SomeAlgorithm[, ::SomeAlgorithmState])::SomeAlgorithmState
+## - statetype(::Type{SomeAlgorithm})::Type{SomeAlgorithmState}
 ##
 ## Algorithms that implement the indexing interface (Base.getindex, Base.firstindex,
 ## Base.lastindex, Base.length) should forward the single-argument method
@@ -40,6 +42,7 @@ function nextindex end
 function isdone end
 function stepproblem end
 function newstate end
+function statetype end
 
 ## Generic stepping implementation
 ## ===============================
@@ -92,6 +95,8 @@ function newstate(::Nothing, ::AbstractResolventProblem, ::PointSolution, ::Dire
     return DirectSolveState()
 end
 
+statetype(::Type{DirectSolve}) = DirectSolveState
+
 ## Schedule algorithms
 ## ===================
 ## Provided types:
@@ -104,6 +109,7 @@ end
 ## - isdone(::AbstractResolventProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
 ## - stepproblem(::Integer, ::AbstractResolventProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::AbstractResolventProblem{F}
 ## - newstate(::Integer, AbstractResolventProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}[, ::ScheduleState{F}])::ScheduleState{F}
+## - statetype(::Type{<:AbstractSchedule{F}})::Type{ScheduleState{F}}
 ##
 ## Provided non-interface functions:
 ##
@@ -132,11 +138,10 @@ end
 ## successful solution, are handled by the provided isdone method.
 abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
 
-struct ScheduleState{F,P<:AbstractResolventProblem{F},S<:PointSolution{F}} <:
-       AbstractAlgorithmState
+struct ScheduleState{F,P<:AbstractResolventProblem{F}} <: AbstractAlgorithmState
     currproblem::P
-    currsolution::S
-    prevsolution::S
+    currsolution::PointSolution{F}
+    prevsolution::PointSolution{F}
     index::Int
 end
 
@@ -172,6 +177,8 @@ function newstate(
     prevsolution = isempty(state) ? currsolution : first(state).currsolution
     return ScheduleState(currproblem, currsolution, prevsolution, index)
 end
+
+statetype(::Type{<:AbstractSchedule{F}}) where {F} = ScheduleState{F}
 
 function stepproblempredict(
     index::Integer,
