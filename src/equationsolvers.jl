@@ -6,7 +6,7 @@ using StaticArrays: SVector
 using ..Newton: NewtonException, newton
 using ..Problems: PTraceProblem, RegularizerProblem
 using ..Regularizers: Regularizer
-using ..Solutions: ResolventSolution
+using ..Solutions: PointSolution
 using ..Workspaces: Workspace, ptrace!, qFP!
 
 public eqsolve!
@@ -19,17 +19,18 @@ const ConvergenceException = Union{NewtonException,SingularException,LAPACKExcep
 
 Solve an averaged resolvent equation at a point in the complex plane
 
-Returns a `ResolventSolution`.
+Returns a `PointSolution`.
 """
 function eqsolve! end
 
 function eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}) where {F}
-    (; reg) = problem
-    fq = let ws = ws, eq = problem.eq, reg = reg
+    (; z, sscale, reg) = problem
+    fq = let ws = ws, z = z, sscale = sscale, reg = reg
         function fq(qv)
             # avoid capturing q from the outer function
             local q = complex(qv...)
-            dq = qFP!(ws, eq, q, reg) - q
+            qscaled = sscale * q
+            dq = sscale * qFP!(ws, z, qscaled, reg) - q
             return SVector(real(dq), imag(dq))
         end
     end
@@ -45,18 +46,19 @@ function eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}) where {F}
     # FIXME: use logging instead
     # print_niters(niters, verbosity)
     q = complex(qv...)
-    return ResolventSolution(problem.eq, q, reg; workspace=ws)
+    return PointSolution(problem, q, reg; workspace=ws)
 end
 
 function eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}) where {F}
+    (; z, sscale, ptrace) = problem
     reg0 = problem.init.reg
-    fqreg = let ws = ws, reg_type = reg0.type, eq = problem.eq, ptrace = problem.ptrace
+    fqreg = let ws = ws, z = z, sscale = sscale, reg_type = reg0.type, ptrace = ptrace
         function fqreg(qregv)
             # avoid capturing reg and q from the outer function
-            local reg = Regularizer(qregv[1], reg_type)
-            local q = complex(qregv[2], qregv[3])
-            dptrace = ptrace!(ws, eq, q, reg) - ptrace
-            dq = qFP!(ws, eq, q, reg) - q
+            local reg, q = Regularizer(qregv[1], reg_type), complex(qregv[2], qregv[3])
+            qscaled = sscale * q
+            dptrace = ptrace!(ws, z, qscaled, reg) - ptrace
+            dq = sscale * qFP!(ws, z, qscaled, reg) - q
             return SVector(dptrace, real(dq), imag(dq))
         end
     end
@@ -72,11 +74,10 @@ function eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}) where {F}
     # FIXME: use logging instead
     # print_niters(niters, verbosity)
     reg, q = Regularizer(qregv[1], reg0.type), complex(qregv[2], qregv[3])
-    return ResolventSolution(problem.eq, q, reg; workspace=ws)
+    return PointSolution(problem, q, reg; workspace=ws)
 end
 
 toNaN(::F) where {F<:AbstractFloat} = F(NaN)
-toNaN(::Complex{F}) where {F<:AbstractFloat} = complex(F(NaN), F(NaN))
 
 end  # module EquationSolvers
 
@@ -112,8 +113,8 @@ end  # module EquationSolvers
                 ("(I, I, A, I / 2)", MatrixEnsemble{F}(I, I, A, I / 2)),
                 ("(I, I, I, D)", MatrixEnsemble{F}(I, I, I, D)),
             ]
-                wsF = Workspace(ensembleF)
-                eqF = ResolventEquation(ensembleF, z; sscale)
+                eqF = ResolventEquation(ensembleF)
+                wsF = Workspace(eqF)
 
                 @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
                     reg = Regularizer(reg_value, reg_type)
@@ -123,11 +124,12 @@ end  # module EquationSolvers
                     @testset "$(nameof(P))" for (P, obj) in [
                         (RegularizerProblem, reg), (PTraceProblem, ptrace)
                     ]
-                        problemF = P(eqF, obj, init)
+                        problemF = P(eqF, z, obj, init; sscale)
                         solF = eqsolve!(wsF, problemF)
 
                         @test solF.success
-                        @test solF.eq === eqF
+                        @test solF.z == problemF.z
+                        @test solF.sscale == problemF.sscale
 
                         solF_reg = Regularizer(getproperty(solF, reg_type), reg_type)
 
@@ -137,7 +139,8 @@ end  # module EquationSolvers
                         else
                             @test solF.ptrace ≈ problemF.ptrace rtol=tol atol=tol
                         end
-                        @test qFP!(wsF, eqF, solF.q, solF_reg) ≈ solF.q rtol=tol atol=tol
+                        qFP = sscale * qFP!(wsF, z, sscale * solF.q, solF_reg)
+                        @test solF.q ≈ qFP rtol=tol atol=tol
                     end
                 end
             end
@@ -158,18 +161,18 @@ end
     # engineer a singular equation
     ptrace, z, q0 = 1.0, 0.1, 0.1
     ensemble = MatrixEnsemble(0I, I, I, 0.5I)
-    ws = Workspace(ensemble)
-    eq = ResolventEquation(ensemble, z)
+    eq = ResolventEquation(ensemble)
+    ws = Workspace(eq)
     zeroshift = Regularizer(0.0, :shift)
     zerogap = Regularizer(0.0, :gap)
 
     @testset "$(nameof(typeof(problem)))" for (problem, reg) in [
-        (RegularizerProblem(eq, zeroshift, (; q=q0)), zeroshift),
-        (PTraceProblem(eq, ptrace, (; reg=zerogap, q=q0)), zerogap),
+        (RegularizerProblem(eq, z, zeroshift, (; q=q0)), zeroshift),
+        (PTraceProblem(eq, z, ptrace, (; reg=zerogap, q=q0)), zerogap),
     ]
         sol = eqsolve!(ws, problem)
 
-        @test sol.eq === problem.eq
+        @test sol.z == problem.z
         @test !sol.success
     end
 end

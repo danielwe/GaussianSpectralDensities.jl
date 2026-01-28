@@ -4,7 +4,6 @@ using EnumX: @enumx
 using LinearAlgebra: Diagonal, Factorization, Hermitian
 
 using ..Defaults: Defaults
-using ..Ensembles: MatrixEnsemble
 using ..Problems: ResolventEquation
 using ..Regularizers: Regularizer, gap, shift
 
@@ -62,13 +61,13 @@ Base.:|(a::Clean.T, b::Clean.T) = Clean.T(UInt8(a) | UInt8(b))
 Base.:&(a::Clean.T, b::Clean.T) = Clean.T(UInt8(a) & UInt8(b))
 
 """
-    Workspace(ensemble::MatrixEnsemble)
+    Workspace(eq::ResolventEquation)
 
 Workspace holding intermediate arrays used to compute the average resolvent from an ensemble
 """
 mutable struct Workspace{
     F,
-    TE<:MatrixEnsemble{F},
+    TE<:ResolventEquation{F},
     TG0i<:AbstractMatrix{Complex{F}},
     TQ<:AbstractMatrix{Complex{F}},
     TQQh<:Union{Diagonal{F},Hermitian{Complex{F}}},
@@ -76,9 +75,10 @@ mutable struct Workspace{
     TP<:Union{Diagonal{F},Hermitian{<:Complex}},
     TP_Li_Ri<:AbstractMatrix{<:Number},
 } <: AbstractWorkspace{F}
-    ensemble::TE
+    # TODO: overload `setproperty!` to ensure `clean` is always in sync
+    const eq::TE
     z::Complex{F}
-    qscaled::Complex{F}
+    q::Complex{F}
     reg::Regularizer{F}
     G0i::TG0i
     Q::TQ
@@ -88,13 +88,13 @@ mutable struct Workspace{
     P_Li_Ri::TP_Li_Ri
     baregap::F
     clean::Clean.T
-    normalizeQ::Bool
     # PQ::TQ
     # QP::TQ
     # PLi_Ri_or_QPQ::Matrix{Complex{F}}
     # QhPQ::Hermitian{Complex{F},Matrix{Complex{F}}}
 
-    function Workspace(ensemble::E) where {F,E<:MatrixEnsemble{F}}
+    function Workspace(eq::E) where {F,E<:ResolventEquation{F}}
+        (; ensemble) = eq
         z = zero(Complex{F})
         q = convert(Complex{F}, Defaults.q0)
         reg = Regularizer{F}(
@@ -109,7 +109,7 @@ mutable struct Workspace{
         P = inverse(Pi_fact)
         P_Li_Ri = Pi_fact \ ensemble.Li_Ri
         return new{F,E,typeof.((G0i, Q, QQh, Pi_fact, P, P_Li_Ri))...}(
-            ensemble,
+            eq,
             z,
             q,
             reg,
@@ -121,7 +121,6 @@ mutable struct Workspace{
             P_Li_Ri,
             baregap,
             Clean.all,
-            false,
             # PQ,
             # QhPQ,
             # QPQ_PLi_Ri,
@@ -136,34 +135,26 @@ end
 # As of now there are no direct consumers of G0i itself, not even downstream in this module.
 # It's just a computational step. So for now we don't include it in the getter API.
 # """
-#     G0i!(ws, eq)
+#     G0i!(ws, z)
 #
 # Calculate the bare inverse resolvent `G0i(z) = L \\ (z * I - M) / R`
 # """
-# function G0i!(ws, eq)
-#     set_G0i_params(ws, eq)
+# function G0i!(ws, z)
+#     set_G0i_params(ws, z)
 #     update_G0i(ws)
 #     return ws.G0i
 # end
 
-function set_G0i_params(ws::Workspace{F}, eq::ResolventEquation{F}) where {F}
-    if ws.ensemble !== eq.ensemble
-        if size(ws.ensemble) != size(eq.ensemble)
-            throw(ArgumentError("new ensemble size does not match workspace"))
-        end
-        ws.ensemble = eq.ensemble
-        ws.clean = Clean.none
-    end
-    if ws.z != eq.z
-        ws.z = eq.z
-        ws.clean = Clean.none
-    end
+function set_G0i_params(ws::Workspace{F}, z) where {F}
+    (ws.z == z) && return nothing
+    ws.z = z
+    ws.clean = Clean.none
     return nothing
 end
 
 function update_G0i(ws::Workspace)
     (ws.clean >= Clean.G0i) && return nothing
-    (; Li_Ri, Li_M_Ri) = ws.ensemble
+    (; Li_Ri, Li_M_Ri) = ws.eq.ensemble
     ws.G0i = muladd!!(ws.G0i, ws.z, Li_Ri, minus(Li_M_Ri))
     if !(ws.Q isa Diagonal)
         ws.Q = copy!!(ws.Q, ws.G0i)  # set off-diagonal elements of Q
@@ -173,21 +164,20 @@ function update_G0i(ws::Workspace)
 end
 
 """
-    Q!(ws, eq, q)
+    Q!(ws, z, q)
 
 Calculate `Q(z, q) = G0i(z) - q * S`
 """
-function Q!(ws::Workspace{F}, eq::ResolventEquation{F}, q) where {F}
-    set_Q_params(ws, eq, q)
+function Q!(ws::Workspace{F}, z, q) where {F}
+    set_Q_params(ws, z, q)
     update_Q(ws)
     return ws.Q
 end
 
-function set_Q_params(ws::Workspace{F}, eq::ResolventEquation{F}, q) where {F}
-    set_G0i_params(ws, eq)
-    qscaled = eq.sscale * q
-    (ws.qscaled == qscaled) && return nothing
-    ws.qscaled = qscaled
+function set_Q_params(ws::Workspace{F}, z, q) where {F}
+    set_G0i_params(ws, z)
+    (ws.q == q) && return nothing
+    ws.q = q
     ws.clean = min(ws.clean, Clean.G0i)
     return nothing
 end
@@ -195,38 +185,34 @@ end
 function update_Q(ws::Workspace)
     (ws.clean >= Clean.Q) && return nothing
     update_G0i(ws)
-    ws.Q = muladd_diagonal!!(ws.Q, -ws.qscaled, ws.ensemble.S, ws.G0i)
+    ws.Q = muladd_diagonal!!(ws.Q, -ws.q, ws.eq.ensemble.S, ws.G0i)
     ws.clean = Clean.Q
     return nothing
 end
 
 """
-    QQh!(ws, eq, q)
+    QQh!(ws, z, q)
 
 Calculate `Q(z, q) * Q'(z, q)`
 
-If `eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
-`ResolventProblem` documentation for further explanation.
+If `ws.eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
+`ResolventEquation` documentation for further explanation.
 """
-function QQh!(ws::Workspace{F}, eq::ResolventEquation{F}, q) where {F}
-    set_QQh_params(ws, eq, q)
+function QQh!(ws::Workspace{F}, z, q) where {F}
+    set_QQh_params(ws, z, q)
     update_QQh(ws)
     return ws.QQh
 end
 
-function set_QQh_params(ws::Workspace{F}, eq::ResolventEquation{F}, q) where {F}
-    set_Q_params(ws, eq, q)
-    (ws.normalizeQ == eq.normalizeQ) && return nothing
-    ws.normalizeQ = eq.normalizeQ
-    ws.clean = min(ws.clean, Clean.Q)
-    return nothing
+function set_QQh_params(ws::Workspace{F}, z, q) where {F}
+    return set_Q_params(ws, z, q)
 end
 
 function update_QQh(ws::Workspace)
     (ws.clean >= Clean.QQh) && return nothing
     update_Q(ws)
     ws.QQh = herk!!(ws.QQh, ws.Q)
-    if (!(ws.Q isa Diagonal)) && ws.normalizeQ
+    if (!(ws.Q isa Diagonal)) && ws.eq.normalizeQ
         ws.QQh = herk!!(ws.QQh, ws.Q', 1 // 2, 1 // 2)
     end
     ws.baregap = eigmin!!(ws.Pi_fact, ws.QQh)
@@ -238,18 +224,18 @@ end
 # As of now there are no direct consumers of Pi_fact itself, not even downstream in this
 # module. It's just a computational step. So for now we don't include it in the getter API.
 # """
-#     Pi_fact!(ws, eq, q, reg)
+#     Pi_fact!(ws, z, q, reg)
 # 
 # Factorize `P⁻¹ = Q * Q' + γ² * I`
 # """
-# function Pi_fact!(ws, eq, q, reg)
-#     set_Pi_fact_params(ws, eq, q, reg)
+# function Pi_fact!(ws, z, q, reg)
+#     set_Pi_fact_params(ws, z, q, reg)
 #     update_Pi_fact(ws)
 #     return ws.Pi_fact
 # end
 
-function set_Pi_fact_params(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    set_QQh_params(ws, eq, q)
+function set_Pi_fact_params(ws::Workspace{F}, z, q, reg) where {F}
+    set_QQh_params(ws, z, q)
     (ws.reg == reg) && return nothing
     ws.reg = reg
     ws.clean = min(ws.clean, Clean.QQh)
@@ -265,21 +251,21 @@ function update_Pi_fact(ws::Workspace)
 end
 
 """
-    P!(ws, eq, q, reg)
+    P!(ws, z, q, reg)
 
 Calculate `P(z, q, γ²) = inv(Q * Q' + γ² * I)`
 
 The value of `γ²` is provided through `reg::Regularizer`, which can hold either the value of
 `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
-function P!(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    set_P_params(ws, eq, q, reg)
+function P!(ws::Workspace{F}, z, q, reg) where {F}
+    set_P_params(ws, z, q, reg)
     update_P(ws)
     return ws.P
 end
 
-function set_P_params(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    return set_Pi_fact_params(ws, eq, q, reg)
+function set_P_params(ws::Workspace{F}, z, q, reg) where {F}
+    return set_Pi_fact_params(ws, z, q, reg)
 end
 
 function update_P(ws::Workspace)
@@ -292,25 +278,25 @@ function update_P(ws::Workspace)
 end
 
 """
-    P_Li_Ri!(ws, eq, q, reg)
+    P_Li_Ri!(ws, z, q, reg)
 
 Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 
 The arguments are the same as for `P!`.
 """
-function P_Li_Ri!(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    set_P_Li_Ri_params(ws, eq, q, reg)
+function P_Li_Ri!(ws::Workspace{F}, z, q, reg) where {F}
+    set_P_Li_Ri_params(ws, z, q, reg)
     update_P_Li_Ri(ws)
     return ws.P_Li_Ri
 end
 
-set_P_Li_Ri_params(ws, eq, q, reg) = set_Pi_fact_params(ws, eq, q, reg)
+set_P_Li_Ri_params(ws, z, q, reg) = set_Pi_fact_params(ws, z, q, reg)
 
 function update_P_Li_Ri(ws::Workspace)
     # The states of P and P_Li_Ri are a bitfield, see Clean comments
     ((ws.clean & Clean.P_Li_Ri) >= Clean.P_Li_Ri) && return nothing
     update_Pi_fact(ws)
-    ws.P_Li_Ri = ldiv!!(ws.Pi_fact, copy!!(ws.P_Li_Ri, ws.ensemble.Li_Ri))
+    ws.P_Li_Ri = ldiv!!(ws.Pi_fact, copy!!(ws.P_Li_Ri, ws.eq.ensemble.Li_Ri))
     ws.clean |= Clean.P_Li_Ri
     return nothing
 end
@@ -318,72 +304,72 @@ end
 ## Scalar getters
 ## ==============
 """
-    qFP!(ws, eq, q, reg)
+    qFP!(ws, z, q, reg)
 
 Calculate the function for which the self-consistent value of ``q`` is a fixed point
 
 The function value is `tr(S * Q'P) / size(P, 2)`. The arguments are the same as for `P!`
 """
-function qFP!(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    (; S) = eq.ensemble
-    return eq.sscale * frobenius_normalized(S, Q!(ws, eq, q), P!(ws, eq, q, reg))
+function qFP!(ws::Workspace{F}, z, q, reg) where {F}
+    (; S) = ws.eq.ensemble
+    return frobenius_normalized(S, Q!(ws, z, q), P!(ws, z, q, reg))
 end
 
 """
-    shift!(ws, eq, q, reg)
+    shift!(ws, z, q, reg)
 
 Calculate the regularizer shift ``γ²``
 
 The arguments are the same as for `P!`
 """
-function shift!(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    baregap = let ws = ws, eq = eq, q = q
+function shift!(ws::Workspace{F}, z, q, reg) where {F}
+    baregap = let ws = ws, z = z, q = q
         # Use a closure to defer computation of baregap in case it's not needed for this reg
-        baregap!(ws, eq, q)
+        baregap!(ws, z, q)
     end
     return shift(convert(Regularizer{F}, reg), baregap)::F
 end
 
 """
-    gap!(ws, eq, q, reg)
+    gap!(ws, z, q, reg)
 
 Calculate the regularized gap `eigmin(QQ†) + γ²`
 
 The arguments are the same as for `P!`
 """
-function gap!(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    baregap = let ws = ws, eq = eq, q = q
+function gap!(ws::Workspace{F}, z, q, reg) where {F}
+    baregap = let ws = ws, z = z, q = q
         # Use a closure to defer computation of baregap in case it's not needed for this reg
-        baregap!(ws, eq, q)
+        baregap!(ws, z, q)
     end
     return gap(convert(Regularizer{F}, reg), baregap)::F
 end
 
-function baregap!(ws::Workspace{F}, eq::ResolventEquation{F}, q) where {F}
-    QQh!(ws, eq, q)
+function baregap!(ws::Workspace{F}, z, q) where {F}
+    QQh!(ws, z, q)
     return ws.baregap
 end
 
 """
-    ptrace!(ws, eq, q, reg)
+    ptrace!(ws, z, q, reg)
 
 Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 2)`
 
 The arguments are the same as for `P!`
 """
-function ptrace!(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    return tr_normalized(P!(ws, eq, q, reg))
+function ptrace!(ws::Workspace{F}, z, q, reg) where {F}
+    return tr_normalized(P!(ws, z, q, reg))
 end
 
 """
-    greens!(ws, eq, q, reg)
+    greens!(ws, z, q, reg)
 
 Calculate the Green's function, i.e., normalized trace of `(RL)⁻¹ * Q'(z, q) * P(z, q, γ²)`
 
 The arguments are the same as for `P!`
 """
-function greens!(ws::Workspace{F}, eq::ResolventEquation{F}, q, reg) where {F}
-    return frobenius_normalized(Q!(ws, eq, q), P_Li_Ri!(ws, eq, q, reg))
+function greens!(ws::Workspace{F}, z, q, reg) where {F}
+    return frobenius_normalized(Q!(ws, z, q), P_Li_Ri!(ws, z, q, reg))
 end
 
 end  # module Workspaces
@@ -405,6 +391,7 @@ end  # module Workspaces
     z64 = -(2.0 + im) / 4
     q64 = (1.0 - im) / 2
     sscale = 2 // 3
+    qscaled64 = sscale * q64
 
     shift64 = 0.25
     gap64 = 0.5
@@ -418,15 +405,15 @@ end  # module Workspaces
     Li_Ri = map(conj, Dphase)
     S_actual = Dabs
     G0i = (z64 * I - A64data) / R_actual
-    Q = G0i - sscale * q64 * S_actual
+    Q = G0i - qscaled64 * S_actual
 
     @testset "normalizeQ = $normalizeQ" for normalizeQ in [false, true]
         # Ground truth; only for comparison, so we don't fuss about eltypes
         QQh = normalizeQ ? ((Q * Q') + (Q' * Q)) / 2 : Q * Q'
         baregap = eigmin(Hermitian(QQh))
         Pshift, Pgap = inv(QQh + shift64 * I), inv(QQh + (gap64 - baregap) * I)
-        qFP_shift = (sscale * tr(S_actual * Q' * Pshift) / 2)
-        qFP_gap = (sscale * tr(S_actual * Q' * Pgap) / 2)
+        qFP_shift = tr(S_actual * Q' * Pshift) / 2
+        qFP_gap = tr(S_actual * Q' * Pgap) / 2
         ptrace_shift, ptrace_gap = tr(Pshift) / 2, tr(Pgap) / 2
         greens_shift, greens_gap = tr(Li_Ri * Q' * Pshift) / 2, tr(Li_Ri * Q' * Pgap) / 2
 
@@ -434,7 +421,7 @@ end  # module Workspaces
             AFdata = map(Complex{F}, A64data)
             DFdata = map(Complex{F}, D64data)
 
-            zF, qF = Complex{F}.((z64, q64))
+            zF, qscaledF = Complex{F}.((z64, qscaled64))
             shiftF, gapF = F.((shift64, gap64))
             reg_shiftF, reg_gapF = Regularizer(shiftF, :shift), Regularizer(gapF, :gap)
 
@@ -444,67 +431,26 @@ end  # module Workspaces
                 ("SparseMatrixCSC", sparse(AFdata), Diagonal(DFdata)),
             ]
                 ensembleF = MatrixEnsemble(AF, I, I, DF)
-                eqF = ResolventEquation(ensembleF, zF; sscale, normalizeQ)
-                wsF = Workspace(ensembleF)
+                eqF = ResolventEquation(ensembleF; normalizeQ)
+                wsF = Workspace(eqF)
 
                 @test wsF isa Workspace{F}
 
-                # Test Workspace reuse for different equations of the same type
-                ensemble_altF = MatrixEnsemble(AF, I, I, Diagonal(reverse(parent(DF))))
-                eq_altF = ResolventEquation(ensemble_altF, zF; sscale, normalizeQ)
+                @test shift!(wsF, zF, qscaledF, reg_shiftF) ≈ reg_shiftF.value
+                @test shift!(wsF, zF, qscaledF, reg_gapF) ≈ reg_gapF.value - baregap
 
-                @test shift!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value
-                @test shift!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value - baregap
+                @test gap!(wsF, zF, qscaledF, reg_shiftF) ≈ reg_shiftF.value + baregap
+                @test gap!(wsF, zF, qscaledF, reg_gapF) ≈ reg_gapF.value
 
-                @test shift!(wsF, eq_altF, qF, reg_shiftF) ≈ reg_shiftF.value
-                @test shift!(wsF, eq_altF, qF, reg_gapF) ≈ reg_gapF.value - baregap
+                @test qFP!(wsF, zF, qscaledF, reg_shiftF) ≈ qFP_shift
+                @test qFP!(wsF, zF, qscaledF, reg_gapF) ≈ qFP_gap
 
-                @test gap!(wsF, eqF, qF, reg_shiftF) ≈ reg_shiftF.value + baregap
-                @test gap!(wsF, eqF, qF, reg_gapF) ≈ reg_gapF.value
+                @test ptrace!(wsF, zF, qscaledF, reg_shiftF) ≈ ptrace_shift
+                @test ptrace!(wsF, zF, qscaledF, reg_gapF) ≈ ptrace_gap
 
-                @test gap!(wsF, eq_altF, qF, reg_shiftF) ≈ reg_shiftF.value + baregap
-                @test gap!(wsF, eq_altF, qF, reg_gapF) ≈ reg_gapF.value
-
-                @test qFP!(wsF, eqF, qF, reg_shiftF) ≈ qFP_shift
-                @test qFP!(wsF, eqF, qF, reg_gapF) ≈ qFP_gap
-
-                @test qFP!(wsF, eq_altF, qF, reg_shiftF) ≈ qFP_shift
-                @test qFP!(wsF, eq_altF, qF, reg_gapF) ≈ qFP_gap
-
-                @test ptrace!(wsF, eqF, qF, reg_shiftF) ≈ ptrace_shift
-                @test ptrace!(wsF, eqF, qF, reg_gapF) ≈ ptrace_gap
-
-                @test ptrace!(wsF, eq_altF, qF, reg_shiftF) ≈ ptrace_shift
-                @test ptrace!(wsF, eq_altF, qF, reg_gapF) ≈ ptrace_gap
-
-                @test greens!(wsF, eqF, qF, reg_shiftF) ≈ greens_shift
-                @test greens!(wsF, eqF, qF, reg_gapF) ≈ greens_gap
-
-                @test greens!(wsF, eq_altF, qF, reg_shiftF) ≈ greens_shift
-                @test greens!(wsF, eq_altF, qF, reg_gapF) ≈ greens_gap
+                @test greens!(wsF, zF, qscaledF, reg_shiftF) ≈ greens_shift
+                @test greens!(wsF, zF, qscaledF, reg_gapF) ≈ greens_gap
             end
         end
     end
-end
-
-@testitem "Workspace errors" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: ResolventEquation
-    using GaussianSpectralDensities.Workspaces: Q!, Workspace
-
-    using LinearAlgebra: Diagonal, I
-
-    A = ComplexF64[1 -1; 1 1]
-    D = Diagonal(ComplexF64[0.75, 0.25cispi(1//3)])
-    z = -(2.0 + im) / 4
-    q = (1.0 - im) / 2
-
-    ensemble = MatrixEnsemble(A, I, I, D)
-    ws = Workspace(ensemble)
-
-    other_ensemble = MatrixEnsemble(I, I, I, I(1) / 2)
-    other_eq = ResolventEquation(other_ensemble, z)
-
-    @test_throws ArgumentError Q!(ws, other_eq, q)
-    @test_throws "size does not match" Q!(ws, other_eq, q)
 end

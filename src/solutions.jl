@@ -1,140 +1,171 @@
 module Solutions
 
-using ..Problems: ResolventEquation
+using ..Problems: AbstractResolventProblem
 using ..Workspaces: Workspace, gap!, greens!, ptrace!, shift!
 
 using ..ArrayTools: ArrayTools
 
-public ResolventSolution
+public PointSolution
 
 """
-    ResolventSolution(eq::ResolventEquation q, reg; workspace=Workspace(eq.ensemble))
-    ResolventSolution{F}(eq::ResolventEquation q, reg, workspace::Workspace{F})
+    PointSolution(problem::AbstractResolventProblem, q, reg; workspace=Workspace(problem.eq))
+    PointSolution{F}(problem, q, reg, workspace)
+    PointSolution{F}(s::PointSolution) where {F}
 
 Represent a solution of an averaged resolvent equation at a point in the complex plane
 
-The constructor does not verify that the given values solve for a particular objective. Use
-the function `eqsolve!` for that. It does, however, calculate self-consistent values for all
-the derived quantities contained in the struct.
+This struct holds only point-specific data suitable for storage in a StructArray trace.
+The shared context (ensemble, shiftmin, normalizeQ) is stored separately in the problem/solver.
 
-# Arguments
+# Fields
 
-  - `eq`: the resolvent equation
+  - `z`: point in the complex plane
   - `q`: value of the parameter ``q``
-  - `reg` value of the regularizer
-  - `workspace`: workspace used to compute derived quantities
+  - `shift`: regularizer shift ``γ²``
+  - `gap`: regularized gap ``δ² = eigmin(QQ†) + γ²``
+  - `ptrace`: normalized trace of P
+  - `greens`: Green's function value
+  - `sscale`: symmetry scale factor used for this solution
+  - `success`: whether the solution is valid
 """
-struct ResolventSolution{F,E<:ResolventEquation{F}}
-    eq::E
+struct PointSolution{F<:AbstractFloat}
+    z::Complex{F}
     q::Complex{F}
     shift::F
     gap::F
     ptrace::F
     greens::Complex{F}
+    sscale::F
     success::Bool
 
-    # Secret raw-value constructor for StructArrays.jl compatibility
-    # Beware: does not assert invariants
-    function ResolventSolution{F,E}(eq, q, shift, gap, ptrace, greens, success) where {F,E}
-        return new{F,E}(eq, q, shift, gap, ptrace, greens, success)
+    # Undocumented constructor for StructArrays compatibility. Does not assert invariants.
+    function PointSolution{F}(z, q, shift, gap, ptrace, greens, sscale, success) where {F}
+        return new{F}(z, q, shift, gap, ptrace, greens, sscale, success)
     end
 
-    function common(::Type{F}, eq, q, shift, gap, ptrace, greens, success) where {F}
-        eqF = convert(ResolventEquation{F}, eq)
-        return ResolventSolution{F,typeof(eqF)}(eqF, q, shift, gap, ptrace, greens, success)
-    end
-
-    function ResolventSolution{F}(eq, q, reg, workspace) where {F}
-        shift = shift!(workspace, eq, q, reg)
-        gap = gap!(workspace, eq, q, reg)
-        ptrace = ptrace!(workspace, eq, q, reg)
-        greens = greens!(workspace, eq, q, reg)
+    function PointSolution{F}(problem, q, reg, workspace) where {F}
+        (; eq, z, sscale) = problem
+        if workspace.eq !== eq
+            throw(ArgumentError("workspace must hold the same eq as problem"))
+        end
+        qscaled = sscale * q
+        shift = shift!(workspace, z, qscaled, reg)
+        gap = gap!(workspace, z, qscaled, reg)
+        ptrace = ptrace!(workspace, z, qscaled, reg)
+        greens = greens!(workspace, z, qscaled, reg)
         success = all(isfinite, (shift, gap, ptrace, greens)) && (shift >= eq.shiftmin)
-        return common(F, eq, q, shift, gap, ptrace, greens, success)
+        return PointSolution{F}(z, q, shift, gap, ptrace, greens, sscale, success)
     end
 
-    function ResolventSolution{F}(s::ResolventSolution) where {F}
-        return common(F, s.eq, s.q, s.shift, s.gap, s.ptrace, s.greens, s.success)
+    function PointSolution{F}(s::PointSolution) where {F}
+        return new{F}(s.z, s.q, s.shift, s.gap, s.ptrace, s.greens, s.sscale, s.success)
     end
 end
 
-function ResolventSolution(
-    eq::ResolventEquation{F}, q, reg; workspace=Workspace(eq.ensemble)
+function PointSolution(
+    problem::AbstractResolventProblem{F}, q, reg; workspace=Workspace(problem.eq)
 ) where {F}
-    return ResolventSolution{F}(eq, q, reg, workspace)
+    return PointSolution{F}(problem, q, reg, workspace)
 end
 
 ## Conversions
 ## ===========
-function Base.convert(::Type{P}, s::ResolventSolution) where {F,P<:ResolventSolution{F}}
-    return (s isa P) ? s : ResolventSolution{F}(s)
+function Base.convert(::Type{PointSolution{F}}, s::PointSolution) where {F}
+    return (s isa PointSolution{F}) ? s : PointSolution{F}(s)
 end
 
-function ArrayTools.adaptrealtype(::Type{F}, eq::ResolventSolution) where {F}
-    return convert(ResolventSolution{F}, eq)
+function ArrayTools.adaptrealtype(::Type{F}, s::PointSolution) where {F}
+    return convert(PointSolution{F}, s)
 end
 
 end  # module Solutions
 
-@testitem "Solutions" begin
+@testitem "PointSolution" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
 
     ensemble64 = MatrixEnsemble(I, I, I, I / 2)
-    ws64 = Workspace(ensemble64)
-    z64 = 0.0im
-    sscale = 2 // 3
-    eq64 = ResolventEquation(ensemble64, z64; sscale)
+    eq64 = ResolventEquation(ensemble64)
+    ws64 = Workspace(eq64)
+    z64 = 0.5 + 0.5im
+    sscale64 = 2 / 3
     reg64 = Regularizer(0.5, :gap)
+    ptrace64 = 1.0
     q64 = complex(eps(), eps())
+    init64 = (; reg=reg64, q=q64)
+    problem64 = PTraceProblem(eq64, z64, ptrace64, init64; sscale=sscale64)
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(I, I, I, I / 2)
-        wsF = Workspace(ensembleF)
-        zF = F(z64)
-        eqF = ResolventEquation(ensembleF, zF; sscale)
+        eqF = ResolventEquation(ensembleF)
+        wsF = Workspace(eqF)
+        zF = Complex{F}(z64)
+        sscaleF = F(sscale64)
         regF = Regularizer(F(reg64.value), reg64.type)
+        ptraceF = F(ptrace64)
         qF = Complex{F}(q64)
+        initF = (; reg=regF, q=qF)
+        problemF = PTraceProblem(eqF, zF, ptraceF, initF; sscale=sscaleF)
 
-        solution64 = ResolventSolution(eq64, q64, reg64)
+        solution64 = PointSolution(problem64, q64, reg64; workspace=ws64)
 
         # Traits
-        @test solution64 isa ResolventSolution{Float64}
+        @test solution64 isa PointSolution{Float64}
         @test solution64.success
+        @test solution64.z == z64
+        @test solution64.sscale == sscale64
+        @test solution64.q == q64
 
-        # Floattype inferring constructor
-        solutionF = ResolventSolution(eqF, qF, regF)
-        @test solutionF isa ResolventSolution{F}
+        # Problem-based constructor
+        solutionF = PointSolution(problemF, qF, regF; workspace=wsF)
+        @test solutionF isa PointSolution{F}
+        @test solutionF.z == zF
+        @test solutionF.sscale == sscaleF
 
-        # Declaring failure
-        @test !ResolventSolution(eqF, oftype(qF, NaN), regF).success
+        # Declaring failure via NaN
+        @test !PointSolution(problemF, oftype(qF, NaN), regF; workspace=wsF).success
 
-        eq_impossibleF = ResolventEquation(ensembleF, zF; sscale, shiftmin=Inf)
-        solution_impossibleF = ResolventSolution(eq_impossibleF, qF, regF)
+        # Declaring failure via shiftmin
+        eq_impossibleF = ResolventEquation(ensembleF; shiftmin=Inf)
+        problem_impossibleF = PTraceProblem(
+            eq_impossibleF, zF, ptraceF, initF; sscale=sscaleF
+        )
+        solution_impossibleF = PointSolution(problem_impossibleF, qF, regF)
         @test !solution_impossibleF.success
 
-        # Floattype enforcing constructor
-        solutionF_64 = ResolventSolution{Float64}(eqF, qF, regF, wsF)
-        solution64_F = ResolventSolution{F}(eq64, q64, reg64, ws64)
-        @test solutionF_64 isa ResolventSolution{Float64}
-        @test solution64_F isa ResolventSolution{F}
+        # Error on incorrect workspace
+        @test_throws ArgumentError PointSolution(
+            problem_impossibleF, qF, regF; workspace=wsF
+        )
 
-        # Declaring failure
-        @test !ResolventSolution{Float64}(eqF, oftype(qF, NaN), regF, wsF).success
-        @test !ResolventSolution{F}(eq64, oftype(q64, NaN), reg64, ws64).success
+        # Secret raw value constructor
+        solutionF_raw = PointSolution{F}(
+            zF,
+            qF,
+            solutionF.shift,
+            solutionF.gap,
+            solutionF.ptrace,
+            solutionF.greens,
+            sscaleF,
+            true,
+        )
+        @test solutionF_raw isa PointSolution{F}
+        @test solutionF_raw === solutionF
 
         # Floattype conversions
-        @test ResolventSolution{F}(solution64) === solutionF
-        @test ResolventSolution{Float64}(solutionF) === solutionF_64
-        @test convert(ResolventSolution{F}, solution64) === solutionF
-        @test convert(ResolventSolution{Float64}, solutionF) === solutionF_64
-        @test adaptrealtype(F, solution64) === solutionF
-        @test adaptrealtype(Float64, solutionF) === solutionF_64
+        solutionF_from64 = PointSolution{F}(solution64)
+        solution64_fromF = PointSolution{Float64}(solutionF)
+        @test solutionF_from64 isa PointSolution{F}
+        @test solution64_fromF isa PointSolution{Float64}
+        @test convert(PointSolution{F}, solution64) == solutionF_from64
+        @test convert(PointSolution{Float64}, solutionF) == solution64_fromF
+        @test adaptrealtype(F, solution64) == solutionF_from64
+        @test adaptrealtype(Float64, solutionF) == solution64_fromF
     end
 end

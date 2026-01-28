@@ -5,7 +5,7 @@ using StructArrays: StructArray
 
 using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms
 using ..Problems: AbstractResolventProblem
-using ..Solutions: ResolventSolution
+using ..Solutions: PointSolution
 using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
@@ -15,7 +15,7 @@ mutable struct Solver{
     W<:Workspace{F},
     P<:AbstractResolventProblem{F},
     A<:AbstractAlgorithm,
-    T<:StructArray{<:ResolventSolution{F}},
+    T<:StructArray{PointSolution{F}},
 }
     const ws::W
     const problem::P
@@ -28,8 +28,8 @@ mutable struct Solver{
     ) where {F}
         problemF = adaptrealtype(F, problem)
         algorithmF = adaptrealtype(F, algorithm)
-        wsF = Workspace(problemF.eq.ensemble)
-        traceF = StructArray(ResolventSolution{F,typeof(problemF.eq)}[])
+        wsF = Workspace(problemF.eq)
+        traceF = StructArray(PointSolution{F}[])
         return new{F,typeof.((wsF, problemF, algorithmF))...,typeof(traceF)}(
             wsF, problemF, algorithmF, traceF, nothing
         )
@@ -44,7 +44,7 @@ struct Solution{
     F,
     P<:AbstractResolventProblem{F},
     A<:AbstractAlgorithm,
-    S<:ResolventSolution{F},
+    S<:PointSolution{F},
     T<:StructArray{S},
 }
     problem::P
@@ -67,8 +67,7 @@ end
 # Iterator interface
 # ------------------
 Base.IteratorSize(::Type{<:Solver}) = Base.SizeUnknown()
-Base.IteratorEltype(::Type{L}) where {L<:Solver} = L
-Base.eltype(::L) where {L<:Solver} = L
+Base.eltype(::S) where {S<:Solver} = S
 
 function Base.isdone(solver::Solver, (::Nothing)=nothing)
     isnothing(solver.state) && return false
@@ -123,13 +122,14 @@ end  # module Solvers
     using LinearAlgebra: I
 
     ensemble64 = MatrixEnsemble(I, I, I, I / 2)
-    eq64 = ResolventEquation(ensemble64, 0.5 + 0.5im)
+    eq64 = ResolventEquation(ensemble64)
+    z64 = 0.5 + 0.5im
     reg64 = Regularizer(0.25, :shift)
     ptrace64 = 1.0
     init64 = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
 
-    regproblem64 = RegularizerProblem(eq64, reg64, init64)
-    ptraceproblem64 = PTraceProblem(eq64, ptrace64, init64)
+    regproblem64 = RegularizerProblem(eq64, z64, reg64, init64)
+    ptraceproblem64 = PTraceProblem(eq64, z64, ptrace64, init64)
 
     alg_direct = DirectSolve()
     alg_schedule = RegularizerSchedule([2.0, 1.0, 0.5, 0.25], :gap)
@@ -163,16 +163,17 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Solvers: Solver
 
     using LinearAlgebra: I
 
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
-    eq = ResolventEquation(ensemble, 0.5 + 0.5im)
+    eq = ResolventEquation(ensemble)
+    z = 0.5 + 0.5im
     ptrace = 1.0
     init = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace, init)
+    problem = PTraceProblem(eq, z, ptrace, init)
 
     @testset "DirectSolve" begin
         solver = Solver(problem, DirectSolve())
@@ -191,7 +192,7 @@ end
         returned_solver, _ = result
         @test returned_solver === solver
         @test length(solver.trace) == 1
-        @test solver.trace[1] isa ResolventSolution{Float64}
+        @test solver.trace[1] isa PointSolution{Float64}
 
         # After DirectSolve, should be done
         @test Base.isdone(solver)
@@ -202,7 +203,7 @@ end
         schedule_values = [4.0, 2.0, 1.0, 0.5, 0.25]
         alg = RegularizerSchedule(schedule_values, :gap)
         init_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, ptrace, init_sched)
+        problem_sched = PTraceProblem(eq, z, ptrace, init_sched)
         solver = Solver(problem_sched, alg)
 
         # Step through via for-loop
@@ -223,9 +224,9 @@ end
         @test solver.trace.success[end]
         @test solver.trace.ptrace[end] ≈ ptrace
 
-        # Trace contains ResolventSolutions
+        # Trace contains PointSolutions
         @testset "step $i" for i in eachindex(solver.trace)
-            @test solver.trace[i] isa ResolventSolution{Float64}
+            @test solver.trace[i] isa PointSolution{Float64}
         end
     end
 end
@@ -237,16 +238,17 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Solvers: Solution, Solver
 
     using LinearAlgebra: I
 
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
-    eq = ResolventEquation(ensemble, 0.5 + 0.5im)
+    eq = ResolventEquation(ensemble)
+    z = 0.5 + 0.5im
     ptrace = 1.0
     initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace, initvals)
+    problem = PTraceProblem(eq, z, ptrace, initvals)
 
     @testset "init" begin
         solver = init(problem, DirectSolve())
@@ -273,14 +275,14 @@ end
     @testset "solve!" begin
         schedule_values = [4.0, 2.0, 1.0, 0.5]
         initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, ptrace, initvals_sched)
+        problem_sched = PTraceProblem(eq, z, ptrace, initvals_sched)
         solver = init(problem_sched, RegularizerSchedule(schedule_values, :gap))
 
         solution = solve!(solver)
         @test solution isa Solution{Float64}
         @test solution.problem === solver.problem
         @test solution.algorithm === solver.algorithm
-        @test solution.solution isa ResolventSolution{Float64}
+        @test solution.solution isa PointSolution{Float64}
         @test solution.trace === solver.trace
         @test Base.isdone(solver)
     end
@@ -293,16 +295,17 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Solvers: Solution, Solver
 
     using LinearAlgebra: I
 
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
-    eq = ResolventEquation(ensemble, 0.5 + 0.5im)
+    eq = ResolventEquation(ensemble)
+    z = 0.5 + 0.5im
     ptrace = 1.0
     initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace, initvals)
+    problem = PTraceProblem(eq, z, ptrace, initvals)
 
     @testset "Solution from completed solver" begin
         solver = init(problem, DirectSolve())
@@ -325,8 +328,9 @@ end
 
     @testset "Solution from failed solver" begin
         # z outside support with shiftmin=0 will fail to find valid solution
-        eq_impossible = ResolventEquation(ensemble, 2.0 + 2.0im; shiftmin=0.0)
-        problem_impossible = PTraceProblem(eq_impossible, ptrace, initvals)
+        eq_impossible = ResolventEquation(ensemble; shiftmin=0.0)
+        z_impossible = 2.0 + 2.0im
+        problem_impossible = PTraceProblem(eq_impossible, z_impossible, ptrace, initvals)
         solver = init(problem_impossible, DirectSolve())
         for _ in solver
         end
@@ -341,7 +345,7 @@ end
     @testset "Solution properties" begin
         schedule_values = [4.0, 2.0, 1.0, 0.5]
         initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, ptrace, initvals_sched)
+        problem_sched = PTraceProblem(eq, z, ptrace, initvals_sched)
         alg = RegularizerSchedule(schedule_values, :gap)
         solver = init(problem_sched, alg)
         solution = solve!(solver)
@@ -369,10 +373,11 @@ end
 
     # z outside Ginibre support with shiftmin=0 => negative shift needed => fails
     ensemble = MatrixEnsemble(0.0I, I, I, 0.0I)
-    eq = ResolventEquation(ensemble, 1.0 + 1.0im; shiftmin=0.0)
+    eq = ResolventEquation(ensemble; shiftmin=0.0)
+    z = 1.0 + 1.0im
     ptrace = 1.0
     initvals = (; reg=Regularizer(4.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace, initvals)
+    problem = PTraceProblem(eq, z, ptrace, initvals)
 
     alg = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
     solver = init(problem, alg)

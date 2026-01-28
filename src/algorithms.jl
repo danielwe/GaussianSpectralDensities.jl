@@ -5,7 +5,7 @@ using ..EquationSolvers: eqsolve!
 using ..Problems:
     AbstractResolventProblem, PTraceProblem, RegularizerProblem, issameproblem, update
 using ..Regularizers: Regularizer, RegularizerType
-using ..Solutions: ResolventSolution
+using ..Solutions: PointSolution
 using ..Workspaces: Workspace
 
 using ..ArrayTools: ArrayTools
@@ -31,7 +31,7 @@ abstract type AbstractAlgorithmState end
 ## - nextindex(::SomeAlgorithm[, ::SomeAlgorithmState])
 ## - isdone(::AbstractResolventProblem, ::SomeAlgorithm, ::SomeAlgorithmState)::Bool
 ## - stepproblem(index, ::AbstractResolventProblem, ::SomeAlgorithm[, ::SomeAlgorithmState])::AbstractResolventProblem
-## - newstate(index, ::AbstractResolventProblem, ::ResolventSolution, ::SomeAlgorithm[, ::SomeAlgorithmState])::SomeAlgorithmState
+## - newstate(index, ::AbstractResolventProblem, ::PointSolution, ::SomeAlgorithm[, ::SomeAlgorithmState])::SomeAlgorithmState
 ##
 ## Algorithms that implement the indexing interface (Base.getindex, Base.firstindex,
 ## Base.lastindex, Base.length) should forward the single-argument method
@@ -45,7 +45,7 @@ function newstate end
 ## ===============================
 ## Provided interface methods:
 ##
-## - step!(::Workspace{F}, ::AbstractResolventProblem{F}[, ::AbstractAlgorithm])::Union{Nothing,Tuple{ResolventSolution{F},AbstractAlgorithmState}}
+## - step!(::Workspace{F}, ::AbstractResolventProblem{F}[, ::AbstractAlgorithm])::Union{Nothing,Tuple{PointSolution{F},AbstractAlgorithmState}}
 function step!(
     ws::Workspace{F},
     problem::AbstractResolventProblem{F},
@@ -88,7 +88,7 @@ function stepproblem(::Nothing, problem::AbstractResolventProblem, ::DirectSolve
     return problem
 end
 
-function newstate(::Nothing, ::AbstractResolventProblem, ::ResolventSolution, ::DirectSolve)
+function newstate(::Nothing, ::AbstractResolventProblem, ::PointSolution, ::DirectSolve)
     return DirectSolveState()
 end
 
@@ -103,12 +103,12 @@ end
 ## - nextindex(::AbstractSchedule{F}, ::ScheduleState{F})::Int
 ## - isdone(::AbstractResolventProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
 ## - stepproblem(::Integer, ::AbstractResolventProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::AbstractResolventProblem{F}
-## - newstate(::Integer, AbstractResolventProblem{F}, ::ResolventSolution{F}, ::AbstractSchedule{F}[, ::ScheduleState{F}])::ScheduleState{F}
+## - newstate(::Integer, AbstractResolventProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}[, ::ScheduleState{F}])::ScheduleState{F}
 ##
 ## Provided non-interface functions:
 ##
 ## - stepproblempredict(::Integer, ::AbstractResolventProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::AbstractResolventProblem{F}
-## - predictinit(::AbstractResolventProblem{F}, ::ResolventSolution{F}, ::ResolventSolution{F})::AbstractResolventProblem{F}
+## - predictinit(::AbstractResolventProblem{F}, ::PointSolution{F}, ::PointSolution{F})::AbstractResolventProblem{F}
 ##
 ## Required methods:
 ##
@@ -132,9 +132,8 @@ end
 ## successful solution, are handled by the provided isdone method.
 abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
 
-struct ScheduleState{
-    F,P<:AbstractResolventProblem{F},S<:ResolventSolution{F}
-} <: AbstractAlgorithmState
+struct ScheduleState{F,P<:AbstractResolventProblem{F},S<:PointSolution{F}} <:
+       AbstractAlgorithmState
     currproblem::P
     currsolution::S
     prevsolution::S
@@ -166,7 +165,7 @@ end
 function newstate(
     index::Integer,
     currproblem::AbstractResolventProblem{F},
-    currsolution::ResolventSolution{F},
+    currsolution::PointSolution{F},
     ::AbstractSchedule{F},
     state::ScheduleState{F}...,
 ) where {F}
@@ -191,8 +190,8 @@ end
 function predictinit(
     problem::RegularizerProblem{F},
     v::F,
-    (v1, solution1)::Tuple{F,ResolventSolution{F}},
-    (v2, solution2)::Tuple{F,ResolventSolution{F}},
+    (v1, solution1)::Tuple{F,PointSolution{F}},
+    (v2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
     q1, q2 = solution1.q, solution2.q
     return update(problem; init=(; q=predictlinear(v, (v1, q1), (v2, q2))))
@@ -201,8 +200,8 @@ end
 function predictinit(
     problem::PTraceProblem{F},
     v::F,
-    (v1, solution1)::Tuple{F,ResolventSolution{F}},
-    (v2, solution2)::Tuple{F,ResolventSolution{F}},
+    (v1, solution1)::Tuple{F,PointSolution{F}},
+    (v2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
     reg_type = Symbol(problem.init.reg.type)
     regv1, q1 = getproperty(solution1, reg_type), solution1.q
@@ -214,9 +213,7 @@ end
 
 # Knots derived from problem's objective and corresponding solution values
 function predictinit(
-    problem::RegularizerProblem{F},
-    solution1::ResolventSolution{F},
-    solution2::ResolventSolution{F},
+    problem::RegularizerProblem{F}, solution1::PointSolution{F}, solution2::PointSolution{F}
 ) where {F}
     v, reg_type = problem.reg.value, Symbol(problem.reg.type)
     v1, v2 = getproperty(solution1, reg_type), getproperty(solution2, reg_type)
@@ -224,9 +221,7 @@ function predictinit(
 end
 
 function predictinit(
-    problem::PTraceProblem{F},
-    solution1::ResolventSolution{F},
-    solution2::ResolventSolution{F},
+    problem::PTraceProblem{F}, solution1::PointSolution{F}, solution2::PointSolution{F}
 ) where {F}
     v, v1, v2 = problem.ptrace, solution1.ptrace, solution2.ptrace
     return predictinit(problem, v, (v1, solution1), (v2, solution2))
@@ -318,21 +313,20 @@ function iscomplete(
     return issolvedby(problem, state.currsolution)
 end
 
-function issolvedby(
-    problem::RegularizerProblem{F}, solution::ResolventSolution{F}
-) where {F}
+function issolvedby(problem::RegularizerProblem{F}, solution::PointSolution{F}) where {F}
     (; reg) = problem
     return solution.success && (getproperty(solution, Symbol(reg.type)) == reg.value)
 end
 
-function issolvedby(problem::PTraceProblem{F}, solution::ResolventSolution{F}) where {F}
+function issolvedby(problem::PTraceProblem{F}, solution::PointSolution{F}) where {F}
     return solution.success && (solution.ptrace == problem.ptrace)
 end
 
 function stepproblem(
     index::Integer, problem::AbstractResolventProblem{F}, alg::RegularizerSchedule{F}
 ) where {F}
-    return RegularizerProblem(problem.eq, alg[index], problem.init)
+    (; eq, z, init, sscale) = problem
+    return RegularizerProblem{F}(eq, z, alg[index], init, sscale)
 end
 
 function stepproblem(
@@ -457,7 +451,7 @@ end
 function stepproblem(
     index::Integer, problem::AbstractResolventProblem{F}, alg::SymmetrySchedule{F}
 ) where {F}
-    return update(problem; eq=update(problem.eq; sscale=alg[index] * problem.eq.sscale))
+    return update(problem; sscale=alg[index] * problem.sscale)
 end
 
 end  # module Algorithms
@@ -605,9 +599,9 @@ end
         ("SparseMatrixCSC", sparse(A64data), Diagonal(D64data)),
     ]
         ensemble64 = MatrixEnsemble(A64, I, I, D64)
-        eq64 = ResolventEquation(ensemble64, z64)
-        ws64 = Workspace(ensemble64)
-        problem64 = RegularizerProblem(eq64, reg64, init64)
+        eq64 = ResolventEquation(ensemble64)
+        ws64 = Workspace(eq64)
+        problem64 = RegularizerProblem(eq64, z64, reg64, init64)
 
         alg = DirectSolve()
         solution64, state64 = step!(ws64, problem64, alg)
@@ -617,7 +611,7 @@ end
 
         # Solves the actual target problem
         @test solution64.success
-        @test solution64.eq === problem64.eq
+        @test solution64.z == problem64.z
         @test getproperty(solution64, Symbol(reg64.type)) == reg64.value
         @test isdone(problem64, alg, state64)
     end
@@ -638,9 +632,9 @@ end
     ptrace64_target = 1.0
 
     ensemble64 = MatrixEnsemble(0.0I, I, I, 0.5I)
-    eq64 = ResolventEquation(ensemble64, z64)
-    ws64 = Workspace(ensemble64)
-    problem64 = PTraceProblem(eq64, ptrace64_target, init64)
+    eq64 = ResolventEquation(ensemble64)
+    ws64 = Workspace(eq64)
+    problem64 = PTraceProblem(eq64, z64, ptrace64_target, init64)
 
     alg64 = DirectSolve()
     solution64, state64 = step!(ws64, problem64, alg64)
@@ -650,7 +644,7 @@ end
 
     # Solves the actual target problem
     @test solution64.success
-    @test solution64.eq === problem64.eq
+    @test solution64.z == problem64.z
     @test solution64.ptrace ≈ ptrace64_target
     @test isdone(problem64, alg64, state64)
 end
@@ -688,9 +682,9 @@ end
             ]
                 @testset "$F" for F in [Float32, Float64]
                     ensembleF = MatrixEnsemble{F}(A64, I, I, D64)
-                    eqF = ResolventEquation(ensembleF, z64)
-                    wsF = Workspace(ensembleF)
-                    problemF = RegularizerProblem(eqF, reg64_target, init64)
+                    eqF = ResolventEquation(ensembleF)
+                    wsF = Workspace(eqF)
+                    problemF = RegularizerProblem(eqF, z64, reg64_target, init64)
                     algF = RegularizerSchedule{F}(schedule_values64, reg_type_schedule)
 
                     # Collect all solutions and states
@@ -742,7 +736,7 @@ end
 
                     # Final step solves the actual target problem
                     @test solutions[end].success
-                    @test solutions[end].eq === problemF.eq
+                    @test solutions[end].z == problemF.z
                     @test getproperty(solutions[end], reg_type_target) ≈ reg64_target.value
                     @test isdone(problemF, algF, states[end])
                 end
@@ -773,10 +767,10 @@ end
 
         @testset "$F" for F in [Float32, Float64]
             ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.5I)
-            eqF = ResolventEquation(ensembleF, z64)
-            wsF = Workspace(ensembleF)
+            eqF = ResolventEquation(ensembleF)
+            wsF = Workspace(eqF)
             algF = RegularizerSchedule{F}(alg64)
-            problemF = PTraceProblem(eqF, ptrace64_target, init64)
+            problemF = PTraceProblem(eqF, z64, ptrace64_target, init64)
 
             # Collect all solutions and states
             solutions = []
@@ -828,7 +822,7 @@ end
 
             # Final step solves the actual PTraceProblem
             @test solutions[end].success
-            @test solutions[end].eq === problemF.eq
+            @test solutions[end].z == problemF.z
             @test solutions[end].ptrace ≈ ptrace64_target
             @test isdone(problemF, algF, states[end])
         end
@@ -864,9 +858,9 @@ end
         ]
             @testset "$F" for F in [Float32, Float64]
                 ensembleF = MatrixEnsemble{F}(A64, I, I, D64)
-                eqF = ResolventEquation(ensembleF, z64)
-                wsF = Workspace(ensembleF)
-                problemF = RegularizerProblem(eqF, reg64_target, init64)
+                eqF = ResolventEquation(ensembleF)
+                wsF = Workspace(eqF)
+                problemF = RegularizerProblem(eqF, z64, reg64_target, init64)
                 algF = SymmetrySchedule{F}(nsteps)
 
                 # Collect all solutions and states
@@ -903,7 +897,7 @@ end
                 end
 
                 # Final step solves the actual problem
-                @test solutions[end].eq === problemF.eq
+                @test solutions[end].z == problemF.z
                 @test getproperty(solutions[end], reg_type) ≈ reg64_target.value
                 @test isdone(problemF, algF, states[end])
             end
@@ -929,9 +923,9 @@ end
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.5I)
-        eqF = ResolventEquation(ensembleF, z64)
-        wsF = Workspace(ensembleF)
-        problemF = PTraceProblem(eqF, ptrace64_target, init64)
+        eqF = ResolventEquation(ensembleF)
+        wsF = Workspace(eqF)
+        problemF = PTraceProblem(eqF, z64, ptrace64_target, init64)
         algF = SymmetrySchedule{F}(nsteps)
 
         # Collect all solutions and states
@@ -972,7 +966,7 @@ end
         end
 
         # Final step solves the actual problem
-        @test solutions[end].eq === problemF.eq
+        @test solutions[end].z == problemF.z
         @test solutions[end].ptrace ≈ ptrace64_target
         @test isdone(problemF, algF, states[end])
     end
@@ -1000,10 +994,10 @@ end
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.0I)
-        eqF = ResolventEquation(ensembleF, z64; shiftmin)
-        wsF = Workspace(ensembleF)
+        eqF = ResolventEquation(ensembleF; shiftmin)
+        wsF = Workspace(eqF)
         algF = RegularizerSchedule{F}(alg64)
-        initF = problemF = PTraceProblem(eqF, ptrace64_target, init64)
+        problemF = PTraceProblem(eqF, z64, ptrace64_target, init64)
 
         # Collect all solutions and states
         solutions = []
@@ -1046,9 +1040,9 @@ end
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.75I)
-        eqF = ResolventEquation(ensembleF, z64; shiftmin)
-        wsF = Workspace(ensembleF)
-        problemF = PTraceProblem(eqF, ptrace64_target, init64)
+        eqF = ResolventEquation(ensembleF; shiftmin)
+        wsF = Workspace(eqF)
+        problemF = PTraceProblem(eqF, z64, ptrace64_target, init64)
         algF = SymmetrySchedule{F}(nsteps)
 
         # Collect all solutions and states
