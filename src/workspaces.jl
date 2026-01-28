@@ -161,18 +161,18 @@ end
 # Calculate the bare inverse resolvent `G0i(z) = L \\ (z * I - M) / R`
 # """
 # function G0i!(ws, z)
-#     set_G0i_params(ws, z)
-#     update_G0i(ws)
+#     set_G0i_params!(ws, z)
+#     update_G0i!(ws)
 #     return ws.G0i
 # end
 
-function set_G0i_params(ws::Workspace{F}, z) where {F}
+function set_G0i_params!(ws::Workspace{F}, z) where {F}
     (ws.z == z) && return nothing
     ws.z = z
     return nothing
 end
 
-function update_G0i(ws::Workspace)
+function update_G0i!(ws::Workspace)
     (ws.clean >= Clean.G0i) && return nothing
     (; Li_Ri, Li_M_Ri) = ws.eq.ensemble
     setfield!(ws, :G0i, muladd!!(ws.G0i, ws.z, Li_Ri, minus(Li_M_Ri)))
@@ -189,21 +189,21 @@ end
 Calculate `Q(z, q) = G0i(z) - q * S`
 """
 function Q!(ws::Workspace{F}, z, q) where {F}
-    set_Q_params(ws, z, q)
-    update_Q(ws)
+    set_Q_params!(ws, z, q)
+    update_Q!(ws)
     return ws.Q
 end
 
-function set_Q_params(ws::Workspace{F}, z, q) where {F}
-    set_G0i_params(ws, z)
+function set_Q_params!(ws::Workspace{F}, z, q) where {F}
+    set_G0i_params!(ws, z)
     (ws.q == q) && return nothing
     ws.q = q
     return nothing
 end
 
-function update_Q(ws::Workspace)
+function update_Q!(ws::Workspace)
     (ws.clean >= Clean.Q) && return nothing
-    update_G0i(ws)
+    update_G0i!(ws)
     ws.Q = muladd_diagonal!!(ws.Q, -ws.q, ws.eq.ensemble.S, ws.G0i)
     set_clean!(ws, Clean.Q)
     return nothing
@@ -218,18 +218,18 @@ If `ws.eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2
 `ResolventEquation` documentation for further explanation.
 """
 function QQh!(ws::Workspace{F}, z, q) where {F}
-    set_QQh_params(ws, z, q)
-    update_QQh(ws)
+    set_QQh_params!(ws, z, q)
+    update_QQh!(ws)
     return ws.QQh
 end
 
-function set_QQh_params(ws::Workspace{F}, z, q) where {F}
-    return set_Q_params(ws, z, q)
+function set_QQh_params!(ws::Workspace{F}, z, q) where {F}
+    return set_Q_params!(ws, z, q)
 end
 
-function update_QQh(ws::Workspace)
+function update_QQh!(ws::Workspace)
     (ws.clean >= Clean.QQh) && return nothing
-    update_Q(ws)
+    update_Q!(ws)
     ws.QQh = herk!!(ws.QQh, ws.Q)
     if (!(ws.Q isa Diagonal)) && ws.eq.normalizeQ
         ws.QQh = herk!!(ws.QQh, ws.Q', 1 // 2, 1 // 2)
@@ -248,21 +248,21 @@ end
 # Factorize `P⁻¹ = Q * Q' + γ² * I`
 # """
 # function Pi_fact!(ws, z, q, reg)
-#     set_Pi_fact_params(ws, z, q, reg)
-#     update_Pi_fact(ws)
+#     set_Pi_fact_params!(ws, z, q, reg)
+#     update_Pi_fact!(ws)
 #     return ws.Pi_fact
 # end
 
-function set_Pi_fact_params(ws::Workspace{F}, z, q, reg) where {F}
-    set_QQh_params(ws, z, q)
+function set_Pi_fact_params!(ws::Workspace{F}, z, q, reg) where {F}
+    set_QQh_params!(ws, z, q)
     (ws.reg == reg) && return nothing
     ws.reg = reg
     return nothing
 end
 
-function update_Pi_fact(ws::Workspace)
+function update_Pi_fact!(ws::Workspace)
     (ws.clean >= Clean.Pi_fact) && return nothing
-    update_QQh(ws)
+    update_QQh!(ws)
     ws.Pi_fact = decompose!!(ws.Pi_fact, ws.QQh; shift=shift(ws.reg, ws.baregap))
     set_clean!(ws, Clean.Pi_fact)
     return nothing
@@ -277,19 +277,19 @@ The value of `γ²` is provided through `reg::Regularizer`, which can hold eithe
 `γ²` itself or `δ² = γ² + eigmin(Q * Q')`.
 """
 function P!(ws::Workspace{F}, z, q, reg) where {F}
-    set_P_params(ws, z, q, reg)
-    update_P(ws)
+    set_P_params!(ws, z, q, reg)
+    update_P!(ws)
     return ws.P
 end
 
-function set_P_params(ws::Workspace{F}, z, q, reg) where {F}
-    return set_Pi_fact_params(ws, z, q, reg)
+function set_P_params!(ws::Workspace{F}, z, q, reg) where {F}
+    return set_Pi_fact_params!(ws, z, q, reg)
 end
 
-function update_P(ws::Workspace)
+function update_P!(ws::Workspace)
     # The states of P and P_Li_Ri are a bitfield, see Clean comments
     ((ws.clean & Clean.P) >= Clean.P) && return nothing
-    update_Pi_fact(ws)
+    update_Pi_fact!(ws)
     ws.P = inverse!!(ws.P, ws.Pi_fact)
     set_clean!(ws, ws.clean | Clean.P)
     return nothing
@@ -303,17 +303,17 @@ Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
 The arguments are the same as for `P!`.
 """
 function P_Li_Ri!(ws::Workspace{F}, z, q, reg) where {F}
-    set_P_Li_Ri_params(ws, z, q, reg)
-    update_P_Li_Ri(ws)
+    set_P_Li_Ri_params!(ws, z, q, reg)
+    update_P_Li_Ri!(ws)
     return ws.P_Li_Ri
 end
 
-set_P_Li_Ri_params(ws, z, q, reg) = set_Pi_fact_params(ws, z, q, reg)
+set_P_Li_Ri_params!(ws, z, q, reg) = set_Pi_fact_params!(ws, z, q, reg)
 
-function update_P_Li_Ri(ws::Workspace)
+function update_P_Li_Ri!(ws::Workspace)
     # The states of P and P_Li_Ri are a bitfield, see Clean comments
     ((ws.clean & Clean.P_Li_Ri) >= Clean.P_Li_Ri) && return nothing
-    update_Pi_fact(ws)
+    update_Pi_fact!(ws)
     ws.P_Li_Ri = ldiv!!(ws.Pi_fact, copy!!(ws.P_Li_Ri, ws.eq.ensemble.Li_Ri))
     set_clean!(ws, ws.clean | Clean.P_Li_Ri)
     return nothing
