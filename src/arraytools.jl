@@ -1,7 +1,5 @@
 module ArrayTools
 
-# TODO: unit tests?
-
 using Adapt: WrappedArray
 using LinearAlgebra: Diagonal, Hermitian, UniformScaling
 using StaticArrays: @SVector, SArray, SVector
@@ -95,3 +93,82 @@ withsize(A::UniformScaling, B::AbstractMatrix) = A(size(B, 1))
 withsize(A::AbstractMatrix, ::AbstractMatrixOrUniform) = A
 
 end  # ArrayTools
+
+@testitem "ArrayTools" begin
+    using GaussianSpectralDensities.ArrayTools:
+        AbstractMatrixOrUniform,
+        AnySMatrix,
+        DiagonalOrUniform,
+        RealOrComplex,
+        adapteltype,
+        adaptrealtype,
+        all_diagonal,
+        copy!!,
+        map_diagonal,
+        withsize
+
+    using LinearAlgebra: Diagonal, Hermitian, I, UniformScaling
+    using StaticArrays: @SMatrix, @SVector, SMatrix, SVector
+
+    @testset "type aliases" begin
+        @test Int <: RealOrComplex{Int}
+        @test Complex{Float64} <: RealOrComplex{Float64}
+        @test Matrix{Float64} <: AbstractMatrixOrUniform{Float64}
+        @test UniformScaling{Int} <: AbstractMatrixOrUniform{Int}
+        @test Diagonal{Float64} <: DiagonalOrUniform{Float64}
+        @test SMatrix{2,2,Float64} <: AnySMatrix{Float64}
+        @test Hermitian{Float64,SMatrix{2,2,Float64,4}} <: AnySMatrix{Float64}
+    end
+
+    @testset "copy!!" begin
+        dest = zeros(3)
+        src = [1.0, 2.0, 3.0]
+        @test copy!!(dest, src) === dest
+        @test dest == src
+
+        sdest = @SVector zeros(3)
+        @test copy!!(sdest, src) == src
+        @test copy!!(sdest, src) !== sdest  # returns a copy, not original
+    end
+
+    @testset "adapteltype" begin
+        A = [1, 2, 3]
+        @test adapteltype(Int, A) === A  # no conversion needed
+        @test adapteltype(Float64, A) == [1.0, 2.0, 3.0]
+        @test eltype(adapteltype(Float64, A)) === Float64
+
+        @test adapteltype(Float32, 3I) === UniformScaling(3.0f0)
+        @test adapteltype(Float64, Diagonal([1, 2])) == Diagonal([1.0, 2.0])
+    end
+
+    @testset "adaptrealtype" begin
+        A = [1.0, 2.0]
+        @test adaptrealtype(Float32, A) == Float32[1, 2]
+
+        B = Complex{Float64}[1 + 2im, 3 + 4im]
+        @test eltype(adaptrealtype(Float32, B)) === Complex{Float32}
+
+        @test_throws ArgumentError adaptrealtype(Complex{Float64}, A)
+    end
+
+    @testset "map_diagonal / all_diagonal" begin
+        D = Diagonal([1, 2, 3])
+        @test map_diagonal(x -> 2x, D) == Diagonal([2, 4, 6])
+        @test map_diagonal(x -> 2x, 5I) === UniformScaling(10)
+
+        @test all_diagonal(>(0), D)
+        @test !all_diagonal(>(2), D)
+        @test all_diagonal(==(1), 1I)
+        @test !all_diagonal(==(2), 1I)
+    end
+
+    @testset "withsize" begin
+        B_static = @SMatrix zeros(3, 3)
+        B_dense = zeros(3, 3)
+
+        @test withsize(2I, B_static) == Diagonal(@SVector fill(2, 3))
+        @test withsize(2I, B_dense) == Diagonal(fill(2, 3))
+        @test withsize(2I, I) == Diagonal(SVector{1}(2))
+        @test withsize(B_dense, I) === B_dense
+    end
+end

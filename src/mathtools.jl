@@ -1,7 +1,5 @@
 module MathTools
 
-# TODO: unit tests?
-
 using ArnoldiMethod: ArnoldiMethod, partialschur
 using LinearAlgebra:
     Bidiagonal,
@@ -59,7 +57,7 @@ inunitdisc(a::Number) = (abs2(a) <= 1)
 
 phase(a::Number) = (a == 0) ? one(a) : a / abs(a)  # like sign except when a == 0
 
-samesign(x::Number, y::Number) = (x * y > 0)  # WARN: is this good enough? (Inf/NaN etc.)
+samesign(x::Number, y::Number) = (x * y > 0)  # WARN: probably not robust (Inf/NaN etc.)
 
 ## Linear interpolation/extrapolation
 ## ==================================
@@ -552,3 +550,350 @@ function inverse_as_map(
 end
 
 end  # module MathTools
+
+@testitem "MathTools" begin
+    using GaussianSpectralDensities.MathTools:
+        decompose,
+        decompose!!,
+        eigmin!!,
+        frobenius_normalized,
+        herk,
+        herk!!,
+        inunitdisc,
+        inverse,
+        inverse!!,
+        isapproxlinear,
+        ldiv,
+        ldiv!!,
+        minus,
+        monotonic,
+        muladd!!,
+        muladd_diagonal!!,
+        phase,
+        predictlinear,
+        rdiv,
+        samesign,
+        tr_normalized
+
+    using LinearAlgebra:
+        Bidiagonal,
+        Cholesky,
+        Diagonal,
+        Hermitian,
+        I,
+        SymTridiagonal,
+        Tridiagonal,
+        cholesky,
+        tr
+    using SparseArrays: sparse
+    using StaticArrays: @SMatrix, @SVector, SMatrix
+
+    @testset "scalar predicates" begin
+        @test inunitdisc(0.5)
+        @test inunitdisc(1.0)
+        @test !inunitdisc(1.1)
+        @test inunitdisc(0.5 + 0.5im)
+
+        @test phase(2.0) == 1.0
+        @test phase(-3.0) == -1.0
+        @test phase(0.0) == 1.0
+        @test phase(2im) ≈ im
+
+        @test samesign(2, 3)
+        @test samesign(-2, -3)
+        @test !samesign(2, -3)
+    end
+
+    @testset "predictlinear / isapproxlinear" begin
+        @test predictlinear(1.5, (1.0, 10.0), (2.0, 20.0)) ≈ 15.0
+        @test predictlinear(0.0, (1.0, 10.0), (2.0, 20.0)) ≈ 0.0  # extrapolation
+
+        # degenerate case x1 == x2
+        @test predictlinear(0.5, (1.0, 10.0), (1.0, 20.0)) == 10.0
+        @test predictlinear(1.0, (1.0, 10.0), (1.0, 20.0)) == 15.0
+        @test predictlinear(1.5, (1.0, 10.0), (1.0, 20.0)) == 20.0
+
+        @test isapproxlinear((1.5, 15.0), (1.0, 10.0), (2.0, 20.0))
+    end
+
+    @testset "monotonic" begin
+        @test monotonic([1, 2, 3])
+        @test monotonic([1])
+        @test monotonic(Int[])
+        @test !monotonic([1, 3, 2])
+        @test !monotonic([1, 1, 2])
+    end
+
+    @testset "ldiv / rdiv" begin
+        A = [1.0 2.0; 3.0 4.0]
+        @test ldiv(A, I) ≈ inv(A)
+        @test rdiv(I, A) ≈ inv(A)
+
+        S = @SMatrix [1.0 0.0; 0.0 2.0]
+        @test ldiv(S, I) ≈ inv(S)
+        @test rdiv(I, S) ≈ inv(S)
+
+        # Diagonal with SArray storage
+        Ds = Diagonal(@SVector [2.0, 4.0])
+        @test ldiv(Ds, I) ≈ inv(Ds)
+        @test rdiv(I, Ds) ≈ inv(Ds)
+
+        # SparseMatrixCSC
+        Sp = sparse([1.0 0.0; 0.0 2.0])
+        Sp_inv = inv(Matrix(Sp))
+        @test ldiv(Sp, I) ≈ Sp_inv
+        @test rdiv(I, Sp) ≈ Sp_inv
+    end
+
+    @testset "minus" begin
+        A = [1, 2, 3]
+        @test collect(minus(A)) == [-1, -2, -3]
+
+        D = Diagonal([1, 2])
+        @test collect(minus(D)) == [-1 0; 0 -2]
+
+        S = @SMatrix [1 2; 3 4]
+        @test minus(S) == -S
+
+        # Structured matrices
+        Bi = Bidiagonal([1, 2, 3], [4, 5], :U)
+        @test collect(minus(Bi)) == collect(-Bi)
+
+        ST = SymTridiagonal([1, 2, 3], [4, 5])
+        @test collect(minus(ST)) == collect(-ST)
+
+        Tri = Tridiagonal([1, 2], [3, 4, 5], [6, 7])
+        @test collect(minus(Tri)) == collect(-Tri)
+    end
+
+    @testset "muladd!!" begin
+        C = zeros(3)
+        A = [1.0, 2.0, 3.0]
+        B = [10.0, 20.0, 30.0]
+        @test muladd!!(C, 2.0, A, B) === C
+        @test C == [12.0, 24.0, 36.0]
+
+        Cs = @SVector zeros(3)
+        @test muladd!!(Cs, 2.0, A, B) == [12.0, 24.0, 36.0]
+    end
+
+    @testset "muladd_diagonal!!" begin
+        # In-place on mutable matrix
+        C = [10.0 1.0; 2.0 20.0]
+        A = Diagonal([1.0, 2.0])
+        B = [5.0 1.0; 2.0 6.0]
+        result = muladd_diagonal!!(C, 2.0, A, B)
+        @test result === C
+        @test C[1, 1] == 2.0 * 1.0 + 5.0
+        @test C[2, 2] == 2.0 * 2.0 + 6.0
+
+        # Out-of-place with static array
+        Cs = @SMatrix [10.0 1.0; 2.0 20.0]
+        @test muladd_diagonal!!(Cs, 2.0, A, B) == 2.0 * A + B
+
+        # Structured matrix types for view_diagonal coverage
+        Bi = Bidiagonal([1.0, 2.0, 3.0], [0.1, 0.2], :U)
+        Cbi = copy(Bi)
+        muladd_diagonal!!(Cbi, 2.0, Bi, Bi)
+        @test Cbi.dv == 3.0 .* Bi.dv
+
+        ST = SymTridiagonal([1.0, 2.0, 3.0], [0.1, 0.2])
+        Cst = copy(ST)
+        muladd_diagonal!!(Cst, 2.0, ST, ST)
+        @test Cst.dv == 3.0 .* ST.dv
+
+        Tri = Tridiagonal([0.1, 0.2], [1.0, 2.0, 3.0], [0.3, 0.4])
+        Ctri = copy(Tri)
+        muladd_diagonal!!(Ctri, 2.0, Tri, Tri)
+        @test Ctri.d == 3.0 .* Tri.d
+
+        # UniformScaling in A or B
+        C2 = [10.0 1.0; 2.0 20.0]
+        muladd_diagonal!!(C2, 2.0, I, C2)
+        @test C2[1, 1] == 2.0 * 1.0 + 10.0
+        @test C2[2, 2] == 2.0 * 1.0 + 20.0
+    end
+
+    @testset "tr_normalized / frobenius_normalized" begin
+        A = [1.0 0.0; 0.0 3.0]
+        @test tr_normalized(A) == 2.0
+
+        B = [1.0 2.0; 3.0 4.0]
+        @test frobenius_normalized(A, B) == tr(A' * B) / 2
+
+        S = Diagonal([1.0, 2.0])
+        @test frobenius_normalized(S, A, B) ≈ tr(S * A' * B) / 2
+
+        # UniformScaling variant
+        @test frobenius_normalized(2I, A, B) ≈ 2 * frobenius_normalized(A, B)
+
+        # Bounds check error
+        @test_throws ArgumentError frobenius_normalized(Diagonal([1.0]), A, B)
+    end
+
+    @testset "herk / herk!!" begin
+        A = [1.0 2.0; 3.0 4.0]
+        H = herk(A)
+        @test H ≈ A * A'
+        @test H isa Hermitian
+
+        D = Diagonal([2.0, 3.0])
+        @test herk(D) == Diagonal([4.0, 9.0])
+
+        H2 = similar(H)
+        @test herk!!(Hermitian(H2), A) ≈ A * A'
+
+        # herk!! with α, β on mutable Diagonal
+        Hd = Diagonal([1.0, 1.0])
+        Ad = Diagonal([2.0, 3.0])
+        result = herk!!(Hd, Ad, 2.0, 3.0)
+        @test result === Hd
+        @test Hd == Diagonal([2.0 * 4.0 + 3.0 * 1.0, 2.0 * 9.0 + 3.0 * 1.0])
+
+        # herk!! with static arrays (out-of-place)
+        Hs = Hermitian(@SMatrix [1.0 0.0; 0.0 1.0])
+        As = @SMatrix [1.0 2.0; 3.0 4.0]
+        @test herk!!(Hs, As, 2.0, 3.0) ≈ 2.0 * As * As' + 3.0 * parent(Hs)
+
+        Hds = Diagonal(@SVector [1.0, 1.0])
+        Ads = Diagonal(@SVector [2.0, 3.0])
+        @test herk!!(Hds, Ads, 2.0, 3.0) == Diagonal([2.0 * 4.0 + 3.0, 2.0 * 9.0 + 3.0])
+    end
+
+    @testset "decompose / inverse" begin
+        A = [4.0 2.0; 2.0 5.0]
+        H = Hermitian(A)
+        F = decompose(H)
+        @test F isa Cholesky
+        @test inverse(F) ≈ inv(A)
+
+        D = Diagonal([2.0, 3.0])
+        @test decompose(D) == D
+        @test inverse(decompose(D)) == Diagonal([0.5, 1 / 3])
+
+        # Sparse decompose/inverse
+        Asp = sparse(A)
+        Hsp = Hermitian(Asp)
+        Fsp = decompose(Hsp)
+        @test inverse(Fsp) ≈ inv(A)
+
+        # Static arrays
+        As = @SMatrix [4.0 2.0; 2.0 5.0]
+        Hs = Hermitian(As)
+        Fs = decompose(Hs)
+        @test inverse(Fs) ≈ inv(A)
+
+        Ds = Diagonal(@SVector [2.0, 3.0])
+        @test decompose(Ds) == Ds
+        @test inverse(decompose(Ds)) == Diagonal([0.5, 1 / 3])
+
+        # Static Hermitian with :L uplo (triggers workaround branch)
+        HsL = Hermitian(@SMatrix([4.0 0.0; 2.0 5.0]), :L)
+        FsL = decompose(HsL)
+        @test inverse(FsL) ≈ inv([4.0 2.0; 2.0 5.0])
+    end
+
+    @testset "decompose!! / inverse!!" begin
+        A = [4.0 2.0; 2.0 5.0]
+        H = Hermitian(A)
+        F = decompose(H)
+        Ai = inverse(F)
+
+        A2 = [5.0 1.0; 1.0 6.0]
+        H2 = Hermitian(A2)
+        F2 = decompose!!(F, H2)
+        @test F2 === F
+        Ai2 = inverse!!(Ai, F2)
+        @test Ai2 ≈ inv(A2)
+
+        # With shift
+        F3 = decompose!!(F, H; shift=1.0)
+        @test F3 === F
+        @test inverse(F3) ≈ inv(A + I)
+
+        # Diagonal decompose!!/inverse!!
+        D = Diagonal([2.0, 3.0])
+        Fd = decompose(D)
+        Di = inverse(Fd)
+        D2 = Diagonal([4.0, 5.0])
+        Fd2 = decompose!!(Fd, D2)
+        @test Fd2 === Fd
+        Di2 = inverse!!(Di, Fd2)
+        @test Di2 ≈ inv(D2)
+
+        # Diagonal with shift
+        Fd3 = decompose!!(Fd, D; shift=1.0)
+        @test Fd3 == D + I
+
+        # Sparse decompose!!/inverse!!
+        Asp = sparse(A)
+        Hsp = Hermitian(Asp)
+        Fsp = decompose(Hsp)
+        Aisp = inverse(Fsp)
+        Asp2 = sparse(A2)
+        Hsp2 = Hermitian(Asp2)
+        Fsp2 = decompose!!(Fsp, Hsp2)
+        @test Fsp2 === Fsp
+        Aisp2 = inverse!!(Aisp, Fsp2)
+        @test Aisp2 ≈ inv(A2)
+
+        # Static array decompose!!/inverse!! (out-of-place)
+        As = @SMatrix [4.0 2.0; 2.0 5.0]
+        Hs = Hermitian(As)
+        Fs = decompose(Hs)
+        Ais = inverse(Fs)
+        As2 = @SMatrix [5.0 1.0; 1.0 6.0]
+        Hs2 = Hermitian(As2)
+        Fs2 = decompose!!(Fs, Hs2)
+        @test inverse(Fs2) ≈ inv(A2)
+        Ais2 = inverse!!(Ais, Fs2)
+        @test Ais2 ≈ inv(A2)
+
+        Ds = Diagonal(@SVector [2.0, 3.0])
+        Fds = decompose(Ds)
+        Dis = inverse(Fds)
+        Ds2 = Diagonal(@SVector [4.0, 5.0])
+        Fds2 = decompose!!(Fds, Ds2)
+        @test Fds2 == Ds2
+        Dis2 = inverse!!(Dis, Fds2)
+        @test Dis2 ≈ inv(D2)
+    end
+
+    @testset "ldiv!!" begin
+        F = cholesky([4.0 2.0; 2.0 5.0])
+        B = [1.0 0.0; 0.0 1.0]
+        @test ldiv!!(F, copy(B)) ≈ F \ B
+
+        Bs = @SMatrix [1.0 0.0; 0.0 1.0]
+        @test ldiv!!(F, Bs) ≈ F \ B
+
+        # Sparse CHOLMOD Factor
+        A = [4.0 2.0; 2.0 5.0]
+        Fsp = decompose(Hermitian(sparse(A)))
+        @test ldiv!!(Fsp, copy(B)) ≈ A \ B
+        @test ldiv!!(Fsp, Bs) ≈ A \ B
+    end
+
+    @testset "eigmin!!" begin
+        A = Hermitian([4.0 1.0; 1.0 3.0])
+        F = decompose(A)
+        λmin = eigmin!!(F, A)
+        @test λmin ≈ (7 - sqrt(5)) / 2 atol = 1e-6
+
+        D = Diagonal([2.0, 5.0, 3.0])
+        @test eigmin!!(nothing, D) == 2.0
+
+        # Static Diagonal (ambiguity resolution method)
+        Ds = Diagonal(@SVector [2.0, 5.0, 3.0])
+        @test eigmin!!(nothing, Ds) == 2.0
+
+        # Static Hermitian matrix
+        As = Hermitian(@SMatrix [4.0 1.0; 1.0 3.0])
+        @test eigmin!!(nothing, As) ≈ (7 - sqrt(5)) / 2 atol = 1e-6
+
+        # Sparse Hermitian
+        Asp = Hermitian(sparse([4.0 1.0; 1.0 3.0]))
+        Fsp = decompose(Asp)
+        @test eigmin!!(Fsp, Asp) ≈ (7 - sqrt(5)) / 2 atol = 1e-6
+    end
+end

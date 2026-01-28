@@ -15,6 +15,13 @@ julia --startup-file=no --project=@. -e 'using Pkg; Pkg.test()'
 # Run specific testitems filtered by name and/or file (requires TestEnv installed in the base environment)
 julia --startup-file=no --check-bounds=yes --warn-overwrite=yes --depwarn=yes --project=@. -e 'cd(joinpath(dirname(Base.active_project()), "test")); using TestEnv; TestEnv.activate(); using TestItemRunner; @run_package_tests filter=ti->(ti.name=="testitem name" && endswith(ti.filename, "source_file.jl"))'
 
+# Run tests with coverage (requires CoverageTools installed in the @nvim-coverage shared environment)
+# Step 0: start with a clean slate, run:
+rm -f src/*.cov
+# Step 1: run any of the test commands above with the additional argument `--code-coverage=@src`
+# Step 2: run the following:
+julia --startup-file=no --project=@nvim-coverage -e 'using CoverageTools; LCOV.writefile("lcov.info", process_folder("src"))'
+
 # Format code (requires JuliaFormatter v2.2.0 or newer installed as a CLI app)
 jlfmt --inplace src/
 ```
