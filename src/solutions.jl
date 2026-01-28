@@ -33,9 +33,15 @@ struct ResolventSolution{F,E<:ResolventEquation{F}}
     greens::Complex{F}
     success::Bool
 
-    function common(::Type{F}, eq, q, shift, gap, trace, greens, success) where {F}
+    # Secret raw-value constructor for StructArrays.jl compatibility
+    # Beware: does not assert invariants
+    function ResolventSolution{F,E}(eq, q, shift, gap, ptrace, greens, success) where {F,E}
+        return new{F,E}(eq, q, shift, gap, ptrace, greens, success)
+    end
+
+    function common(::Type{F}, eq, q, shift, gap, ptrace, greens, success) where {F}
         eqF = convert(ResolventEquation{F}, eq)
-        return new{F,typeof(eqF)}(eqF, q, shift, gap, trace, greens, success)
+        return ResolventSolution{F,typeof(eqF)}(eqF, q, shift, gap, ptrace, greens, success)
     end
 
     function ResolventSolution{F}(eq, q, reg, workspace) where {F}

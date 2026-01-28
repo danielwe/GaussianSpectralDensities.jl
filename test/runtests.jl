@@ -4,11 +4,7 @@ using TestItemRunner
 
 @testitem "Aqua.jl" begin
     using Aqua: test_all
-    test_all(
-        GaussianSpectralDensities;
-        # FIXME: Temporary until the rest of the code is revived
-        stale_deps=false,
-    )
+    test_all(GaussianSpectralDensities)
 end
 
 @testitem "ExplicitImports.jl" begin
@@ -47,13 +43,15 @@ end
     test_all_qualified_accesses_are_public(
         GaussianSpectralDensities;
         ignore=(
-            # TODO: figure out if this can be specialized per module rather than blanket
-            # ignoring any binding with a given name
+            :SizeUnknown, # Base
             :CHOLMOD,     # SparseArrays.jl
             :LM,          # ArnoldiMethod.jl
             :sym_uplo,    # LinearAlgebra
             :potrf!,      # LinearAlgebra.LAPACK
             :potri!,      # LinearAlgebra.LAPACK
+            :init,        # CommonSolve.jl
+            :step!,       # CommonSolve.jl
+            :solve!,      # CommonSolve.jl
         ),
         allow_internal_accesses=false,
     )

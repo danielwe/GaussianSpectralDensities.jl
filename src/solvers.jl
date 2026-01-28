@@ -1,0 +1,388 @@
+module Solvers
+
+using CommonSolve: CommonSolve
+using StructArrays: StructArray
+
+using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms
+using ..Problems: AbstractResolventProblem
+using ..Solutions: ResolventSolution
+using ..Workspaces: Workspace
+
+using ..ArrayTools: adaptrealtype
+
+mutable struct Solver{
+    F,
+    W<:Workspace{F},
+    P<:AbstractResolventProblem{F},
+    A<:AbstractAlgorithm,
+    T<:StructArray{<:ResolventSolution{F}},
+}
+    const ws::W
+    const problem::P
+    const algorithm::A
+    const trace::T
+    state::Union{Nothing,AbstractAlgorithmState}
+
+    function Solver{F}(
+        problem::AbstractResolventProblem, algorithm::AbstractAlgorithm
+    ) where {F}
+        problemF = adaptrealtype(F, problem)
+        algorithmF = adaptrealtype(F, algorithm)
+        wsF = Workspace(problemF.eq.ensemble)
+        traceF = StructArray(ResolventSolution{F,typeof(problemF.eq)}[])
+        return new{F,typeof.((wsF, problemF, algorithmF))...,typeof(traceF)}(
+            wsF, problemF, algorithmF, traceF, nothing
+        )
+    end
+end
+
+function Solver(problem::AbstractResolventProblem{F}, algorithm) where {F}
+    return Solver{F}(problem, algorithm)
+end
+
+struct Solution{
+    F,
+    P<:AbstractResolventProblem{F},
+    A<:AbstractAlgorithm,
+    S<:ResolventSolution{F},
+    T<:StructArray{S},
+}
+    problem::P
+    algorithm::A
+    solution::S
+    trace::T
+
+    function Solution(solver::Solver{F}) where {F}
+        if !Base.isdone(solver)
+            throw(ArgumentError("cannot create Solution from incomplete Solver"))
+        end
+        (; problem, algorithm, trace) = solver
+        solution = trace[end]
+        return new{F,typeof(problem),typeof(algorithm),typeof(solution),typeof(trace)}(
+            problem, algorithm, solution, trace
+        )
+    end
+end
+
+# Iterator interface
+# ------------------
+Base.IteratorSize(::Type{<:Solver}) = Base.SizeUnknown()
+Base.IteratorEltype(::Type{L}) where {L<:Solver} = L
+Base.eltype(::L) where {L<:Solver} = L
+
+function Base.isdone(solver::Solver, (::Nothing)=nothing)
+    isnothing(solver.state) && return false
+    return Algorithms.isdone(solver.problem, solver.algorithm, solver.state)
+end
+
+function Base.iterate(solver::Solver, (::Nothing)=nothing)
+    state = solver.state
+    result = if isnothing(state)
+        Algorithms.step!(solver.ws, solver.problem, solver.algorithm)
+    else
+        Algorithms.step!(solver.ws, solver.problem, solver.algorithm, state)
+    end
+    isnothing(result) && return nothing
+    stepsolution, stepstate = result
+    push!(solver.trace, stepsolution)
+    solver.state = stepstate
+    return solver, nothing
+end
+
+# CommonSolve interface
+# ---------------------
+function CommonSolve.init(problem::AbstractResolventProblem, algorithm::AbstractAlgorithm)
+    return Solver(problem, algorithm)
+end
+
+function CommonSolve.step!(solver::Solver)
+    iterate(solver)
+    # CommonSolve.step! returns generally returns a retcode; we just do success vs. failure
+    (length(solver.trace) > 0) || return false
+    return solver.trace.success[end]
+end
+
+function CommonSolve.solve!(solver::Solver)
+    for _ in solver
+        # Just stepping through
+    end
+    return Solution(solver)
+end
+
+end  # module Solvers
+
+@testitem "Solver construction" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems:
+        PTraceProblem, RegularizerProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Solvers: Solver
+    using GaussianSpectralDensities.Workspaces: Workspace
+
+    using LinearAlgebra: I
+
+    ensemble64 = MatrixEnsemble(I, I, I, I / 2)
+    eq64 = ResolventEquation(ensemble64, 0.5 + 0.5im)
+    reg64 = Regularizer(0.25, :shift)
+    ptrace64 = 1.0
+    init64 = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
+
+    regproblem64 = RegularizerProblem(eq64, reg64, init64)
+    ptraceproblem64 = PTraceProblem(eq64, ptrace64, init64)
+
+    alg_direct = DirectSolve()
+    alg_schedule = RegularizerSchedule([2.0, 1.0, 0.5, 0.25], :gap)
+
+    @testset "$F" for F in [Float32, Float64]
+        @testset "$(nameof(typeof(problem)))" for problem in [regproblem64, ptraceproblem64]
+            @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_schedule]
+                # Type-inferring constructor
+                solver = Solver(problem, alg)
+                @test solver isa Solver{Float64}
+
+                # Type-enforcing constructor
+                solverF = Solver{F}(problem, alg)
+                @test solverF isa Solver{F}
+
+                # Internals are converted to correct float type
+                @test solverF.problem isa typeof(problem).name.wrapper{F}
+                @test solverF.ws isa Workspace{F}
+
+                # Initial state
+                @test isnothing(solverF.state)
+                @test isempty(solverF.trace)
+                @test !Base.isdone(solverF)
+            end
+        end
+    end
+end
+
+@testitem "Solver iteration interface" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Solvers: Solver
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble, 0.5 + 0.5im)
+    ptrace = 1.0
+    init = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
+    problem = PTraceProblem(eq, ptrace, init)
+
+    @testset "DirectSolve" begin
+        solver = Solver(problem, DirectSolve())
+
+        # Iterator traits
+        @test Base.IteratorSize(typeof(solver)) === Base.SizeUnknown()
+        @test eltype(solver) === typeof(solver)
+
+        # Before iteration
+        @test !Base.isdone(solver)
+        @test isempty(solver.trace)
+
+        # First iteration
+        result = iterate(solver)
+        @test !isnothing(result)
+        returned_solver, _ = result
+        @test returned_solver === solver
+        @test length(solver.trace) == 1
+        @test solver.trace[1] isa ResolventSolution{Float64}
+
+        # After DirectSolve, should be done
+        @test Base.isdone(solver)
+        @test isnothing(iterate(solver))
+    end
+
+    @testset "RegularizerSchedule" begin
+        schedule_values = [4.0, 2.0, 1.0, 0.5, 0.25]
+        alg = RegularizerSchedule(schedule_values, :gap)
+        init_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
+        problem_sched = PTraceProblem(eq, ptrace, init_sched)
+        solver = Solver(problem_sched, alg)
+
+        # Step through via for-loop
+        step_count = 0
+        for s in solver
+            step_count += 1
+            @test s === solver
+        end
+
+        # RegularizerSchedule terminates early once ptrace crosses target,
+        # so we don't necessarily exhaust the full schedule
+        @test step_count > 0
+        @test step_count <= length(schedule_values) + 1
+        @test length(solver.trace) == step_count
+        @test Base.isdone(solver)
+
+        # Final solution should match target
+        @test solver.trace.success[end]
+        @test solver.trace.ptrace[end] ≈ ptrace
+
+        # Trace contains ResolventSolutions
+        @testset "step $i" for i in eachindex(solver.trace)
+            @test solver.trace[i] isa ResolventSolution{Float64}
+        end
+    end
+end
+
+@testitem "CommonSolve interface" begin
+    using CommonSolve: init, solve!, step!
+
+    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Solvers: Solution, Solver
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble, 0.5 + 0.5im)
+    ptrace = 1.0
+    initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
+    problem = PTraceProblem(eq, ptrace, initvals)
+
+    @testset "init" begin
+        solver = init(problem, DirectSolve())
+        @test solver isa Solver{Float64}
+        @test solver.problem === problem
+    end
+
+    @testset "step!" begin
+        solver = init(problem, DirectSolve())
+
+        # First step succeeds
+        success = step!(solver)
+        @test success isa Bool
+        @test length(solver.trace) == 1
+
+        # DirectSolve is done after one step
+        @test Base.isdone(solver)
+
+        # Additional step! calls still work (no-op due to isdone check in iterate)
+        step!(solver)
+        @test length(solver.trace) == 1
+    end
+
+    @testset "solve!" begin
+        schedule_values = [4.0, 2.0, 1.0, 0.5]
+        initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
+        problem_sched = PTraceProblem(eq, ptrace, initvals_sched)
+        solver = init(problem_sched, RegularizerSchedule(schedule_values, :gap))
+
+        solution = solve!(solver)
+        @test solution isa Solution{Float64}
+        @test solution.problem === solver.problem
+        @test solution.algorithm === solver.algorithm
+        @test solution.solution isa ResolventSolution{Float64}
+        @test solution.trace === solver.trace
+        @test Base.isdone(solver)
+    end
+end
+
+@testitem "Solution construction" begin
+    using CommonSolve: init, solve!
+
+    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Solutions: ResolventSolution
+    using GaussianSpectralDensities.Solvers: Solution, Solver
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble, 0.5 + 0.5im)
+    ptrace = 1.0
+    initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
+    problem = PTraceProblem(eq, ptrace, initvals)
+
+    @testset "Solution from completed solver" begin
+        solver = init(problem, DirectSolve())
+        solve!(solver)
+
+        solution = Solution(solver)
+        @test solution isa Solution{Float64}
+        @test solution.problem === solver.problem
+        @test solution.algorithm === solver.algorithm
+        @test solution.solution === solver.trace[end]
+        @test solution.trace === solver.trace
+    end
+
+    @testset "Solution from incomplete solver errors" begin
+        solver = init(problem, DirectSolve())
+        # Solver not yet stepped through
+        @test !Base.isdone(solver)
+        @test_throws ArgumentError Solution(solver)
+    end
+
+    @testset "Solution from failed solver" begin
+        # z outside support with shiftmin=0 will fail to find valid solution
+        eq_impossible = ResolventEquation(ensemble, 2.0 + 2.0im; shiftmin=0.0)
+        problem_impossible = PTraceProblem(eq_impossible, ptrace, initvals)
+        solver = init(problem_impossible, DirectSolve())
+        for _ in solver
+        end
+        @test Base.isdone(solver)
+
+        # Solution can still be constructed; it just has success=false
+        solution = Solution(solver)
+        @test solution isa Solution{Float64}
+        @test !solution.solution.success
+    end
+
+    @testset "Solution properties" begin
+        schedule_values = [4.0, 2.0, 1.0, 0.5]
+        initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
+        problem_sched = PTraceProblem(eq, ptrace, initvals_sched)
+        alg = RegularizerSchedule(schedule_values, :gap)
+        solver = init(problem_sched, alg)
+        solution = solve!(solver)
+
+        # Final solution matches target
+        @test solution.solution.ptrace ≈ ptrace
+        @test solution.solution.success
+
+        # Trace captures history (may terminate early when ptrace crosses target)
+        @test length(solution.trace) > 0
+        @test length(solution.trace) <= length(alg) + 1
+    end
+end
+
+@testitem "Solver early termination on failure" begin
+    using CommonSolve: init, solve!
+
+    using GaussianSpectralDensities.Algorithms: RegularizerSchedule
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Solvers: Solver
+
+    using LinearAlgebra: I
+
+    # z outside Ginibre support with shiftmin=0 => negative shift needed => fails
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.0I)
+    eq = ResolventEquation(ensemble, 1.0 + 1.0im; shiftmin=0.0)
+    ptrace = 1.0
+    initvals = (; reg=Regularizer(4.0, :gap), q=complex(0.1))
+    problem = PTraceProblem(eq, ptrace, initvals)
+
+    alg = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
+    solver = init(problem, alg)
+    solution = solve!(solver)
+
+    # Should terminate early (not exhaust full schedule + final step)
+    @test length(solver.trace) < length(alg) + 1
+    @test Base.isdone(solver)
+
+    # Last solution failed
+    @test !solution.solution.success
+    @test solution.solution.shift < eq.shiftmin
+end
