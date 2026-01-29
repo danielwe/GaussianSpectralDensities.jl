@@ -13,7 +13,7 @@ The core task is solving self-consistent nonlinear equations for the averaged re
 julia --startup-file=no --project=@. -e 'using Pkg; Pkg.test()'
 
 # Run specific testitems filtered by name and/or file (requires TestEnv installed in the base environment)
-julia --startup-file=no --check-bounds=yes --warn-overwrite=yes --depwarn=yes --project=@. -e 'cd(joinpath(dirname(Base.active_project()), "test")); using TestEnv; TestEnv.activate(); using TestItemRunner; @run_package_tests filter=ti -> (ti.name == "testitem name") && endswith(ti.filename, "source_file.jl")'
+julia --startup-file=no --check-bounds=yes --warn-overwrite=yes --depwarn=yes --project=@. -e 'cd(joinpath(dirname(Base.active_project()), "test")); using TestEnv; TestEnv.activate(); using TestItemRunner; @run_package_tests filter=ti -> (ti.name == "testitem name") && (basename(ti.filename) =="source_file.jl")'
 
 # Run tests with coverage (requires CoverageTools installed in the @nvim-coverage shared environment)
 # Step 0: start with a clean slate, run:
