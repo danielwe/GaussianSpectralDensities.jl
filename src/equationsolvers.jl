@@ -14,28 +14,36 @@ public eqsolve!
 const ConvergenceException = Union{NewtonException,SingularException,LAPACKException}
 
 """
-    eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}) where {F}
-    eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}) where {F}
+    eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}, z, init) where {F}
+    eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}, z, init) where {F}
 
 Solve an averaged resolvent equation at a point in the complex plane
+
+# Arguments
+
+  - `ws`: workspace
+  - `problem`: problem specification with equation and objective
+  - `z`: complex point in the plane
+  - `init`: initialization NamedTuple with fields `:q` (for both problem types) and `:reg`
+    (for PTraceProblem)
 
 Returns a `PointSolution`.
 """
 function eqsolve! end
 
-function eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}) where {F}
-    (; z, sscale, reg) = problem
-    fq = let ws = ws, z = z, sscale = sscale, reg = reg
+function eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}, z, init) where {F}
+    zF = Complex{F}(z)
+    q0 = Complex{F}(init.q)
+    q0v = SVector(real(q0), imag(q0))
+
+    fq = let ws = ws, eq=problem.eq, z = zF, reg = problem.reg
         function fq(qv)
             # avoid capturing q from the outer function
             local q = complex(qv...)
-            qscaled = sscale * q
-            dq = sscale * qFP!(ws, z, qscaled, reg) - q
+            dq = qFP!(ws, eq, z, q, reg) - q
             return SVector(real(dq), imag(dq))
         end
     end
-    q0 = problem.init.q
-    q0v = SVector(real(q0), imag(q0))
     # NOTE: niters is unused at the moment, but will be used for logging, so don't remove
     qv, niters = try
         qv, niters = newton(fq, q0v)
@@ -46,24 +54,24 @@ function eqsolve!(ws::Workspace{F}, problem::RegularizerProblem{F}) where {F}
     # FIXME: use logging instead
     # print_niters(niters, verbosity)
     q = complex(qv...)
-    return PointSolution(problem, q, reg; workspace=ws)
+    return PointSolution(problem, zF, q, problem.reg; workspace=ws)
 end
 
-function eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}) where {F}
-    (; z, sscale, ptrace) = problem
-    reg0 = problem.init.reg
-    fqreg = let ws = ws, z = z, sscale = sscale, reg_type = reg0.type, ptrace = ptrace
-        function fqreg(qregv)
-            # avoid capturing reg and q from the outer function
-            local reg, q = Regularizer(qregv[1], reg_type), complex(qregv[2], qregv[3])
-            qscaled = sscale * q
-            dptrace = ptrace!(ws, z, qscaled, reg) - ptrace
-            dq = sscale * qFP!(ws, z, qscaled, reg) - q
-            return SVector(dptrace, real(dq), imag(dq))
-        end
-    end
-    q0 = problem.init.q
+function eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}, z, init) where {F}
+    zF = Complex{F}(z)
+    reg0, q0 = Regularizer{F}(init.reg), Complex{F}(init.q)
     qreg0v = SVector(reg0.value, real(q0), imag(q0))
+
+    fqreg =
+        let ws = ws, eq=problem.eq, z = zF, reg_type = reg0.type, ptrace = problem.ptrace
+            function fqreg(qregv)
+                # avoid capturing reg and q from the outer function
+                local reg, q = Regularizer(qregv[1], reg_type), complex(qregv[2], qregv[3])
+                dptrace = ptrace!(ws, eq, z, q, reg) - ptrace
+                dq = qFP!(ws, eq, z, q, reg) - q
+                return SVector(dptrace, real(dq), imag(dq))
+            end
+        end
     # NOTE: niters is unused at the moment, but will be used for logging, so don't remove
     qregv, niters = try
         newton(fqreg, qreg0v)
@@ -74,7 +82,7 @@ function eqsolve!(ws::Workspace{F}, problem::PTraceProblem{F}) where {F}
     # FIXME: use logging instead
     # print_niters(niters, verbosity)
     reg, q = Regularizer(qregv[1], reg0.type), complex(qregv[2], qregv[3])
-    return PointSolution(problem, q, reg; workspace=ws)
+    return PointSolution(problem, zF, q, reg; workspace=ws)
 end
 
 toNaN(::F) where {F<:AbstractFloat} = F(NaN)
@@ -97,50 +105,50 @@ end  # module EquationSolvers
     Adata = [1 0.1im; 0 -1]
     Ddata = [0.75, 0.25cispi(1 // 3)]
     z, sscale = complex(0.8), 2 // 3
-    ptrace, q0 = 0.01, Defaults.q0
+    ptrace = 0.01
+    q0 = Defaults.q0
     reg_value = 0.5
 
-    @testset "$label" for (label, A, D) in [
-        ("Array", Adata, Diagonal(Ddata)),
-        ("SArray", SMatrix{2,2}(Adata), Diagonal(SVector{2}(Ddata))),
-        ("SparseMatrixCSC", sparse(Adata), Diagonal(Ddata)),
-    ]
-        @testset "$F" for F in [Float32, Float64]
-            @testset "$signature" for (signature, ensembleF) in [
-                ("(I, I, I, I / 2)", MatrixEnsemble{F}(I, I, I, I / 2)),
-                ("(A, I, I, I / 2)", MatrixEnsemble{F}(A, I, I, I / 2)),
-                ("(I, A, I, I / 2)", MatrixEnsemble{F}(I, A, I, I / 2)),
-                ("(I, I, A, I / 2)", MatrixEnsemble{F}(I, I, A, I / 2)),
-                ("(I, I, I, D)", MatrixEnsemble{F}(I, I, I, D)),
-            ]
-                eqF = ResolventEquation(ensembleF)
-                wsF = Workspace(eqF)
+    @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
+        reg = Regularizer(reg_value, reg_type)
+        init = (; reg, q=q0)
 
-                @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
-                    reg = Regularizer(reg_value, reg_type)
-
-                    init = (; reg, q=q0)
+        @testset "$label" for (label, A, D) in [
+            ("Array", Adata, Diagonal(Ddata)),
+            ("SArray", SMatrix{2,2}(Adata), Diagonal(SVector{2}(Ddata))),
+            ("SparseMatrixCSC", sparse(Adata), Diagonal(Ddata)),
+        ]
+            @testset "$F" for F in [Float32, Float64]
+                @testset "$signature" for (signature, ensembleF) in [
+                    ("(I, I, I, I / 2)", MatrixEnsemble{F}(I, I, I, I / 2)),
+                    ("(A, I, I, I / 2)", MatrixEnsemble{F}(A, I, I, I / 2)),
+                    ("(I, A, I, I / 2)", MatrixEnsemble{F}(I, A, I, I / 2)),
+                    ("(I, I, A, I / 2)", MatrixEnsemble{F}(I, I, A, I / 2)),
+                    ("(I, I, I, D)", MatrixEnsemble{F}(I, I, I, D)),
+                ]
+                    eqF = ResolventEquation(ensembleF; sscale)
+                    wsF = Workspace(eqF)
 
                     @testset "$(nameof(P))" for (P, obj) in [
                         (RegularizerProblem, reg), (PTraceProblem, ptrace)
                     ]
-                        problemF = P(eqF, z, obj, init; sscale)
-                        solF = eqsolve!(wsF, problemF)
+                        problemF = P(eqF, obj)
+                        solF = eqsolve!(wsF, problemF, z, init)
 
                         @test solF.success
-                        @test solF.z == problemF.z
-                        @test solF.sscale == problemF.sscale
+                        @test solF.z == Complex{F}(z)
+                        @test solF.sscale == eqF.sscale
 
                         solF_reg = Regularizer(getproperty(solF, reg_type), reg_type)
 
                         tol = 10eps(F)^(3 // 4)
                         if problemF isa RegularizerProblem
-                            @test solF_reg.value === F(reg.value)
+                            @test solF_reg.value ≈ reg.value rtol=tol atol=tol
                         else
-                            @test solF.ptrace ≈ problemF.ptrace rtol=tol atol=tol
+                            @test solF.ptrace ≈ ptrace rtol=tol atol=tol
                         end
-                        qFP = sscale * qFP!(wsF, z, sscale * solF.q, solF_reg)
-                        @test solF.q ≈ qFP rtol=tol atol=tol
+                        qFPF = qFP!(wsF, problemF.eq, solF.z, solF.q, solF_reg)
+                        @test solF.q ≈ qFPF rtol=tol atol=tol
                     end
                 end
             end
@@ -148,7 +156,7 @@ end  # module EquationSolvers
     end
 end
 
-@testitem "eqsolve! errors" begin
+@testitem "eqsolve! failure" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
@@ -159,20 +167,22 @@ end
     using LinearAlgebra: I
 
     # engineer a singular equation
-    ptrace, z, q0 = 1.0, 0.1, 0.1
+    z = complex(0.1)
+    q0 = complex(0.1)
+    ptrace = 1.0
     ensemble = MatrixEnsemble(0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     ws = Workspace(eq)
     zeroshift = Regularizer(0.0, :shift)
     zerogap = Regularizer(0.0, :gap)
+    init = (; reg=zerogap, q=q0)
 
-    @testset "$(nameof(typeof(problem)))" for (problem, reg) in [
-        (RegularizerProblem(eq, z, zeroshift, (; q=q0)), zeroshift),
-        (PTraceProblem(eq, z, ptrace, (; reg=zerogap, q=q0)), zerogap),
-    ]
-        sol = eqsolve!(ws, problem)
+    @testset "$(nameof(P))" for (P, obj) in
+                                [(RegularizerProblem, zeroshift), (PTraceProblem, ptrace)]
+        problem = P(eq, obj)
+        sol = eqsolve!(ws, problem, z, init)
 
-        @test sol.z == problem.z
+        @test sol.z == z
         @test !sol.success
     end
 end

@@ -4,7 +4,7 @@ using CommonSolve: CommonSolve
 using StructArrays: StructArray
 
 using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, statetype
-using ..Problems: AbstractResolventProblem
+using ..Problems: PointProblem
 using ..Solutions: PointSolution
 using ..Workspaces: Workspace
 
@@ -13,37 +13,33 @@ using ..ArrayTools: adaptrealtype
 mutable struct Solver{
     F,
     W<:Workspace{F},
-    P<:AbstractResolventProblem{F},
+    P<:PointProblem{F},
     A<:AbstractAlgorithm,
     T<:StructArray{PointSolution{F}},
     S<:AbstractAlgorithmState,
 }
     const ws::W
-    const problem::P
+    const pp::P
     const algorithm::A
     const trace::T
     state::Union{Nothing,S}
 
-    function Solver{F}(
-        problem::AbstractResolventProblem, algorithm::AbstractAlgorithm
-    ) where {F}
-        problemF = adaptrealtype(F, problem)
+    function Solver{F}(pp::PointProblem, algorithm::AbstractAlgorithm) where {F}
+        ppF = adaptrealtype(F, pp)
         algorithmF = adaptrealtype(F, algorithm)
-        wsF = Workspace(problemF.eq)
+        wsF = Workspace(ppF.problem.eq)
         traceF = StructArray(PointSolution{F}[])
-        W, P, A, T = typeof.((wsF, problemF, algorithmF, traceF))
-        return new{F,W,P,A,T,statetype(A)}(wsF, problemF, algorithmF, traceF, nothing)
+        W, P, A, T = typeof.((wsF, ppF, algorithmF, traceF))
+        return new{F,W,P,A,T,statetype(A)}(wsF, ppF, algorithmF, traceF, nothing)
     end
 end
 
-function Solver(problem::AbstractResolventProblem{F}, algorithm) where {F}
-    return Solver{F}(problem, algorithm)
+function Solver(pp::PointProblem{F}, algorithm) where {F}
+    return Solver{F}(pp, algorithm)
 end
 
-struct Solution{
-    F,P<:AbstractResolventProblem{F},A<:AbstractAlgorithm,T<:StructArray{PointSolution{F}}
-}
-    problem::P
+struct Solution{F,P<:PointProblem{F},A<:AbstractAlgorithm,T<:StructArray{PointSolution{F}}}
+    pp::P
     algorithm::A
     solution::PointSolution{F}
     trace::T
@@ -52,10 +48,10 @@ struct Solution{
         if !Base.isdone(solver)
             throw(ArgumentError("cannot create Solution from incomplete Solver"))
         end
-        (; problem, algorithm, trace) = solver
+        (; pp, algorithm, trace) = solver
         solution = trace[end]
-        return new{F,typeof(problem),typeof(algorithm),typeof(trace)}(
-            problem, algorithm, solution, trace
+        return new{F,typeof(pp),typeof(algorithm),typeof(trace)}(
+            pp, algorithm, solution, trace
         )
     end
 end
@@ -67,15 +63,15 @@ Base.eltype(::S) where {S<:Solver} = S
 
 function Base.isdone(solver::Solver, (::Nothing)=nothing)
     isnothing(solver.state) && return false
-    return Algorithms.isdone(solver.problem, solver.algorithm, solver.state)
+    return Algorithms.isdone(solver.pp, solver.algorithm, solver.state)
 end
 
 function Base.iterate(solver::Solver, (::Nothing)=nothing)
     state = solver.state
     result = if isnothing(state)
-        Algorithms.step!(solver.ws, solver.problem, solver.algorithm)
+        Algorithms.step!(solver.ws, solver.pp, solver.algorithm)
     else
-        Algorithms.step!(solver.ws, solver.problem, solver.algorithm, state)
+        Algorithms.step!(solver.ws, solver.pp, solver.algorithm, state)
     end
     isnothing(result) && return nothing
     stepsolution, stepstate = result
@@ -86,8 +82,8 @@ end
 
 # CommonSolve interface
 # ---------------------
-function CommonSolve.init(problem::AbstractResolventProblem, algorithm::AbstractAlgorithm)
-    return Solver(problem, algorithm)
+function CommonSolve.init(pp::PointProblem, algorithm::AbstractAlgorithm)
+    return Solver(pp, algorithm)
 end
 
 function CommonSolve.step!(solver::Solver)
@@ -110,7 +106,7 @@ end  # module Solvers
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceProblem, RegularizerProblem, ResolventEquation
+        PTraceProblem, PointProblem, RegularizerProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solvers: Solver
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -124,25 +120,26 @@ end  # module Solvers
     ptrace64 = 1.0
     init64 = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
 
-    regproblem64 = RegularizerProblem(eq64, z64, reg64, init64)
-    ptraceproblem64 = PTraceProblem(eq64, z64, ptrace64, init64)
+    regproblem64 = RegularizerProblem(eq64, reg64)
+    ptraceproblem64 = PTraceProblem(eq64, ptrace64)
 
     alg_direct = DirectSolve()
     alg_schedule = RegularizerSchedule([2.0, 1.0, 0.5, 0.25], :gap)
 
     @testset "$F" for F in [Float32, Float64]
         @testset "$(nameof(typeof(problem)))" for problem in [regproblem64, ptraceproblem64]
+            pp = PointProblem(problem, z64, init64)
             @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_schedule]
                 # Type-inferring constructor
-                solver = Solver(problem, alg)
+                solver = Solver(pp, alg)
                 @test solver isa Solver{Float64}
 
                 # Type-enforcing constructor
-                solverF = Solver{F}(problem, alg)
+                solverF = Solver{F}(pp, alg)
                 @test solverF isa Solver{F}
 
                 # Internals are converted to correct float type
-                @test solverF.problem isa typeof(problem).name.wrapper{F}
+                @test solverF.pp isa PointProblem{F}
                 @test solverF.ws isa Workspace{F}
 
                 # Initial state
@@ -157,7 +154,7 @@ end
 @testitem "Solver iteration interface" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Solvers: Solver
@@ -169,10 +166,11 @@ end
     z = 0.5 + 0.5im
     ptrace = 1.0
     init = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, z, ptrace, init)
+    problem = PTraceProblem(eq, ptrace)
+    pp = PointProblem(problem, z, init)
 
     @testset "DirectSolve" begin
-        solver = Solver(problem, DirectSolve())
+        solver = Solver(pp, DirectSolve())
 
         # Iterator traits
         @test Base.IteratorSize(typeof(solver)) === Base.SizeUnknown()
@@ -199,8 +197,9 @@ end
         schedule_values = [4.0, 2.0, 1.0, 0.5, 0.25]
         alg = RegularizerSchedule(schedule_values, :gap)
         init_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, z, ptrace, init_sched)
-        solver = Solver(problem_sched, alg)
+        problem_sched = PTraceProblem(eq, ptrace)
+        pp_sched = PointProblem(problem_sched, z, init_sched)
+        solver = Solver(pp_sched, alg)
 
         # Step through via for-loop
         step_count = 0
@@ -232,7 +231,7 @@ end
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Solvers: Solution, Solver
@@ -244,16 +243,17 @@ end
     z = 0.5 + 0.5im
     ptrace = 1.0
     initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, z, ptrace, initvals)
+    problem = PTraceProblem(eq, ptrace)
+    pp = PointProblem(problem, z, initvals)
 
     @testset "init" begin
-        solver = init(problem, DirectSolve())
+        solver = init(pp, DirectSolve())
         @test solver isa Solver{Float64}
-        @test solver.problem === problem
+        @test solver.pp === pp
     end
 
     @testset "step!" begin
-        solver = init(problem, DirectSolve())
+        solver = init(pp, DirectSolve())
 
         # First step succeeds
         success = step!(solver)
@@ -271,12 +271,13 @@ end
     @testset "solve!" begin
         schedule_values = [4.0, 2.0, 1.0, 0.5]
         initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, z, ptrace, initvals_sched)
-        solver = init(problem_sched, RegularizerSchedule(schedule_values, :gap))
+        problem_sched = PTraceProblem(eq, ptrace)
+        pp_sched = PointProblem(problem_sched, z, initvals_sched)
+        solver = init(pp_sched, RegularizerSchedule(schedule_values, :gap))
 
         solution = solve!(solver)
         @test solution isa Solution{Float64}
-        @test solution.problem === solver.problem
+        @test solution.pp === solver.pp
         @test solution.algorithm === solver.algorithm
         @test solution.solution isa PointSolution{Float64}
         @test solution.trace === solver.trace
@@ -289,7 +290,7 @@ end
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Solvers: Solution, Solver
@@ -301,22 +302,23 @@ end
     z = 0.5 + 0.5im
     ptrace = 1.0
     initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, z, ptrace, initvals)
+    problem = PTraceProblem(eq, ptrace)
+    pp = PointProblem(problem, z, initvals)
 
     @testset "Solution from completed solver" begin
-        solver = init(problem, DirectSolve())
+        solver = init(pp, DirectSolve())
         solve!(solver)
 
         solution = Solution(solver)
         @test solution isa Solution{Float64}
-        @test solution.problem === solver.problem
+        @test solution.pp === solver.pp
         @test solution.algorithm === solver.algorithm
         @test solution.solution === solver.trace[end]
         @test solution.trace === solver.trace
     end
 
     @testset "Solution from incomplete solver errors" begin
-        solver = init(problem, DirectSolve())
+        solver = init(pp, DirectSolve())
         # Solver not yet stepped through
         @test !Base.isdone(solver)
         @test_throws ArgumentError Solution(solver)
@@ -326,8 +328,9 @@ end
         # z outside support with shiftmin=0 will fail to find valid solution
         eq_impossible = ResolventEquation(ensemble; shiftmin=0.0)
         z_impossible = 2.0 + 2.0im
-        problem_impossible = PTraceProblem(eq_impossible, z_impossible, ptrace, initvals)
-        solver = init(problem_impossible, DirectSolve())
+        problem_impossible = PTraceProblem(eq_impossible, ptrace)
+        pp_impossible = PointProblem(problem_impossible, z_impossible, initvals)
+        solver = init(pp_impossible, DirectSolve())
         for _ in solver
         end
         @test Base.isdone(solver)
@@ -341,9 +344,10 @@ end
     @testset "Solution properties" begin
         schedule_values = [4.0, 2.0, 1.0, 0.5]
         initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, z, ptrace, initvals_sched)
+        problem_sched = PTraceProblem(eq, ptrace)
+        pp_sched = PointProblem(problem_sched, z, initvals_sched)
         alg = RegularizerSchedule(schedule_values, :gap)
-        solver = init(problem_sched, alg)
+        solver = init(pp_sched, alg)
         solution = solve!(solver)
 
         # Final solution matches target
@@ -361,7 +365,7 @@ end
 
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solvers: Solver
 
@@ -373,10 +377,11 @@ end
     z = 1.0 + 1.0im
     ptrace = 1.0
     initvals = (; reg=Regularizer(4.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, z, ptrace, initvals)
+    problem = PTraceProblem(eq, ptrace)
+    pp = PointProblem(problem, z, initvals)
 
     alg = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
-    solver = init(problem, alg)
+    solver = init(pp, alg)
     solution = solve!(solver)
 
     # Should terminate early (not exhaust full schedule + final step)

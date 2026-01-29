@@ -8,8 +8,8 @@ using ..ArrayTools: ArrayTools
 public PointSolution
 
 """
-    PointSolution(problem::AbstractResolventProblem, q, reg; workspace=Workspace(problem.eq))
-    PointSolution{F}(problem, q, reg, workspace)
+    PointSolution(problem::AbstractResolventProblem, z, q, reg; workspace=Workspace(problem.eq))
+    PointSolution{F}(problem, z, q, reg, workspace)
     PointSolution{F}(s::PointSolution) where {F}
 
 Represent a solution of an averaged resolvent equation at a point in the complex plane
@@ -43,18 +43,14 @@ struct PointSolution{F<:AbstractFloat}
         return new{F}(z, q, shift, gap, ptrace, greens, sscale, success)
     end
 
-    function PointSolution{F}(problem, q, reg, workspace) where {F}
-        (; eq, z, sscale) = problem
-        if workspace.eq !== eq
-            throw(ArgumentError("workspace must hold the same eq as problem"))
-        end
-        qscaled = sscale * q
-        shift = shift!(workspace, z, qscaled, reg)
-        gap = gap!(workspace, z, qscaled, reg)
-        ptrace = ptrace!(workspace, z, qscaled, reg)
-        greens = greens!(workspace, z, qscaled, reg)
+    function PointSolution{F}(problem, z, q, reg, workspace) where {F}
+        (; eq) = problem
+        shift = shift!(workspace, eq, z, q, reg)
+        gap = gap!(workspace, eq, z, q, reg)
+        ptrace = ptrace!(workspace, eq, z, q, reg)
+        greens = greens!(workspace, eq, z, q, reg)
         success = all(isfinite, (shift, gap, ptrace, greens)) && (shift >= eq.shiftmin)
-        return PointSolution{F}(z, q, shift, gap, ptrace, greens, sscale, success)
+        return PointSolution{F}(z, q, shift, gap, ptrace, greens, eq.sscale, success)
     end
 
     function PointSolution{F}(s::PointSolution) where {F}
@@ -63,9 +59,9 @@ struct PointSolution{F<:AbstractFloat}
 end
 
 function PointSolution(
-    problem::AbstractResolventProblem{F}, q, reg; workspace=Workspace(problem.eq)
+    problem::AbstractResolventProblem{F}, z, q, reg; workspace=Workspace(problem.eq)
 ) where {F}
-    return PointSolution{F}(problem, q, reg, workspace)
+    return PointSolution{F}(problem, z, q, reg, workspace)
 end
 
 ## Conversions
@@ -91,29 +87,27 @@ end  # module Solutions
     using LinearAlgebra: I
 
     ensemble64 = MatrixEnsemble(I, I, I, I / 2)
-    eq64 = ResolventEquation(ensemble64)
+    sscale64 = 2 / 3
+    eq64 = ResolventEquation(ensemble64; sscale=sscale64)
     ws64 = Workspace(eq64)
     z64 = 0.5 + 0.5im
-    sscale64 = 2 / 3
     reg64 = Regularizer(0.5, :gap)
     ptrace64 = 1.0
     q64 = complex(eps(), eps())
-    init64 = (; reg=reg64, q=q64)
-    problem64 = PTraceProblem(eq64, z64, ptrace64, init64; sscale=sscale64)
+    problem64 = PTraceProblem(eq64, ptrace64)
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(I, I, I, I / 2)
-        eqF = ResolventEquation(ensembleF)
+        sscaleF = F(sscale64)
+        eqF = ResolventEquation(ensembleF; sscale=sscaleF)
         wsF = Workspace(eqF)
         zF = Complex{F}(z64)
-        sscaleF = F(sscale64)
         regF = Regularizer(F(reg64.value), reg64.type)
         ptraceF = F(ptrace64)
         qF = Complex{F}(q64)
-        initF = (; reg=regF, q=qF)
-        problemF = PTraceProblem(eqF, zF, ptraceF, initF; sscale=sscaleF)
+        problemF = PTraceProblem(eqF, ptraceF)
 
-        solution64 = PointSolution(problem64, q64, reg64; workspace=ws64)
+        solution64 = PointSolution(problem64, z64, q64, reg64; workspace=ws64)
 
         # Traits
         @test solution64 isa PointSolution{Float64}
@@ -123,26 +117,19 @@ end  # module Solutions
         @test solution64.q == q64
 
         # Problem-based constructor
-        solutionF = PointSolution(problemF, qF, regF; workspace=wsF)
+        solutionF = PointSolution(problemF, zF, qF, regF; workspace=wsF)
         @test solutionF isa PointSolution{F}
         @test solutionF.z == zF
         @test solutionF.sscale == sscaleF
 
         # Declaring failure via NaN
-        @test !PointSolution(problemF, oftype(qF, NaN), regF; workspace=wsF).success
+        @test !PointSolution(problemF, zF, oftype(qF, NaN), regF; workspace=wsF).success
 
         # Declaring failure via shiftmin
-        eq_impossibleF = ResolventEquation(ensembleF; shiftmin=Inf)
-        problem_impossibleF = PTraceProblem(
-            eq_impossibleF, zF, ptraceF, initF; sscale=sscaleF
-        )
-        solution_impossibleF = PointSolution(problem_impossibleF, qF, regF)
+        eq_impossibleF = ResolventEquation(ensembleF; shiftmin=Inf, sscale=sscaleF)
+        problem_impossibleF = PTraceProblem(eq_impossibleF, ptraceF)
+        solution_impossibleF = PointSolution(problem_impossibleF, zF, qF, regF)
         @test !solution_impossibleF.success
-
-        # Error on incorrect workspace
-        @test_throws ArgumentError PointSolution(
-            problem_impossibleF, qF, regF; workspace=wsF
-        )
 
         # Secret raw value constructor
         solutionF_raw = PointSolution{F}(
