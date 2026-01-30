@@ -85,14 +85,15 @@ end
 end  # module EquationSolvers
 
 @testitem "eqsolve!" begin
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Defaults: Defaults
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, RegularizerInit, ResolventEquation
+        PTraceInit, PointProblem, RegularizerInit, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: solves
-    using GaussianSpectralDensities.Workspaces: Workspace, qFP!
+    using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -141,10 +142,11 @@ end  # module EquationSolvers
 end
 
 @testitem "eqsolve! failure" begin
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, RegularizerInit, ResolventEquation
+        PTraceInit, PointProblem, RegularizerInit, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Workspaces: Workspace
 

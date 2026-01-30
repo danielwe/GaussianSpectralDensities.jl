@@ -23,7 +23,7 @@ using ..MathTools:
     muladd_diagonal!!,
     tr_normalized
 
-public P!, P_Li_Ri!, Q!, QQh!, Workspace, gap!, greens!, ptrace!, qFP!, shift!
+public P!, P_Li_Ri!, Q!, QQh!, Valid, Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
 # Abstract supertype that can also be subtyped by GPU workspaces later
 abstract type AbstractWorkspace{F<:AbstractFloat} end

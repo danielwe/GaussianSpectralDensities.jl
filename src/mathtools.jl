@@ -582,7 +582,7 @@ end  # module MathTools
         cholesky,
         tr
     using SparseArrays: sparse
-    using StaticArrays: @SMatrix, @SVector, SMatrix
+    using StaticArrays: @SMatrix, @SVector
 
     @testset "scalar predicates" begin
         @test inunitdisc(0.5)

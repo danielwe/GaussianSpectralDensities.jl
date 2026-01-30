@@ -17,11 +17,14 @@ public AbstractAlgorithm,
     AbstractAlgorithmState,
     AbstractSchedule,
     DirectSolve,
+    DirectSolveState,
     RegularizerSchedule,
+    ScheduleState,
     SymmetrySchedule,
     isdone,
     statetype,
-    step!
+    step!,
+    unwrap
 
 abstract type AbstractAlgorithm end
 abstract type AbstractAlgorithmState end
@@ -631,9 +634,9 @@ end
 
 @testitem "DirectSolve/PTrace" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, isdone, step!
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -772,15 +775,15 @@ end
 
 @testitem "RegularizerSchedule/PTrace" begin
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!, unwrap
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer, regularizertype
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: regularizertype
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
-    using LinearAlgebra: Diagonal, I
+    using LinearAlgebra: I
 
     z64 = 0.5 + 0.5im
     q0_64 = complex(0.1)
@@ -873,7 +876,7 @@ end
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
         PointProblem, RegularizerInit, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer, regularizertype
+    using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -954,10 +957,10 @@ end
 
 @testitem "SymmetrySchedule/PTrace" begin
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, isdone, step!, unwrap
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer, regularizertype
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -1028,14 +1031,12 @@ end
 
 @testitem "RegularizerSchedule shiftmin abort" begin
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: solves
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Workspaces: Workspace
 
-    using LinearAlgebra: Diagonal, I
+    using LinearAlgebra: I
 
     shiftmin = 0
 
@@ -1078,11 +1079,10 @@ end
 
 @testitem "SymmetrySchedule shiftmin abort" begin
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, isdone, step!
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I

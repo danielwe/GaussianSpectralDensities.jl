@@ -12,6 +12,8 @@ using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
 
+public Solution, Solver
+
 @auto_hash_equals typearg=true mutable struct Solver{
     F,
     E,
@@ -115,9 +117,10 @@ end  # module Solvers
 
 @testitem "Solver construction" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, RegularizerInit, ResolventEquation
+        PTraceInit, PointProblem, RegularizerInit, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solvers: Solver
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -135,7 +138,7 @@ end  # module Solvers
     alg_schedule = RegularizerSchedule([2.0, 1.0, 0.5, 0.25], :gap)
 
     @testset "$F" for F in [Float32, Float64]
-        @testset "constraint" for constraint in [reg64, ptrace64]
+        @testset "$(nameof(typeof(constraint)))" for constraint in [reg64, ptrace64]
             init = constraint isa Regularizer ? RegularizerInit(complex(0.1)) : init64
             problem = PointProblem(eq64, constraint, z64, init)
             @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_schedule]
@@ -163,9 +166,9 @@ end
 
 @testitem "Solver iteration interface" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Solvers: Solver
@@ -242,11 +245,10 @@ end
     using CommonSolve: init, solve!, step!
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Solvers: Solution, Solver
 
     using LinearAlgebra: I
@@ -301,12 +303,12 @@ end
     using CommonSolve: init, solve!
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution, solves
-    using GaussianSpectralDensities.Solvers: Solution, Solver
+    using GaussianSpectralDensities.Solutions: solves
+    using GaussianSpectralDensities.Solvers: Solution
 
     using LinearAlgebra: I
 
@@ -375,12 +377,10 @@ end
     using CommonSolve: init, solve!
 
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution
-    using GaussianSpectralDensities.Solvers: Solver
 
     using LinearAlgebra: I
 
