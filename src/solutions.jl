@@ -153,12 +153,13 @@ end
 
 @testitem "PointSolution" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
+    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Defaults: approxequal
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTrace, PTraceInit, PointProblem, RegularizerInit, ResolventEquation, update
+        PTraceInit, PointProblem, RegularizerInit, ResolventEquation, update
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution, ResolventParams, solves
+    using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Workspaces:
         Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
