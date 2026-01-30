@@ -547,7 +547,8 @@ end
 
 end  # module MathTools
 
-@testitem "MathTools" begin
+module TestMathTools
+    using Test: @test, @test_throws, @testset
     using GaussianSpectralDensities.MathTools:
         decompose,
         decompose!!,

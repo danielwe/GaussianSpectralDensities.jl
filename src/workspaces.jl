@@ -394,7 +394,8 @@ end
 
 end  # module Workspaces
 
-@testitem "Workspace" begin
+module TestWorkspace
+    using Test: @test, @test_throws, @testset
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer

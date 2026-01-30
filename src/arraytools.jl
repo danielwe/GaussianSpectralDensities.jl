@@ -94,7 +94,8 @@ withsize(A::AbstractMatrix, ::AbstractMatrixOrUniform) = A
 
 end  # ArrayTools
 
-@testitem "ArrayTools" begin
+module TestArrayTools
+    using Test: @test, @test_throws, @testset
     using GaussianSpectralDensities.ArrayTools:
         AbstractMatrixOrUniform,
         AnySMatrix,

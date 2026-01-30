@@ -113,7 +113,8 @@ end
 
 end  # module Ensembles
 
-@testitem "MatrixEnsemble with UniformScaling" begin
+module TestMatrixEnsembleUniformScaling
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
@@ -149,7 +150,8 @@ end  # module Ensembles
     end
 end
 
-@testitem "MatrixEnsemble with various array types" begin
+module TestMatrixEnsembletypes
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
@@ -280,7 +282,8 @@ end
     end
 end
 
-@testitem "MatrixEnsemble errors" begin
+module TestMatrixEnsembleerrors
+    using Test: @test_throws
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
     using LinearAlgebra: Diagonal, I

@@ -96,7 +96,8 @@ relative_increment(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional con
 
 end  # module Newton
 
-@testitem "newton Real" begin
+module TestnewtonReal
+    using Test: @test, @testset
     using GaussianSpectralDensities.Newton: finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
@@ -126,7 +127,8 @@ end  # module Newton
     end
 end
 
-@testitem "newton SVector" begin
+module TestnewtonSVector
+    using Test: @test, @testset
     using GaussianSpectralDensities.Newton: finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
@@ -166,7 +168,8 @@ end
     end
 end
 
-@testitem "Newton errors" begin
+module TestNewtonerrors
+    using Test: @test_throws
     using GaussianSpectralDensities.Newton: NewtonException, newton
     f(x) = cos(x) - x^3
     @test_throws NewtonException newton(f, 0.5; maxiters=0)

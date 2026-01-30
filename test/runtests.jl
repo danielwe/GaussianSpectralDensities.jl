@@ -33,7 +33,13 @@ end
         allow_internal_imports=false,
     )
     test_all_explicit_imports_are_public(
-        GaussianSpectralDensities; allow_internal_imports=false
+        GaussianSpectralDensities;
+        ignore=(
+            :init,        # CommonSolve.jl
+            :step!,       # CommonSolve.jl
+            :solve!,      # CommonSolve.jl
+        ),
+        allow_internal_imports=false,
     )
     test_all_qualified_accesses_via_owners(
         GaussianSpectralDensities;

@@ -84,7 +84,8 @@ end
 
 end  # module EquationSolvers
 
-@testitem "eqsolve!" begin
+module Testeqsolve
+    using Test: @test, @testset
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Defaults: Defaults
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -141,7 +142,8 @@ end  # module EquationSolvers
     end
 end
 
-@testitem "eqsolve! failure" begin
+module Testeqsolvefailure
+    using Test: @test, @testset
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!

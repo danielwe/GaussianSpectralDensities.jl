@@ -38,7 +38,8 @@ ArrayTools.adaptrealtype(::Type{F}, ptrace::PTrace) where {F} = convert(PTrace{F
 
 end  # module Constraints
 
-@testitem "PTrace" begin
+module TestPTrace
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Constraints: AbstractConstraint, PTrace
 

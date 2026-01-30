@@ -85,7 +85,8 @@ end
 
 end  # module Regularizers
 
-@testitem "Regularizer" begin
+module TestRegularizer
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Constraints: AbstractConstraint
     using GaussianSpectralDensities.Regularizers: Regularizer, gap, regularizertype, shift
@@ -143,7 +144,8 @@ end  # module Regularizers
     end
 end
 
-@testitem "Regularizer errors" begin
+module TestRegularizererrors
+    using Test: @test_throws
     using GaussianSpectralDensities.Regularizers: Regularizer
     @test_throws ArgumentError Regularizer(0.5, :foo)
     @test_throws "not a valid Regularizer" Regularizer(0.5, :foo)

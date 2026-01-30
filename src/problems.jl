@@ -225,7 +225,8 @@ adaptinit(::PTrace{F}, init::PTraceInit) where {F} = convert(PTraceInit{F}, init
 
 end  # module Problems
 
-@testitem "ResolventEquation" begin
+module TestResolventEquation
+    using Test: @test, @test_throws, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: ResolventEquation, update
@@ -280,7 +281,8 @@ end  # module Problems
     @test_throws ArgumentError ResolventEquation(ensemble64; sscale=0.5im)
 end
 
-@testitem "Init types" begin
+module TestInittypes
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Problems: PTraceInit, RegularizerInit
     using GaussianSpectralDensities.Regularizers: Regularizer
@@ -324,7 +326,8 @@ end
     end
 end
 
-@testitem "PointProblems" begin
+module TestPointProblems
+    using Test: @test, @test_throws, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble

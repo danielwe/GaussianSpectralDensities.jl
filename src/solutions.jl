@@ -123,7 +123,8 @@ end
 
 end  # module Solutions
 
-@testitem "ResolventParams" begin
+module TestResolventParams
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Solutions: ResolventParams
 
@@ -151,7 +152,8 @@ end  # module Solutions
     end
 end
 
-@testitem "PointSolution" begin
+module TestPointSolution
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Defaults: approxequal

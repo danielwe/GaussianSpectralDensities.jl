@@ -115,7 +115,8 @@ end
 
 end  # module Solvers
 
-@testitem "Solver construction" begin
+module TestSolverconstruction
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -164,7 +165,8 @@ end  # module Solvers
     end
 end
 
-@testitem "Solver iteration interface" begin
+module TestSolverinterface
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -241,7 +243,8 @@ end
     end
 end
 
-@testitem "CommonSolve interface" begin
+module TestCommonSolveinterface
+    using Test: @test, @test_throws, @testset
     using CommonSolve: init, solve!, step!
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
@@ -299,7 +302,8 @@ end
     end
 end
 
-@testitem "Solution construction" begin
+module TestSolutionconstruction
+    using Test: @test, @test_throws, @testset
     using CommonSolve: init, solve!
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
@@ -373,7 +377,8 @@ end
     end
 end
 
-@testitem "Solver early termination on failure" begin
+module TestSolverfailure
+    using Test: @test
     using CommonSolve: init, solve!
 
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule

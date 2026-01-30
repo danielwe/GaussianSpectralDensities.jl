@@ -469,7 +469,8 @@ end
 
 end  # module Algorithms
 
-@testitem "DirectSolve" begin
+module TestDirectSolve
+    using Test: @test
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Algorithms: DirectSolve, DirectSolveState, statetype
 
@@ -486,7 +487,8 @@ end  # module Algorithms
     @test adaptrealtype(Float64, alg) == alg
 end
 
-@testitem "RegularizerSchedule" begin
+module TestRegularizerSchedule
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Algorithms:
         RegularizerSchedule, ScheduleState, statetype
@@ -522,7 +524,8 @@ end
     end
 end
 
-@testitem "SymmetrySchedule" begin
+module TestSymmetrySchedule
+    using Test: @test, @testset
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Algorithms:
         ScheduleState, SymmetrySchedule, statetype, unwrap
@@ -564,7 +567,8 @@ end
     end
 end
 
-@testitem "*Schedule errors" begin
+module Testerrors
+    using Test: @test_throws
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, SymmetrySchedule
 
     # Doesn't start at 0
@@ -588,7 +592,8 @@ end
     @test_throws "monotonic" RegularizerSchedule(range(0.0, 1.0, 3), :gap)
 end
 
-@testitem "DirectSolve/Regularizer" begin
+module TestDirectSolveRegularizer
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: DirectSolve, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
@@ -632,7 +637,8 @@ end
     end
 end
 
-@testitem "DirectSolve/PTrace" begin
+module TestDirectSolvePTrace
+    using Test: @test
     using GaussianSpectralDensities.Algorithms: DirectSolve, isdone, step!
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -667,7 +673,8 @@ end
     @test isdone(problem64, alg64, state64)
 end
 
-@testitem "RegularizerSchedule/Regularizer" begin
+module TestRegularizerScheduleRegularizer
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!, unwrap
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
@@ -773,7 +780,8 @@ end
     end
 end
 
-@testitem "RegularizerSchedule/PTrace" begin
+module TestRegularizerSchedulePTrace
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!, unwrap
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -870,7 +878,8 @@ end
     end
 end
 
-@testitem "SymmetrySchedule/Regularizer" begin
+module TestSymmetryScheduleRegularizer
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, isdone, step!, unwrap
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
@@ -955,7 +964,8 @@ end
     end
 end
 
-@testitem "SymmetrySchedule/PTrace" begin
+module TestSymmetrySchedulePTrace
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, isdone, step!, unwrap
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -1029,7 +1039,8 @@ end
     end
 end
 
-@testitem "RegularizerSchedule shiftmin abort" begin
+module TestRegularizerScheduleabort
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
@@ -1077,7 +1088,8 @@ end
     end
 end
 
-@testitem "SymmetrySchedule shiftmin abort" begin
+module TestSymmetryScheduleabort
+    using Test: @test, @testset
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, isdone, step!
     using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
