@@ -35,12 +35,14 @@ using TestItems: @testitem
 
 module Defaults
 
-    public q0,
+    public approxequal,
+        q0,
         regularizer_schedule_type,
         regularizer_schedule_values,
         regularizer_target_type,
         regularizer_target_value,
         symmetry_schedule_values,
+        tol,
         trace_target
 
     const trace_target = 1.0
@@ -50,8 +52,14 @@ module Defaults
     const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
     const regularizer_schedule_type = :gap
     const symmetry_schedule_values = 0:0.1:1
-# const regularizer_init = Regularizer(1.0, :gap)
-# const margin = 0.1
+    # const regularizer_init = Regularizer(1.0, :gap)
+    # const margin = 0.1
+
+    # NOTE: tol set by type of first argument
+    approxequal(x::T, y) where {T} = isapprox(x, y; atol=tol(T), rtol=tol(T))
+
+    tol(::Type{T}) where {T} = (eps(one(T))^(3 // 4)) * (oneunit(T)^(1 // 4))
+    tol(::Type{Complex{T}}) where {T} = tol(T)
 
 end
 
@@ -59,6 +67,7 @@ include("arraytools.jl")
 include("mathtools.jl")
 # include("matrix_utils.jl")
 include("ensembles.jl")
+include("constraints.jl")
 include("regularizers.jl")
 include("problems.jl")
 include("workspaces.jl")

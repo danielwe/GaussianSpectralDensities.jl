@@ -1,58 +1,68 @@
 module Solvers
 
+using AutoHashEquals: @auto_hash_equals
 using CommonSolve: CommonSolve
 using StructArrays: StructArray
 
 using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, statetype
+using ..Constraints: AbstractConstraint
 using ..Problems: PointProblem
-using ..Solutions: PointSolution
+using ..Solutions: PointSolution, ResolventParams
 using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
 
-mutable struct Solver{
+@auto_hash_equals typearg=true mutable struct Solver{
     F,
+    E,
     W<:Workspace{F},
-    P<:PointProblem{F},
+    P<:PointProblem{F,E},
     A<:AbstractAlgorithm,
-    T<:StructArray{PointSolution{F}},
     S<:AbstractAlgorithmState,
+    T<:StructArray{ResolventParams{F}},
 }
     const ws::W
-    const pp::P
+    const problem::P
     const algorithm::A
-    const trace::T
     state::Union{Nothing,S}
+    current::Union{Nothing,PointSolution{F,E}}
+    const trace::T
 
-    function Solver{F}(pp::PointProblem, algorithm::AbstractAlgorithm) where {F}
-        ppF = adaptrealtype(F, pp)
+    function Solver{F}(problem::PointProblem, algorithm::AbstractAlgorithm) where {F}
+        problemF = adaptrealtype(F, problem)
         algorithmF = adaptrealtype(F, algorithm)
-        wsF = Workspace(ppF.problem.eq)
-        traceF = StructArray(PointSolution{F}[])
-        W, P, A, T = typeof.((wsF, ppF, algorithmF, traceF))
-        return new{F,W,P,A,T,statetype(A)}(wsF, ppF, algorithmF, traceF, nothing)
+        wsF = Workspace(problemF.equation)
+        traceF = StructArray(ResolventParams{F}[])
+        E, W, P, A, T = typeof.((problemF.equation, wsF, problemF, algorithmF, traceF))
+        return new{F,E,W,P,A,statetype(A),T}(
+            wsF, problemF, algorithmF, nothing, nothing, traceF
+        )
     end
 end
 
-function Solver(pp::PointProblem{F}, algorithm) where {F}
-    return Solver{F}(pp, algorithm)
-end
+Solver(problem::PointProblem{F}, algorithm) where {F} = Solver{F}(problem, algorithm)
 
-struct Solution{F,P<:PointProblem{F},A<:AbstractAlgorithm,T<:StructArray{PointSolution{F}}}
-    pp::P
+@auto_hash_equals typearg=true struct Solution{
+    F,
+    S<:PointSolution{F},
+    C<:AbstractConstraint{F},
+    A<:AbstractAlgorithm,
+    T<:StructArray{ResolventParams{F}},
+}
+    solution::S
+    constraint::C
     algorithm::A
-    solution::PointSolution{F}
     trace::T
 
     function Solution(solver::Solver{F}) where {F}
         if !Base.isdone(solver)
-            throw(ArgumentError("cannot create Solution from incomplete Solver"))
+            throw(ArgumentError("cannot create Solution from unfinished Solver"))
         end
-        (; pp, algorithm, trace) = solver
-        solution = trace[end]
-        return new{F,typeof(pp),typeof(algorithm),typeof(trace)}(
-            pp, algorithm, solution, trace
-        )
+        (; problem, algorithm, trace) = solver
+        solution = solver.current
+        (; constraint) = problem
+        S, C, A, T = typeof.((solution, constraint, algorithm, trace))
+        return new{F,S,C,A,T}(solution, constraint, algorithm, trace)
     end
 end
 
@@ -63,34 +73,35 @@ Base.eltype(::S) where {S<:Solver} = S
 
 function Base.isdone(solver::Solver, (::Nothing)=nothing)
     isnothing(solver.state) && return false
-    return Algorithms.isdone(solver.pp, solver.algorithm, solver.state)
+    return Algorithms.isdone(solver.problem, solver.algorithm, solver.state)
 end
 
 function Base.iterate(solver::Solver, (::Nothing)=nothing)
     state = solver.state
     result = if isnothing(state)
-        Algorithms.step!(solver.ws, solver.pp, solver.algorithm)
+        Algorithms.step!(solver.ws, solver.problem, solver.algorithm)
     else
-        Algorithms.step!(solver.ws, solver.pp, solver.algorithm, state)
+        Algorithms.step!(solver.ws, solver.problem, solver.algorithm, state)
     end
     isnothing(result) && return nothing
     stepsolution, stepstate = result
-    push!(solver.trace, stepsolution)
     solver.state = stepstate
+    solver.current = stepsolution
+    push!(solver.trace, stepsolution.params)
     return solver, nothing
 end
 
 # CommonSolve interface
 # ---------------------
-function CommonSolve.init(pp::PointProblem, algorithm::AbstractAlgorithm)
-    return Solver(pp, algorithm)
+function CommonSolve.init(problem::PointProblem, algorithm::AbstractAlgorithm)
+    return Solver(problem, algorithm)
 end
 
 function CommonSolve.step!(solver::Solver)
-    iterate(solver)
-    # CommonSolve.step! returns generally returns a retcode; we just do success vs. failure
-    (length(solver.trace) > 0) || return false
-    return solver.trace.success[end]
+    result = iterate(solver)
+    isnothing(result) && throw(ArgumentError("cannot step! a finished Solver"))
+    # CommonSolve.step! generally returns a retcode; in our case just success/failure
+    return !isnothing(solver.current) && solver.current.success
 end
 
 function CommonSolve.solve!(solver::Solver)
@@ -106,7 +117,7 @@ end  # module Solvers
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceProblem, PointProblem, RegularizerProblem, ResolventEquation
+        PTrace, PTraceInit, PointProblem, RegularizerInit, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solvers: Solver
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -117,33 +128,32 @@ end  # module Solvers
     eq64 = ResolventEquation(ensemble64)
     z64 = 0.5 + 0.5im
     reg64 = Regularizer(0.25, :shift)
-    ptrace64 = 1.0
-    init64 = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-
-    regproblem64 = RegularizerProblem(eq64, reg64)
-    ptraceproblem64 = PTraceProblem(eq64, ptrace64)
+    ptrace64 = PTrace(1.0)
+    init64 = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
 
     alg_direct = DirectSolve()
     alg_schedule = RegularizerSchedule([2.0, 1.0, 0.5, 0.25], :gap)
 
     @testset "$F" for F in [Float32, Float64]
-        @testset "$(nameof(typeof(problem)))" for problem in [regproblem64, ptraceproblem64]
-            pp = PointProblem(problem, z64, init64)
+        @testset "constraint" for constraint in [reg64, ptrace64]
+            init = constraint isa Regularizer ? RegularizerInit(complex(0.1)) : init64
+            problem = PointProblem(eq64, constraint, z64, init)
             @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_schedule]
                 # Type-inferring constructor
-                solver = Solver(pp, alg)
+                solver = Solver(problem, alg)
                 @test solver isa Solver{Float64}
 
                 # Type-enforcing constructor
-                solverF = Solver{F}(pp, alg)
+                solverF = Solver{F}(problem, alg)
                 @test solverF isa Solver{F}
 
                 # Internals are converted to correct float type
-                @test solverF.pp isa PointProblem{F}
+                @test solverF.problem isa PointProblem{F}
                 @test solverF.ws isa Workspace{F}
 
                 # Initial state
                 @test isnothing(solverF.state)
+                @test isnothing(solverF.current)
                 @test isempty(solverF.trace)
                 @test !Base.isdone(solverF)
             end
@@ -154,9 +164,10 @@ end
 @testitem "Solver iteration interface" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems:
+        PTrace, PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution
+    using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Solvers: Solver
 
     using LinearAlgebra: I
@@ -164,13 +175,12 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    ptrace = 1.0
-    init = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace)
-    pp = PointProblem(problem, z, init)
+    ptrace = PTrace(1.0)
+    init = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
+    problem = PointProblem(eq, ptrace, z, init)
 
     @testset "DirectSolve" begin
-        solver = Solver(pp, DirectSolve())
+        solver = Solver(problem, DirectSolve())
 
         # Iterator traits
         @test Base.IteratorSize(typeof(solver)) === Base.SizeUnknown()
@@ -185,21 +195,25 @@ end
         @test !isnothing(result)
         returned_solver, _ = result
         @test returned_solver === solver
+        @test solver.current isa PointSolution{Float64}
         @test length(solver.trace) == 1
-        @test solver.trace[1] isa PointSolution{Float64}
+        @test first(solver.trace) == solver.current.params
 
         # After DirectSolve, should be done
         @test Base.isdone(solver)
         @test isnothing(iterate(solver))
+
+        # Solution should match target
+        @test solver.current.success
+        @test solves(solver.current, solver.problem)
     end
 
     @testset "RegularizerSchedule" begin
         schedule_values = [4.0, 2.0, 1.0, 0.5, 0.25]
         alg = RegularizerSchedule(schedule_values, :gap)
-        init_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, ptrace)
-        pp_sched = PointProblem(problem_sched, z, init_sched)
-        solver = Solver(pp_sched, alg)
+        init_sched = PTraceInit(complex(0.1), Regularizer(schedule_values[1], :gap))
+        problem_sched = PointProblem(eq, ptrace, z, init_sched)
+        solver = Solver(problem_sched, alg)
 
         # Step through via for-loop
         step_count = 0
@@ -216,13 +230,11 @@ end
         @test Base.isdone(solver)
 
         # Final solution should match target
-        @test solver.trace.success[end]
-        @test solver.trace.ptrace[end] ≈ ptrace
+        @test solver.current.success
+        @test solves(solver.current, solver.problem)
 
-        # Trace contains PointSolutions
-        @testset "step $i" for i in eachindex(solver.trace)
-            @test solver.trace[i] isa PointSolution{Float64}
-        end
+        # Trace contains resolvent params
+        @test last(solver.trace) == solver.current.params
     end
 end
 
@@ -231,9 +243,10 @@ end
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems:
+        PTrace, PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution
+    using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Solvers: Solution, Solver
 
     using LinearAlgebra: I
@@ -241,19 +254,18 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    ptrace = 1.0
-    initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace)
-    pp = PointProblem(problem, z, initvals)
+    ptrace = PTrace(1.0)
+    initvals = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
+    problem = PointProblem(eq, ptrace, z, initvals)
 
     @testset "init" begin
-        solver = init(pp, DirectSolve())
+        solver = init(problem, DirectSolve())
         @test solver isa Solver{Float64}
-        @test solver.pp === pp
+        @test solver.problem === problem
     end
 
     @testset "step!" begin
-        solver = init(pp, DirectSolve())
+        solver = init(problem, DirectSolve())
 
         # First step succeeds
         success = step!(solver)
@@ -263,23 +275,23 @@ end
         # DirectSolve is done after one step
         @test Base.isdone(solver)
 
-        # Additional step! calls still work (no-op due to isdone check in iterate)
-        step!(solver)
+        # Additional step! calls error but don't change the solver
+        @test_throws ArgumentError step!(solver)
+        @test_throws "finished" step!(solver)
         @test length(solver.trace) == 1
     end
 
     @testset "solve!" begin
         schedule_values = [4.0, 2.0, 1.0, 0.5]
-        initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, ptrace)
-        pp_sched = PointProblem(problem_sched, z, initvals_sched)
-        solver = init(pp_sched, RegularizerSchedule(schedule_values, :gap))
+        initvals_sched = PTraceInit(complex(0.1), Regularizer(schedule_values[1], :gap))
+        problem_sched = PointProblem(eq, ptrace, z, initvals_sched)
+        solver = init(problem_sched, RegularizerSchedule(schedule_values, :gap))
 
         solution = solve!(solver)
         @test solution isa Solution{Float64}
-        @test solution.pp === solver.pp
+        @test solution.solution === solver.current
+        @test solution.constraint === solver.problem.constraint
         @test solution.algorithm === solver.algorithm
-        @test solution.solution isa PointSolution{Float64}
         @test solution.trace === solver.trace
         @test Base.isdone(solver)
     end
@@ -290,9 +302,10 @@ end
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems:
+        PTrace, PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution
+    using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Solvers: Solution, Solver
 
     using LinearAlgebra: I
@@ -300,25 +313,24 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    ptrace = 1.0
-    initvals = (; reg=Regularizer(1.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace)
-    pp = PointProblem(problem, z, initvals)
+    ptrace = PTrace(1.0)
+    initvals = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
+    problem = PointProblem(eq, ptrace, z, initvals)
 
     @testset "Solution from completed solver" begin
-        solver = init(pp, DirectSolve())
+        solver = init(problem, DirectSolve())
         solve!(solver)
 
         solution = Solution(solver)
         @test solution isa Solution{Float64}
-        @test solution.pp === solver.pp
+        @test solution.solution === solver.current
+        @test solution.constraint === solver.problem.constraint
         @test solution.algorithm === solver.algorithm
-        @test solution.solution === solver.trace[end]
         @test solution.trace === solver.trace
     end
 
     @testset "Solution from incomplete solver errors" begin
-        solver = init(pp, DirectSolve())
+        solver = init(problem, DirectSolve())
         # Solver not yet stepped through
         @test !Base.isdone(solver)
         @test_throws ArgumentError Solution(solver)
@@ -328,9 +340,8 @@ end
         # z outside support with shiftmin=0 will fail to find valid solution
         eq_impossible = ResolventEquation(ensemble; shiftmin=0.0)
         z_impossible = 2.0 + 2.0im
-        problem_impossible = PTraceProblem(eq_impossible, ptrace)
-        pp_impossible = PointProblem(problem_impossible, z_impossible, initvals)
-        solver = init(pp_impossible, DirectSolve())
+        problem_impossible = PointProblem(eq_impossible, ptrace, z_impossible, initvals)
+        solver = init(problem_impossible, DirectSolve())
         for _ in solver
         end
         @test Base.isdone(solver)
@@ -343,20 +354,20 @@ end
 
     @testset "Solution properties" begin
         schedule_values = [4.0, 2.0, 1.0, 0.5]
-        initvals_sched = (; reg=Regularizer(schedule_values[1], :gap), q=complex(0.1))
-        problem_sched = PTraceProblem(eq, ptrace)
-        pp_sched = PointProblem(problem_sched, z, initvals_sched)
+        initvals_sched = PTraceInit(complex(0.1), Regularizer(schedule_values[1], :gap))
+        problem_sched = PointProblem(eq, ptrace, z, initvals_sched)
         alg = RegularizerSchedule(schedule_values, :gap)
-        solver = init(pp_sched, alg)
+        solver = init(problem_sched, alg)
         solution = solve!(solver)
 
         # Final solution matches target
-        @test solution.solution.ptrace ≈ ptrace
         @test solution.solution.success
+        @test solves(solution.solution, problem_sched)
 
         # Trace captures history (may terminate early when ptrace crosses target)
         @test length(solution.trace) > 0
         @test length(solution.trace) <= length(alg) + 1
+        @test last(solution.trace) == solution.solution.params
     end
 end
 
@@ -365,8 +376,10 @@ end
 
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceProblem, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems:
+        PTrace, PTraceInit, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Solutions: PointSolution
     using GaussianSpectralDensities.Solvers: Solver
 
     using LinearAlgebra: I
@@ -375,13 +388,12 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.0I)
     eq = ResolventEquation(ensemble; shiftmin=0.0)
     z = 1.0 + 1.0im
-    ptrace = 1.0
-    initvals = (; reg=Regularizer(4.0, :gap), q=complex(0.1))
-    problem = PTraceProblem(eq, ptrace)
-    pp = PointProblem(problem, z, initvals)
+    ptrace = PTrace(1.0)
+    initvals = PTraceInit(complex(0.1), Regularizer(4.0, :gap))
+    problem = PointProblem(eq, ptrace, z, initvals)
 
     alg = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
-    solver = init(pp, alg)
+    solver = init(problem, alg)
     solution = solve!(solver)
 
     # Should terminate early (not exhaust full schedule + final step)
@@ -390,5 +402,9 @@ end
 
     # Last solution failed
     @test !solution.solution.success
-    @test solution.solution.shift < eq.shiftmin
+    @test solution.solution.params.shift < eq.shiftmin
+
+    # Trace is still what we expect
+    @test solution.trace === solver.trace
+    @test last(solution.trace) == solution.solution.params
 end

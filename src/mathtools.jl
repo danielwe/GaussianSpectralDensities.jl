@@ -28,6 +28,7 @@ using SparseArrays: SparseArrays, SparseMatrixCSC, spdiagm
 using StaticArrays: SArray, SMatrix, SVector, StaticMatrix
 
 using ..ArrayTools: AnySArray, AnySMatrix, DiagonalOrUniform, map_diagonal, withsize
+using ..Defaults: Defaults
 
 public decompose,
     decompose!!,
@@ -57,7 +58,7 @@ inunitdisc(a::Number) = (abs2(a) <= 1)
 
 phase(a::Number) = (a == 0) ? one(a) : a / abs(a)  # like sign except when a == 0
 
-samesign(x::Number, y::Number) = (x * y > 0)  # WARN: probably not robust (Inf/NaN etc.)
+samesign(x::Number, y::Number) = (x * y > 0)  # XXX: probably not robust (Inf/NaN etc.)
 
 ## Linear interpolation/extrapolation
 ## ==================================
@@ -75,10 +76,9 @@ function predictlinear(x, (x1, y1), (x2, y2))
     return (y1 * (x2 - x) + y2 * (x - x1)) / (x2 - x1)
 end
 
-function isapproxlinear((x, y), (x1, y1), (x2, y2); kwargs...)
-    ret = isapprox((y2 - y) * (x1 - x), (y1 - y) * (x2 - x); kwargs...)
-    ret || @error "" xs=(x, x1, x2) ys=(y, y1, y2)
-    return ret
+function isapproxlinear((x, y), (x1, y1), (x2, y2))
+    a, b = promote((y2 - y) * (x1 - x), (y1 - y) * (x2 - x))
+    return Defaults.approxequal(a, b)
 end
 
 ## Iterable monotonicity
@@ -516,7 +516,7 @@ of `A`. The appropriate type of `F` is the return type of `decompose(A)`.
 function eigmin!!(F, A::Hermitian)
     Ai = inverse_as_map(F, A)
     which = ArnoldiMethod.LM()
-    schur, history = partialschur(Ai; which, nev=1, tol=eigmin_reltol(Ai))
+    schur, history = partialschur(Ai; which, nev=1, tol=Defaults.tol(eltype(Ai)))
     (history.nconverged >= 1) || error("smallest eigenvalue not found: did not converge")
     return inv(real(first(schur.eigenvalues)))
 end
@@ -524,10 +524,6 @@ end
 eigmin!!(_, A::Diagonal{<:Real}) = minimum(parent(A))
 eigmin!!(_, A::Diagonal{<:Real,<:SArray}) = minimum(parent(A))  # Ambiguity resolution
 eigmin!!(_, A::AnySMatrix) = eigmin(A)
-
-# eigmin helpers
-eigmin_reltol(::Type{T}) where {T} = (eps(real(T))^(3 // 4)) * (oneunit(real(T))^(1 // 4))
-eigmin_reltol(x) = eigmin_reltol(eltype(x))
 
 function inverse_as_map(F::Cholesky{T}, A::Hermitian{T,<:StridedMatrix}) where {T}
     decompose!!(F, A)
