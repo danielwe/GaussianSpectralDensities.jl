@@ -38,9 +38,10 @@ Active modules (in dependency order):
 1. `MathTools` — Utilities for real/complex numbers and generic linear algebra
 1. `Ensembles` — `MatrixEnsemble` type for `M + L·J·R` ensembles
 1. `Regularizers` — `Regularizer` type (shift vs gap parameterization)
-1. `Problems` — `ResolventEquation`, `RegularizerProblem`, `PTraceProblem`
+1. `Constraints` — `AbstractConstraint` and `PTrace` types for problem constraints
+1. `Problems` — `ResolventEquation` (shared context), `PointProblem`, init types
 1. `Workspaces` — Mutable workspace with cached intermediate computations
-1. `Solutions` — `ResolventSolution` result type
+1. `Solutions` — `ResolventParams` (data bundle) and `PointSolution` (result at a point)
 1. `Newton` — Generic Newton solver with finite-difference Jacobian
 1. `EquationSolvers` — `eqsolve!` implementations for problem types
 1. `Algorithms` — Solution strategies: `DirectSolve`, `RegularizerSchedule`, `SymmetrySchedule`
@@ -70,7 +71,7 @@ Code supports `Array`, `SArray` (StaticArrays), and `SparseMatrixCSC`. The `Arra
 
 ### Workspace pattern
 
-`Workspace` is a mutable cache for intermediate matrices. It tracks what's "clean" via an enum to avoid redundant computation. Functions like `P!`, `Q!`, `ptrace!` update and return cached values.
+`Workspace` is a mutable cache for intermediate matrices, constructed from a `ResolventEquation`. It tracks what's "valid" via the `Valid` enum to avoid redundant computation. Functions like `P!`, `Q!`, `ptrace!` update and return cached values. These functions take `(ws, eq, z, q, reg)` where `z` is the point in the complex plane.
 
 ### Algorithm/State pattern
 
@@ -96,10 +97,10 @@ Functions ending in `!` mutate their first argument (Julia convention). Function
 | Type                    | Purpose                                       |
 | ----------------------- | --------------------------------------------- |
 | `MatrixEnsemble{F}`     | Ensemble `M + L·J·R` with symmetry `S`        |
-| `ResolventEquation{F}`  | Equation specification at point `z`           |
-| `RegularizerProblem{F}` | Find `q` given regularizer                    |
-| `PTraceProblem{F}`      | Find `q, shift` given trace target `ptrace`   |
-| `ResolventSolution{F}`  | Solution with `q, shift, gap, ptrace, greens` |
+| `ResolventEquation{F}`  | Shared context for resolvent equations        |
+| `PointProblem{F}`       | Bundles equation, constraint, `z`, and init   |
+| `ResolventParams{F}`    | Data bundle: `q, shift, gap, ptrace, greens`  |
+| `PointSolution{F}`      | Solution at a point with success flag         |
 | `Workspace{F}`          | Cached intermediate computations              |
 | `Regularizer{F}`        | Value + type (`:shift` or `:gap`)             |
 | `Solver{F}`             | User-facing solver with iteration interface   |
