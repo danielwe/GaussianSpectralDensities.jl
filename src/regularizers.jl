@@ -1,10 +1,12 @@
 module Regularizers
 
+using AutoHashEquals: @auto_hash_equals
 using EnumX: @enumx
 
 using ..ArrayTools: ArrayTools
+using ..Constraints: AbstractConstraint
 
-public Regularizer, RegularizerType, gap, shift
+public Regularizer, RegularizerType, gap, regularizertype, shift
 
 @enumx RegularizerType::UInt8 shift gap
 
@@ -23,12 +25,15 @@ end
 
 Represent the regularizer in the averaged resolvent equations
 
+This is one of two possible constraint types when solving resolvent equations, but is also
+used to represent a regularizer value in any other context.
+
 The available types of regularizers are:
 
   - `:shift`: specifies the additive regularizer ``γ²`` in the denominator ``QQ† + γ²I``
   - `:gap`: specifies the spectral gap of the denominator, that is, `eigmin(QQ†) + γ²`
 """
-struct Regularizer{F<:Real}
+@auto_hash_equals struct Regularizer{F} <: AbstractConstraint{F}
     value::F
     type::RegularizerType.T
 end
@@ -36,6 +41,10 @@ end
 Regularizer(value::F, type) where {F} = Regularizer{F}(value, type)
 
 Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
+
+## Traits
+## ======
+regularizertype(reg::Regularizer) = Symbol(reg.type)
 
 ## Conversions
 ## ===========
@@ -78,7 +87,8 @@ end  # module Regularizers
 
 @testitem "Regularizer" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
+    using GaussianSpectralDensities.Constraints: AbstractConstraint
+    using GaussianSpectralDensities.Regularizers: Regularizer, gap, regularizertype, shift
 
     shift64, gap64 = 0.0, 0.5
     baregap64 = gap64 - shift64
@@ -86,8 +96,12 @@ end  # module Regularizers
     reg_gap64 = Regularizer(gap64, :gap)
 
     # Traits
+    @test reg_shift64 isa AbstractConstraint{Float64}
+    @test reg_gap64 isa AbstractConstraint{Float64}
     @test reg_shift64 isa Regularizer{Float64}
     @test reg_gap64 isa Regularizer{Float64}
+    @test regularizertype(reg_shift64) == :shift
+    @test regularizertype(reg_gap64) == :gap
 
     @testset "$F" for F in [Float32, Float64]
         shiftF, gapF, baregapF = F.((shift64, gap64, baregap64))

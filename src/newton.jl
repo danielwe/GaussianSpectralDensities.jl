@@ -2,6 +2,8 @@ module Newton
 
 using StaticArrays: MMatrix, MVector, SMatrix, SVector
 
+using ..Defaults: Defaults
+
 # TODO: Try with Enzyme.jl, it might actually be able to diff through the Workspace craze
 
 public NewtonException, finite_difference_jacobian, newton
@@ -37,7 +39,7 @@ function newton(f, x; kwargs...)
     return newton(f, jac, x; kwargs...)
 end
 
-function newton(f, jac, x; atol=atol(eltype(x)), maxiters=999)
+function newton(f, jac, x; atol=Defaults.tol(eltype(x)) / 10, maxiters=999)
     fx = f(x)
     approx_zero(fx, atol) && return (x, 0)
     for i in 1:maxiters
@@ -49,7 +51,6 @@ function newton(f, jac, x; atol=atol(eltype(x)), maxiters=999)
 end
 
 approx_zero(y, atol) = (sqrt(sum(abs2, y) / length(y)) < atol)
-atol(T) = (eps(T)^(3 // 4)) * (oneunit(T)^(1 // 4))
 
 """
     finite_difference_jacobian(f, x::Real, fx=f(x))

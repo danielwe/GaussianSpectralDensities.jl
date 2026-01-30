@@ -1,5 +1,6 @@
 module Ensembles
 
+using AutoHashEquals: @auto_hash_equals
 using LinearAlgebra: I
 
 using ..ArrayTools:
@@ -29,7 +30,7 @@ choosing `S = sqrt(τ) * I`.
 All of ``M, L, R`` must be square and of the same size, or `UniformScaling`, and ``L`` and
 ``R`` must be nonsingular.
 """
-struct MatrixEnsemble{
+@auto_hash_equals typearg=true struct MatrixEnsemble{
     F<:AbstractFloat,
     T<:Union{F,Complex{F}},
     TM<:AbstractMatrixOrUniform{T},
@@ -98,13 +99,9 @@ function MatrixEnsemble(M, L, R, S)
     return MatrixEnsemble{real(T)}(M, L, R, S)
 end
 
-## Traits, comparisons, conversions
-## ================================
+## Traits, conversions
+## ===================
 Base.size(e::MatrixEnsemble) = size(e.Li_M_Ri)
-
-function Base.:(==)(a::E, b::E) where {E<:MatrixEnsemble}
-    return all(p -> getproperty(a, p) == getproperty(b, p), propertynames(a))
-end
 
 function Base.convert(::Type{P}, e::MatrixEnsemble) where {F,P<:MatrixEnsemble{F}}
     return (e isa P) ? e : MatrixEnsemble{F}(e)
