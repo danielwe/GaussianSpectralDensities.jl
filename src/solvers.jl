@@ -71,20 +71,14 @@ end
 # Iterator interface
 # ------------------
 Base.IteratorSize(::Type{<:Solver}) = Base.SizeUnknown()
-Base.eltype(::S) where {S<:Solver} = S
+Base.eltype(::Type{S}) where {S<:Solver} = S
 
 function Base.isdone(solver::Solver, (::Nothing)=nothing)
-    isnothing(solver.state) && return false
     return Algorithms.isdone(solver.problem, solver.algorithm, solver.state)
 end
 
 function Base.iterate(solver::Solver, (::Nothing)=nothing)
-    state = solver.state
-    result = if isnothing(state)
-        Algorithms.step!(solver.ws, solver.problem, solver.algorithm)
-    else
-        Algorithms.step!(solver.ws, solver.problem, solver.algorithm, state)
-    end
+    result = Algorithms.step!(solver.ws, solver.problem, solver.algorithm, solver.state)
     isnothing(result) && return nothing
     stepsolution, stepstate = result
     solver.state = stepstate

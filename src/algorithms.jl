@@ -33,20 +33,27 @@ abstract type AbstractAlgorithmState end
 ## ===========================
 ## Provided methods:
 ##
-## - isdone(::PointProblem, ::AbstractAlgorithm)::Bool  (no state no done)
+## - isdone(::PointProblem, ::AbstractAlgorithm, ::Nothing)::Bool  (no state no done)
 ##
 ## Required methods:
 ##
 ## - ArrayTools.adaptrealtype(::Type{<:AbstractFloat}, ::SomeAlgorithm)::SomeAlgorithm
-## - nextindex(::SomeAlgorithm[, ::SomeAlgorithmState])
+## - nextindex(::SomeAlgorithm, ::Nothing)
+## - stepproblem(index, ::PointProblem, ::SomeAlgorithm, ::Nothing)::PointProblem
+## - newstate(index, ::PointProblem, ::PointSolution, ::SomeAlgorithm, ::Nothing)::SomeAlgorithmState
 ## - isdone(::PointProblem, ::SomeAlgorithm, ::SomeAlgorithmState)::Bool
-## - stepproblem(index, ::PointProblem, ::SomeAlgorithm[, ::SomeAlgorithmState])::PointProblem
-## - newstate(index, ::PointProblem, ::PointSolution, ::SomeAlgorithm[, ::SomeAlgorithmState])::SomeAlgorithmState
 ## - statetype(::Type{SomeAlgorithm})::Type{SomeAlgorithmState}
 ##
+## Required unless isdone(::PointProblem, ::SomeAlgorithm, ::SomeAlgorithmState)::Bool is
+## always true, i.e., unless the algorithm is guaranteed to finish in a single step:
+##
+## - nextindex(::SomeAlgorithm, ::SomeAlgorithmState)
+## - stepproblem(index, ::PointProblem, ::SomeAlgorithm, ::SomeAlgorithmState)::PointProblem
+## - newstate(index, ::PointProblem, ::PointSolution, ::SomeAlgorithm, ::SomeAlgorithmState)::SomeAlgorithmState
+##
 ## Algorithms that implement the indexing interface (Base.getindex, Base.firstindex,
-## Base.lastindex, Base.length) should forward the single-argument method
-## nextindex(::SomeAlgorithm) to Base.firstindex.
+## Base.lastindex, Base.length) should forward the stateless method
+## nextindex(::SomeAlgorithm, ::Nothing) to Base.firstindex.
 function nextindex end
 function isdone end
 function stepproblem end
@@ -57,21 +64,22 @@ function statetype end
 ## ===============================
 ## Provided interface methods:
 ##
-## - step!(::Workspace{F}, ::PointProblem{F}[, ::AbstractAlgorithm])::Union{Nothing,Tuple{PointSolution{F},AbstractAlgorithmState}}
+## - step!(::Workspace{F}, ::PointProblem{F}, ::AbstractAlgorithm, ::Nothing)::Tuple{PointSolution{F},AbstractAlgorithmState}
+## - step!(::Workspace{F}, ::PointProblem{F}, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Union{Nothing,Tuple{PointSolution{F},AbstractAlgorithmState}}
 function step!(
     ws::Workspace{F},
     problem::PointProblem{F},
     alg::AbstractAlgorithm,
-    state::AbstractAlgorithmState...,
+    state::Union{Nothing,AbstractAlgorithmState},
 ) where {F}
-    isdone(problem, alg, state...) && return nothing
-    newindex = nextindex(alg, state...)
-    newproblem = stepproblem(newindex, problem, alg, state...)
+    isdone(problem, alg, state) && return nothing
+    newindex = nextindex(alg, state)
+    newproblem = stepproblem(newindex, problem, alg, state)
     newsolution = eqsolve!(ws, newproblem)
-    return newsolution, newstate(newindex, newproblem, newsolution, alg, state...)
+    return newsolution, newstate(newindex, newproblem, newsolution, alg, state)
 end
 
-isdone(::PointProblem, ::AbstractAlgorithm) = false
+isdone(::PointProblem, ::AbstractAlgorithm, ::Nothing) = false
 
 ## Direct algorithm
 ## ================
@@ -95,13 +103,13 @@ Base.convert(::Type{DirectSolve}, alg::DirectSolve) = alg
 # Interface
 # ---------
 ArrayTools.adaptrealtype(::Type{F}, alg::DirectSolve) where {F<:AbstractFloat} = alg
-nextindex(::DirectSolve, ::DirectSolveState...) = nothing
+
+nextindex(::DirectSolve, ::Nothing) = nothing
+stepproblem(::Nothing, problem::PointProblem, ::DirectSolve, ::Nothing) = problem
+function newstate(::Nothing, ::PointProblem, ::PointSolution, ::DirectSolve, ::Nothing)
+    return DirectSolveState()
+end
 isdone(::PointProblem, ::DirectSolve, ::DirectSolveState) = true
-
-stepproblem(::Nothing, problem::PointProblem, ::DirectSolve) = problem
-
-newstate(::Nothing, ::PointProblem, ::PointSolution, ::DirectSolve) = DirectSolveState()
-
 statetype(::Type{DirectSolve}) = DirectSolveState
 
 ## Schedule algorithms
@@ -112,9 +120,11 @@ statetype(::Type{DirectSolve}) = DirectSolveState
 ##
 ## Provided interface methods:
 ##
+## - nextindex(::AbstractSchedule{F}, ::Nothing)::Int
 ## - nextindex(::AbstractSchedule{F}, ::ScheduleState{F})::Int
+## - newstate(::Integer, PointProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}, ::Nothing)::ScheduleState{F}
+## - newstate(::Integer, PointProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::ScheduleState{F}
 ## - isdone(::PointProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
-## - newstate(::Integer, PointProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}[, ::ScheduleState{F}])::ScheduleState{F}
 ## - statetype(::Type{<:AbstractSchedule{F}})::Type{ScheduleState{F}}
 ##
 ## Provided non-interface functions:
@@ -127,22 +137,23 @@ statetype(::Type{DirectSolve}) = DirectSolveState
 ## - Indexing interface (Base.getindex, Base.firstindex, Base.lastindex, Base.length)
 ## - Base.convert(::Type{SomeSchedule{F}}, alg::SomeSchedule)::SomeSchedule{F}
 ## - ArrayTools.adaptrealtype(::Type{F}, ::SomeSchedule)::SomeSchedule{F}
+## - stepproblem(::Integer, ::PointProblem{F}, ::SomeSchedule{F}, ::Nothing)::PointProblem{F}
+## - iscomplete(::PointProblem{F}, ::SomeSchedule{F}, ::ScheduleState{F})::Bool
 ## - unwrap(::SomeSchedule): should return indexable collection of unwrapped schedule
 ##     values; while indexing the schedule itself may return an instance of a wrapper,
 ##     indexing this collection should return a plain number
-## - iscomplete(::PointProblem{F}, ::SomeSchedule{F}, ::ScheduleState{F})::Bool
-## - stepproblem(::Integer, ::PointProblem{F}, ::SomeSchedule{F})::PointProblem{F}
 ##
-## NOTE: stepproblem_predictinit works by calling the three-argument stepproblem (the
-## stateless version for the initial step) and using predictinit to update the initial guess
-## based on the last two steps of the algorithm. The provided four-argument implementation
-## of stepproblem just forwards to stepproblem_predictinit. The three-argument method _must_
-## be implemented for each subtype, and the four-argument method _may_ be implemented if
-## stepproblem_predictinit is not sufficient or appropriate.
+## NOTE: stepproblem_predictinit works by calling the stateless stepproblem (the
+## one taking a Nothing state, for the initial step) and using predictinit to update the
+## initial guess based on the last two steps of the algorithm. The provided state-dependent
+## implementation of stepproblem just forwards to stepproblem_predictinit. The stateless
+## method _must_ be implemented for each subtype, and the stateful method _may_ be
+## implemented if stepproblem_predictinit is insufficient or appropriate.
 ##
-## NOTE: iscomplete should only be concerned with whether the algorithm has reached its
-## endpoint. Other termination criteria, including whether the most recent step produced a
-## successful solution, are handled by the provided isdone method.
+## NOTE: iscomplete's only concern should be whether the algorithm has stepped all the way
+## to the end. Other termination criteria, including whether the most recent intermediate
+## step happened upon a successful solution of the final problem, are handled by the
+## provided isdone method.
 abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
 
 @auto_hash_equals typearg=true struct ScheduleState{
@@ -155,18 +166,12 @@ abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
     previndex::Int
 end
 
-function unwrap end
-function iscomplete end
 function stepproblem end
+function iscomplete end
+function unwrap end
 
-nextindex(alg::AbstractSchedule) = firstindex(alg)
+nextindex(alg::AbstractSchedule, ::Nothing) = firstindex(alg)
 nextindex(::AbstractSchedule{F}, state::ScheduleState{F}) where {F} = (state.index + 1)
-
-function isdone(
-    problem::PointProblem{F}, alg::AbstractSchedule{F}, state::ScheduleState{F}
-) where {F}
-    return (!state.solution.success) || iscomplete(problem, alg, state)
-end
 
 function stepproblem(
     index::Integer,
@@ -183,7 +188,7 @@ function stepproblem_predictinit(
     alg::AbstractSchedule{F},
     state::ScheduleState{F},
 ) where {F}
-    newproblem = stepproblem(index, problem, alg)
+    newproblem = stepproblem(index, problem, alg, nothing)
     schedule = unwrap(alg)
     newinit = predictinit(
         newproblem.init,
@@ -199,11 +204,25 @@ function newstate(
     problem::PointProblem{F},
     solution::PointSolution{F},
     ::AbstractSchedule{F},
-    state::ScheduleState{F}...,
+    ::Nothing,
 ) where {F}
-    isempty(state) && return ScheduleState(problem, solution, index, solution, index)
-    s = first(state)
-    return ScheduleState(problem, solution, index, s.solution, s.index)
+    return ScheduleState(problem, solution, index, solution, index)
+end
+
+function newstate(
+    index::Integer,
+    problem::PointProblem{F},
+    solution::PointSolution{F},
+    ::AbstractSchedule{F},
+    state::ScheduleState{F},
+) where {F}
+    return ScheduleState(problem, solution, index, state.solution, state.index)
+end
+
+function isdone(
+    problem::PointProblem{F}, alg::AbstractSchedule{F}, state::ScheduleState{F}
+) where {F}
+    return (!state.solution.success) || iscomplete(problem, alg, state)
 end
 
 statetype(::Type{<:AbstractSchedule{F}}) where {F} = ScheduleState{F}
@@ -313,16 +332,8 @@ Base.firstindex(alg::RegularizerSchedule) = firstindex(unwrap(alg))
 Base.lastindex(alg::RegularizerSchedule) = lastindex(unwrap(alg))
 Base.length(alg::RegularizerSchedule) = length(unwrap(alg))
 
-unwrap(alg::RegularizerSchedule) = alg.values
-
-function iscomplete(
-    problem::PointProblem{F}, ::RegularizerSchedule{F}, state::ScheduleState{F}
-) where {F}
-    return issameproblem(state.problem, problem) || solves(state.solution, problem)
-end
-
 function stepproblem(
-    index::Integer, problem::PointProblem{F}, alg::RegularizerSchedule{F}
+    index::Integer, problem::PointProblem{F}, alg::RegularizerSchedule{F}, ::Nothing
 ) where {F}
     return update(problem; constraint=alg[index])
 end
@@ -343,6 +354,15 @@ function stepproblem(
     return stepproblem_predictinit(index, problem, alg, state)
 end
 
+function iscomplete(
+    problem::PointProblem{F}, ::RegularizerSchedule{F}, state::ScheduleState{F}
+) where {F}
+    return issameproblem(state.problem, problem) || solves(state.solution, problem)
+end
+
+unwrap(alg::RegularizerSchedule) = alg.values
+
+# Predicate for whether the target was crossed in the most recent step
 function didintercepttarget(constraint::Regularizer, state::ScheduleState)
     regv, reg_type = constraint.value, regularizertype(constraint)
     solution1, solution2 = state.solution, state.prevsolution
@@ -453,7 +473,11 @@ Base.firstindex(alg::SymmetrySchedule) = firstindex(unwrap(alg))
 Base.lastindex(alg::SymmetrySchedule) = lastindex(unwrap(alg))
 Base.length(alg::SymmetrySchedule) = length(unwrap(alg))
 
-unwrap(alg::SymmetrySchedule) = alg.values
+function stepproblem(
+    index::Integer, problem::PointProblem{F}, alg::SymmetrySchedule{F}, ::Nothing
+) where {F}
+    return update(problem; equation=update(problem.equation; sscale=alg[index]))
+end
 
 function iscomplete(
     ::PointProblem{F}, alg::SymmetrySchedule{F}, state::ScheduleState{F}
@@ -461,11 +485,7 @@ function iscomplete(
     return (state.index == lastindex(alg))
 end
 
-function stepproblem(
-    index::Integer, problem::PointProblem{F}, alg::SymmetrySchedule{F}
-) where {F}
-    return update(problem; equation=update(problem.equation; sscale=alg[index]))
-end
+unwrap(alg::SymmetrySchedule) = alg.values
 
 end  # module Algorithms
 
@@ -620,10 +640,10 @@ end
         alg = DirectSolve()
 
         # No state no done
-        @test !isdone(problem64, alg)
+        @test !isdone(problem64, alg, nothing)
 
         # Stops after one iteration
-        solution64, state64 = step!(ws64, problem64, alg)
+        solution64, state64 = step!(ws64, problem64, alg, nothing)
         @test nothing === step!(ws64, problem64, alg, state64)
 
         # Solves the actual target problem
@@ -656,10 +676,10 @@ end
     alg64 = DirectSolve()
 
     # No state no done
-    @test !isdone(problem64, alg64)
+    @test !isdone(problem64, alg64, nothing)
 
     # Stops after one iteration
-    solution64, state64 = step!(ws64, problem64, alg64)
+    solution64, state64 = step!(ws64, problem64, alg64, nothing)
     @test nothing === step!(ws64, problem64, alg64, state64)
 
     # Solves the actual target problem
@@ -709,12 +729,12 @@ end
                     algF = RegularizerSchedule{F}(schedule64, reg_type_schedule)
 
                     # No state no done
-                    @test !isdone(problemF, algF)
+                    @test !isdone(problemF, algF, nothing)
 
                     # Collect all solutions and states
                     solutions = []
                     states = []
-                    result = step!(wsF, problemF, algF)
+                    result = step!(wsF, problemF, algF, nothing)
                     while !isnothing(result)
                         solution, state = result
                         push!(solutions, solution)
@@ -805,12 +825,12 @@ end
             algF = RegularizerSchedule{F}(alg64)
 
             # No state no done
-            @test !isdone(problemF, algF)
+            @test !isdone(problemF, algF, nothing)
 
             # Collect all solutions and states
             solutions = []
             states = []
-            result = step!(wsF, problemF, algF)
+            result = step!(wsF, problemF, algF, nothing)
             while !isnothing(result)
                 solution, state = result
                 push!(solutions, solution)
@@ -907,12 +927,12 @@ end
                 algF = SymmetrySchedule{F}(nsteps)
 
                 # No state no done
-                @test !isdone(problemF, algF)
+                @test !isdone(problemF, algF, nothing)
 
                 # Collect all solutions and states
                 solutions = []
                 states = []
-                result = step!(wsF, problemF, algF)
+                result = step!(wsF, problemF, algF, nothing)
                 while !isnothing(result)
                     solution, state = result
                     push!(solutions, solution)
@@ -981,12 +1001,12 @@ end
         algF = SymmetrySchedule{F}(nsteps)
 
         # No state no done
-        @test !isdone(problemF, algF)
+        @test !isdone(problemF, algF, nothing)
 
         # Collect all solutions and states
         solutions = []
         states = []
-        result = step!(wsF, problemF, algF)
+        result = step!(wsF, problemF, algF, nothing)
         while !isnothing(result)
             solution, state = result
             push!(solutions, solution)
@@ -1059,7 +1079,7 @@ end
         # Collect all solutions and states
         solutions = []
         states = []
-        result = step!(wsF, problemF, algF)
+        result = step!(wsF, problemF, algF, nothing)
         while !isnothing(result)
             solution, state = result
             push!(solutions, solution)
@@ -1106,7 +1126,7 @@ end
         # Collect all solutions and states
         solutions = []
         states = []
-        result = step!(wsF, problemF, algF)
+        result = step!(wsF, problemF, algF, nothing)
         while !isnothing(result)
             solution, state = result
             push!(solutions, solution)
