@@ -1,0 +1,16 @@
+[deps]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
+ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
+GaussianSpectralDensities = "d24dbb70-b498-4c6e-be6a-7c28347cbb8b"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
+
+[compat]
+Aqua = "0.8.14"
+ExplicitImports = "1.15"
+Test = "1.11"
+TestItemRunner = "1.1"
