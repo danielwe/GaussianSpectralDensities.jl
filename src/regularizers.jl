@@ -4,7 +4,6 @@ using AutoHashEquals: @auto_hash_equals
 using EnumX: @enumx
 
 using ..ArrayTools: ArrayTools
-using ..Constraints: AbstractConstraint
 
 public Regularizer, RegularizerType, gap, regularizertype, shift
 
@@ -19,28 +18,55 @@ function Base.convert(::Type{RegularizerType.T}, type::Symbol)
 end
 
 """
-    Regularizer(value, type)
-    Regularizer{F}(value, type) where {F<:Real}
+    Regularizer(val, type)
+    Regularizer{F}(val, type) where {F<:Real}
     Regularizer{F}(reg::Regularizer) where {F<:Real}
 
-Represent the regularizer in the averaged resolvent equations
-
-This is one of two possible constraint types when solving resolvent equations, but is also
-used to represent a regularizer value in any other context.
+Represent a regularizer value and type in the averaged resolvent equations.
 
 The available types of regularizers are:
 
   - `:shift`: specifies the additive regularizer ``γ²`` in the denominator ``QQ† + γ²I``
   - `:gap`: specifies the spectral gap of the denominator, that is, `eigmin(QQ†) + γ²`
 """
-@auto_hash_equals struct Regularizer{F} <: AbstractConstraint{F}
-    value::F
+@auto_hash_equals struct Regularizer{F<:Real}
+    val::F
     type::RegularizerType.T
 end
 
-Regularizer(value::F, type) where {F} = Regularizer{F}(value, type)
+Regularizer(val::F, type) where {F} = Regularizer{F}(val, type)
 
-Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.value, reg.type)
+Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.val, reg.type)
+
+"""
+    Regularizer(; shift=nothing, gap=nothing)
+    Regularizer{F}(; shift=nothing, gap=nothing) where {F}
+
+Keyword constructor for Regularizer. Exactly one of `shift` or `gap` must be provided.
+"""
+function Regularizer(; shift=nothing, gap=nothing)
+    if isnothing(shift) && isnothing(gap)
+        throw(ArgumentError("must specify either `shift` or `gap`"))
+    elseif !isnothing(shift) && !isnothing(gap)
+        throw(ArgumentError("cannot specify both `shift` and `gap`"))
+    elseif !isnothing(shift)
+        return Regularizer(shift, :shift)
+    else
+        return Regularizer(gap, :gap)
+    end
+end
+
+function Regularizer{F}(; shift=nothing, gap=nothing) where {F}
+    if isnothing(shift) && isnothing(gap)
+        throw(ArgumentError("must specify either `shift` or `gap`"))
+    elseif !isnothing(shift) && !isnothing(gap)
+        throw(ArgumentError("cannot specify both `shift` and `gap`"))
+    elseif !isnothing(shift)
+        return Regularizer{F}(shift, :shift)
+    else
+        return Regularizer{F}(gap, :gap)
+    end
+end
 
 ## Traits
 ## ======
@@ -62,9 +88,9 @@ latter is useful for deferring any computation necessary to only be invoked if n
 is, if the regularizer type of `reg` is `:gap`.
 """
 function shift(reg::Regularizer{F}, baregap) where {F}
-    (reg.type === RegularizerType.shift) && return reg.value
+    (reg.type === RegularizerType.shift) && return reg.val
     bg = (baregap isa Real) ? baregap : baregap()
-    return F(reg.value - bg)::F
+    return F(reg.val - bg)::F
 end
 
 """
@@ -78,16 +104,15 @@ latter is useful for deferring any computation necessary to only be invoked if n
 is, if the regularizer type of `reg` is `:shift`.
 """
 function gap(reg::Regularizer{F}, baregap) where {F}
-    (reg.type === RegularizerType.gap) && return reg.value
+    (reg.type === RegularizerType.gap) && return reg.val
     bg = (baregap isa Real) ? baregap : baregap()
-    return F(reg.value + bg)::F
+    return F(reg.val + bg)::F
 end
 
 end  # module Regularizers
 
 @testitem "Regularizer" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Constraints: AbstractConstraint
     using GaussianSpectralDensities.Regularizers: Regularizer, gap, regularizertype, shift
 
     shift64, gap64 = 0.0, 0.5
@@ -96,8 +121,6 @@ end  # module Regularizers
     reg_gap64 = Regularizer(gap64, :gap)
 
     # Traits
-    @test reg_shift64 isa AbstractConstraint{Float64}
-    @test reg_gap64 isa AbstractConstraint{Float64}
     @test reg_shift64 isa Regularizer{Float64}
     @test reg_gap64 isa Regularizer{Float64}
     @test regularizertype(reg_shift64) == :shift
@@ -141,6 +164,26 @@ end  # module Regularizers
         @test gap(reg_gapF, baregapF) === gapF
         @test gap(reg_gapF, () -> baregapF) === gapF
     end
+end
+
+@testitem "Regularizer keyword constructor" begin
+    using GaussianSpectralDensities.Regularizers: Regularizer, regularizertype
+
+    # Valid calls
+    @test Regularizer(; shift=0.5) == Regularizer(0.5, :shift)
+    @test Regularizer(; gap=0.25) == Regularizer(0.25, :gap)
+    @test regularizertype(Regularizer(; shift=0.5)) == :shift
+    @test regularizertype(Regularizer(; gap=0.25)) == :gap
+
+    # Type-enforcing
+    @test Regularizer{Float32}(; shift=0.5) isa Regularizer{Float32}
+    @test Regularizer{Float32}(; gap=0.25) isa Regularizer{Float32}
+
+    # Errors
+    @test_throws ArgumentError Regularizer()
+    @test_throws "must specify" Regularizer()
+    @test_throws ArgumentError Regularizer(; shift=0.5, gap=0.25)
+    @test_throws "cannot specify both" Regularizer(; shift=0.5, gap=0.25)
 end
 
 @testitem "Regularizer errors" begin

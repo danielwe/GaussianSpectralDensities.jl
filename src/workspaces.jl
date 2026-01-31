@@ -97,7 +97,7 @@ mutable struct Workspace{
         z = zero(Complex{F})
         qscaled = eq.sscale * Complex{F}(Defaults.q0)
         reg = Regularizer{F}(
-            first(Defaults.regularizer_schedule_values), Defaults.regularizer_schedule_type
+            first(Defaults.regularizer_schedule_vals), Defaults.regularizer_schedule_type
         )
         G0i = muladd(z, ensemble.Li_Ri, minus(ensemble.Li_M_Ri))
         Q = muladd(-qscaled, ensemble.S, G0i)
@@ -129,12 +129,12 @@ mutable struct Workspace{
 end
 
 # Private validity management: use setfield! to bypass setproperty! restrictions
-function set_valid!(ws::Workspace, value::Valid.T)
-    setfield!(ws, :valid, value)
+function set_valid!(ws::Workspace, val::Valid.T)
+    setfield!(ws, :valid, val)
     return nothing
 end
 
-function Base.setproperty!(ws::W, name::Symbol, value) where {W<:Workspace}
+function Base.setproperty!(ws::W, name::Symbol, val) where {W<:Workspace}
     if name === :valid
         throw(FieldError(W, name))
     elseif (name === :eq) || (name === :z)  # G0i obsolete => none valid
@@ -146,8 +146,8 @@ function Base.setproperty!(ws::W, name::Symbol, value) where {W<:Workspace}
     end
     # Replicate the default convert logic
     T = fieldtype(W, name)
-    valueT = (value isa T) ? value : convert(T, value)
-    return setfield!(ws, name, valueT)
+    valT = (val isa T) ? val : convert(T, val)
+    return setfield!(ws, name, valT)
 end
 
 ## Auxiliary matrix getters
@@ -451,11 +451,11 @@ end  # module Workspaces
 
                 @test wsF isa Workspace{F}
 
-                @test shift!(wsF, eqF, z, q, reg_shift) ≈ reg_shift.value
-                @test shift!(wsF, eqF, z, q, reg_gap) ≈ reg_gap.value - baregap
+                @test shift!(wsF, eqF, z, q, reg_shift) ≈ reg_shift.val
+                @test shift!(wsF, eqF, z, q, reg_gap) ≈ reg_gap.val - baregap
 
-                @test gap!(wsF, eqF, z, q, reg_shift) ≈ reg_shift.value + baregap
-                @test gap!(wsF, eqF, z, q, reg_gap) ≈ reg_gap.value
+                @test gap!(wsF, eqF, z, q, reg_shift) ≈ reg_shift.val + baregap
+                @test gap!(wsF, eqF, z, q, reg_gap) ≈ reg_gap.val
 
                 @test qFP!(wsF, eqF, z, q, reg_shift) ≈ qFP_shift
                 @test qFP!(wsF, eqF, z, q, reg_gap) ≈ qFP_gap

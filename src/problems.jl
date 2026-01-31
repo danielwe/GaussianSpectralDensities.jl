@@ -2,18 +2,16 @@ module Problems
 
 using AutoHashEquals: @auto_hash_equals
 
-using ..Constraints: AbstractConstraint, PTrace
 using ..Ensembles: MatrixEnsemble
-using ..Regularizers: Regularizer, Regularizers, regularizertype
+using ..Regularizers: Regularizer, Regularizers
 
 using ..ArrayTools: ArrayTools, adaptrealtype
 
-public AbstractInit,
-    PTraceInit,
+public AbstractConstraint,
+    PTraceConstraint,
     PointProblem,
-    RegularizerInit,
+    RegularizerConstraint,
     ResolventEquation,
-    adaptinit,
     issameproblem,
     update
 
@@ -95,86 +93,169 @@ function ArrayTools.adaptrealtype(::Type{F}, eq::ResolventEquation) where {F}
     return convert(ResolventEquation{F}, eq)
 end
 
-## Init types
-## ==========
-abstract type AbstractInit{F<:AbstractFloat} end
+## Constraint types
+## ================
 
 """
-    PTraceInit(q, reg)
-    PTraceInit{F}(q, reg) where {F}
-    PTraceInit{F}(init::PTraceInit) where {F}
+    AbstractConstraint{F<:Real}
 
-Initial values for solving a P-trace-constrained point problem.
+Abstract supertype for constraint specifications in point problems.
+
+Concrete subtypes: [`RegularizerConstraint`](@ref), [`PTraceConstraint`](@ref)
 """
-@auto_hash_equals struct PTraceInit{F} <: AbstractInit{F}
-    q::Complex{F}
-    reg::Regularizer{F}
-end
-
-PTraceInit{F}(init::PTraceInit) where {F} = PTraceInit{F}(init.q, init.reg)
-
-function Base.convert(::Type{PTraceInit{F}}, init::PTraceInit) where {F}
-    return (init isa PTraceInit{F}) ? init : PTraceInit{F}(init)
-end
-
-function ArrayTools.adaptrealtype(::Type{F}, init::PTraceInit) where {F}
-    return convert(PTraceInit{F}, init)
-end
+abstract type AbstractConstraint{F<:Real} end
 
 """
-    RegularizerInit(q)
-    RegularizerInit{F}(q) where {F}
-    RegularizerInit{F}(init::RegularizerInit) where {F}
+    RegularizerConstraint(val, q0)
+    RegularizerConstraint(val; q0)
+    RegularizerConstraint(; shift, gap, q0)
+    RegularizerConstraint{F}(val, q0) where {F}
+    RegularizerConstraint{F}(val; q0) where {F}
+    RegularizerConstraint{F}(; shift, gap, q0) where {F}
+    RegularizerConstraint{F}(c::RegularizerConstraint) where {F}
 
-Initial values for solving a regularizer-constrained point problem.
+Constraint specifying a target regularizer value, with initial guess for solving.
+
+Keyword constructors require exactly one of `shift` or `gap` to specify the regularizer.
+
+# Fields
+
+  - `val::Regularizer{F}`: the target regularizer value
+  - `q0::Complex{F}`: initial guess for the resolvent parameter q
 """
-@auto_hash_equals struct RegularizerInit{F} <: AbstractInit{F}
-    q::Complex{F}
+@auto_hash_equals struct RegularizerConstraint{F} <: AbstractConstraint{F}
+    val::Regularizer{F}
+    q0::Complex{F}
 end
 
-RegularizerInit{F}(init::RegularizerInit) where {F} = RegularizerInit{F}(init.q)
+RegularizerConstraint(val::Regularizer{F}, q0) where {F} = RegularizerConstraint{F}(val, q0)
+RegularizerConstraint(val; q0) = RegularizerConstraint(val, q0)
+RegularizerConstraint{F}(val; q0) where {F} = RegularizerConstraint{F}(val, q0)
+RegularizerConstraint(; q0, kwargs...) = RegularizerConstraint(Regularizer(; kwargs...), q0)
 
-function Base.convert(::Type{RegularizerInit{F}}, init::RegularizerInit) where {F}
-    return (init isa RegularizerInit{F}) ? init : RegularizerInit{F}(init)
+function RegularizerConstraint{F}(; q0, kwargs...) where {F}
+    return RegularizerConstraint{F}(Regularizer(; kwargs...), q0)
 end
 
-function ArrayTools.adaptrealtype(::Type{F}, init::RegularizerInit) where {F}
-    return convert(RegularizerInit{F}, init)
+function RegularizerConstraint{F}(c::RegularizerConstraint) where {F}
+    return RegularizerConstraint{F}(c.val, c.q0)
+end
+
+function update(
+    constraint::RegularizerConstraint{F};
+    shift=nothing,
+    gap=nothing,
+    val=(isnothing(shift) && isnothing(gap)) ? constraint.val : nothing,
+    q0=constraint.q0,
+) where {F}
+    return RegularizerConstraint{F}(someregularizer(; shift, gap, reg=val), q0)
+end
+
+function Base.convert(::Type{RegularizerConstraint{F}}, c::RegularizerConstraint) where {F}
+    return (c isa RegularizerConstraint{F}) ? c : RegularizerConstraint{F}(c)
+end
+
+function ArrayTools.adaptrealtype(::Type{F}, c::RegularizerConstraint) where {F}
+    return convert(RegularizerConstraint{F}, c)
+end
+
+"""
+    PTraceConstraint(val, q0, reg0)
+    PTraceConstraint(val; q0, shift0, gap0, reg0)
+    PTraceConstraint{F}(val, q0, reg0) where {F}
+    PTraceConstraint{F}(val; q0, shift0, gap0, reg0) where {F}
+    PTraceConstraint{F}(c::PTraceConstraint) where {F}
+
+Constraint specifying a target value of ``\tr P``, with initial guesses for solving.
+
+Keyword constructors require exactly one of `shift0`, `gap0`, or `reg0` to specify the
+initial regularizer guess.
+
+# Fields
+
+  - `val::F`: the target value of `tr(P)`
+  - `q0::Complex{F}`: initial guess for the resolvent parameter q
+  - `reg0::Regularizer{F}`: initial guess for the regularizer
+"""
+@auto_hash_equals struct PTraceConstraint{F} <: AbstractConstraint{F}
+    val::F
+    q0::Complex{F}
+    reg0::Regularizer{F}
+end
+
+PTraceConstraint(val::F, q0, reg0) where {F} = PTraceConstraint{F}(val, q0, reg0)
+
+function PTraceConstraint(val; q0, shift0=nothing, gap0=nothing, reg0=nothing)
+    return PTraceConstraint(val, q0, someregularizer(; shift=shift0, gap=gap0, reg=reg0))
+end
+
+function PTraceConstraint{F}(val; q0, shift0=nothing, gap0=nothing, reg0=nothing) where {F}
+    somereg0 = someregularizer(; shift=shift0, gap=gap0, reg=reg0)
+    return PTraceConstraint{F}(val, q0, somereg0)
+end
+
+function PTraceConstraint{F}(c::PTraceConstraint) where {F}
+    return PTraceConstraint{F}(c.val, c.q0, c.reg0)
+end
+
+function update(
+    constraint::PTraceConstraint{F};
+    val=constraint.val,
+    q0=constraint.q0,
+    shift0=nothing,
+    gap0=nothing,
+    reg0=(isnothing(shift0) && isnothing(gap0)) ? constraint.reg0 : nothing,
+) where {F}
+    return PTraceConstraint{F}(val; q0, shift0, gap0, reg0)
+end
+
+function Base.convert(::Type{PTraceConstraint{F}}, c::PTraceConstraint) where {F}
+    return (c isa PTraceConstraint{F}) ? c : PTraceConstraint{F}(c)
+end
+
+function ArrayTools.adaptrealtype(::Type{F}, c::PTraceConstraint) where {F}
+    return convert(PTraceConstraint{F}, c)
+end
+
+# Regularizer constructor/selector helper for update methods
+function someregularizer(; shift=nothing, gap=nothing, reg=nothing)
+    if count(isnothing, (shift, gap, reg)) != 2
+        throw(ArgumentError("must specify exactly one of `shift`, `gap`, or `reg`"))
+    end
+    return isnothing(reg) ? Regularizer(; shift, gap) : reg
 end
 
 ## Problem type
 ## ============
 """
-    PointProblem(equation::ResolventEquation, constraint, z, init)
-    PointProblem{F}(equation, constraint, z, init) where {F}
+    PointProblem(equation::ResolventEquation, constraint, z)
+    PointProblem{F}(equation, constraint, z) where {F}
     PointProblem{F}(problem::PointProblem) where {F}
 
-Bundle a resolvent equation with a constraint, a point, and point-specific initialization.
+Bundle a resolvent equation with a constraint and a point in the complex plane.
+
+The constraint carries both the target specification and initial guesses for solving.
 """
 @auto_hash_equals typearg=true struct PointProblem{
-    F,E<:ResolventEquation{F},C<:AbstractConstraint{F},I<:AbstractInit{F}
+    F,E<:ResolventEquation{F},C<:AbstractConstraint{F}
 }
     equation::E
     constraint::C
     z::Complex{F}
-    init::I
 
-    function PointProblem{F}(equation, constraint, z, init) where {F}
+    function PointProblem{F}(equation, constraint, z) where {F}
         eqF = convert(ResolventEquation{F}, equation)
         constraintF = adaptrealtype(F, constraint)
-        initF = adaptinit(constraintF, init)
-        return new{F,typeof(eqF),typeof(constraintF),typeof(initF)}(
-            eqF, constraintF, z, initF
-        )
+        return new{F,typeof(eqF),typeof(constraintF)}(eqF, constraintF, Complex{F}(z))
     end
 end
 
-function PointProblem(equation::ResolventEquation{F}, constraint, z, init) where {F}
-    return PointProblem{F}(equation, constraint, z, init)
+function PointProblem(equation::ResolventEquation{F}, constraint, z) where {F}
+    return PointProblem{F}(equation, constraint, z)
 end
 
 function PointProblem{F}(problem::PointProblem) where {F}
-    return PointProblem{F}(problem.equation, problem.constraint, problem.z, problem.init)
+    return PointProblem{F}(problem.equation, problem.constraint, problem.z)
 end
 
 function update(
@@ -182,19 +263,9 @@ function update(
     equation::E=problem.equation,
     constraint=problem.constraint,
     z=problem.z,
-    init=problem.init,
 ) where {F,E}
-    return PointProblem{F}(equation, constraint, z, init)
+    return PointProblem{F}(equation, constraint, z)
 end
-
-## Traits
-## ======
-function Regularizers.regularizertype(problem::PointProblem)
-    return regularizertype_inner(problem.constraint, problem.init)
-end
-
-regularizertype_inner(reg::Regularizer, ::RegularizerInit) = regularizertype(reg)
-regularizertype_inner(::PTrace, init::PTraceInit) = regularizertype(init.reg)
 
 ## Conversions
 ## ===========
@@ -202,33 +273,18 @@ function Base.convert(::Type{P}, p::PointProblem) where {F,P<:PointProblem{F}}
     return (p isa P) ? p : PointProblem{F}(p)
 end
 
-function ArrayTools.adaptrealtype(::Type{F}, eq::PointProblem) where {F}
-    return convert(PointProblem{F}, eq)
+function ArrayTools.adaptrealtype(::Type{F}, p::PointProblem) where {F}
+    return convert(PointProblem{F}, p)
 end
 
 ## Comparisons
 ## ===========
-# NOTE: we could drop this and use `@auto_hash_equals fields=(equation,constraint,z)`, but I
-# don't want to. Different inits constitute a significant structural difference that may
-# lead to different behavior/output, even if they don't change the underlying math problem.
 issameproblem(::PointProblem, ::PointProblem) = false
 
 function issameproblem(a::P, b::P) where {P<:PointProblem}
-    return (a.equation == b.equation) && (a.constraint == b.constraint) && (a.z == b.z)
+    ((a.equation == b.equation) && (a.z == b.z)) || return false
+    return a.constraint.val == b.constraint.val
 end
-
-# One-way downconversion
-# We can construct a Regularizer-constrained problem using a PTraceInit, but not vice versa
-function adaptinit(::AbstractConstraint, ::AbstractInit)
-    throw(ArgumentError("incompatible init type for constraint"))
-end
-
-function adaptinit(::Regularizer{F}, init::RegularizerInit) where {F}
-    return convert(RegularizerInit{F}, init)
-end
-
-adaptinit(::Regularizer{F}, init::PTraceInit) where {F} = RegularizerInit{F}(init.q)
-adaptinit(::PTrace{F}, init::PTraceInit) where {F} = convert(PTraceInit{F}, init)
 
 end  # module Problems
 
@@ -287,57 +343,100 @@ end  # module Problems
     @test_throws ArgumentError ResolventEquation(ensemble64; sscale=0.5im)
 end
 
-@testitem "Init types" begin
+@testitem "Constraint types" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Problems: PTraceInit, RegularizerInit
+    using GaussianSpectralDensities.Problems:
+        AbstractConstraint, PTraceConstraint, RegularizerConstraint
     using GaussianSpectralDensities.Regularizers: Regularizer
 
-    q64 = complex(0.25)
+    q0_64 = complex(0.25)
     reg64 = Regularizer(0.5, :gap)
-    reg_init64 = RegularizerInit(q64)
-    ptrace_init64 = PTraceInit(q64, reg64)
+    ptrace64 = 1.0
+    regc64 = RegularizerConstraint(reg64, q0_64)
+    ptracec64 = PTraceConstraint(ptrace64, q0_64, reg64)
+
+    # Traits
+    @test regc64 isa AbstractConstraint{Float64}
+    @test ptracec64 isa AbstractConstraint{Float64}
 
     @testset "$F" for F in [Float32, Float64]
-        qF = Complex{F}(q64)
+        q0_F = Complex{F}(q0_64)
         regF = Regularizer{F}(reg64)
-        reg_initF = RegularizerInit(qF)
-        ptrace_initF = PTraceInit(qF, regF)
+        regcF = RegularizerConstraint(regF, q0_F)
+        ptracecF = PTraceConstraint(F(ptrace64), q0_F, regF)
 
-        # Floattype inferring constructor
-        @test reg_initF isa RegularizerInit{F}
-        @test ptrace_initF isa PTraceInit{F}
+        # Floattype inferring constructor (from Regularizer)
+        @test regcF isa RegularizerConstraint{F}
+        @test ptracecF isa PTraceConstraint{F}
+
+        # User-friendly constructor (keyword args)
+        @test RegularizerConstraint(; gap=F(0.5), q0=q0_F) == regcF
+        @test PTraceConstraint(F(ptrace64); q0=q0_F, gap0=F(0.5)) == ptracecF
 
         # Floattype enforcing constructor
-        @test RegularizerInit{F}(q64) == reg_initF
-        @test RegularizerInit{Float64}(qF) == reg_init64
-        @test PTraceInit{F}(q64, reg64) == ptrace_initF
-        @test PTraceInit{Float64}(qF, regF) == ptrace_init64
+        @test RegularizerConstraint{F}(reg64, q0_64) == regcF
+        @test RegularizerConstraint{Float64}(regF, q0_F) == regc64
+        @test PTraceConstraint{F}(ptrace64, q0_64, reg64) == ptracecF
+        @test PTraceConstraint{Float64}(F(ptrace64), q0_F, regF) == ptracec64
 
         # Copy-converting constructor
-        @test RegularizerInit{F}(reg_init64) == reg_initF
-        @test RegularizerInit{Float64}(reg_initF) == reg_init64
-        @test PTraceInit{F}(ptrace_init64) == ptrace_initF
-        @test PTraceInit{Float64}(ptrace_initF) == ptrace_init64
+        @test RegularizerConstraint{F}(regc64) == regcF
+        @test RegularizerConstraint{Float64}(regcF) == regc64
+        @test PTraceConstraint{F}(ptracec64) == ptracecF
+        @test PTraceConstraint{Float64}(ptracecF) == ptracec64
 
         # Floattype conversions
-        @test convert(RegularizerInit{F}, reg_init64) == reg_initF
-        @test convert(RegularizerInit{Float64}, reg_initF) == reg_init64
-        @test convert(PTraceInit{F}, ptrace_init64) == ptrace_initF
-        @test convert(PTraceInit{Float64}, ptrace_initF) == ptrace_init64
-        @test adaptrealtype(F, reg_init64) == reg_initF
-        @test adaptrealtype(Float64, reg_initF) == reg_init64
-        @test adaptrealtype(F, ptrace_init64) == ptrace_initF
-        @test adaptrealtype(Float64, ptrace_initF) == ptrace_init64
+        @test convert(RegularizerConstraint{F}, regc64) == regcF
+        @test convert(RegularizerConstraint{Float64}, regcF) == regc64
+        @test convert(PTraceConstraint{F}, ptracec64) == ptracecF
+        @test convert(PTraceConstraint{Float64}, ptracecF) == ptracec64
+        @test adaptrealtype(F, regc64) == regcF
+        @test adaptrealtype(Float64, regcF) == regc64
+        @test adaptrealtype(F, ptracec64) == ptracecF
+        @test adaptrealtype(Float64, ptracecF) == ptracec64
     end
+end
+
+@testitem "Constraint keyword constructors" begin
+    using GaussianSpectralDensities.Problems: PTraceConstraint, RegularizerConstraint
+    using GaussianSpectralDensities.Regularizers: Regularizer
+
+    # Keyword constructors
+    reg_shift = Regularizer(0.5, :shift)
+    reg_gap = Regularizer(0.25, :gap)
+    regc_shift = RegularizerConstraint(; shift=reg_shift.val, q0=complex(0.1))
+    regc_gap = RegularizerConstraint(; gap=reg_gap.val, q0=complex(0.1))
+    ptracec_shift = PTraceConstraint(1.0; q0=complex(0.1), shift0=reg_shift.val)
+    ptracec_gap = PTraceConstraint(1.0; q0=complex(0.1), gap0=reg_gap.val)
+    @test regc_shift == RegularizerConstraint(reg_shift, complex(0.1))
+    @test regc_gap == RegularizerConstraint(reg_gap, complex(0.1))
+    @test ptracec_shift == PTraceConstraint(1.0, complex(0.1), reg_shift)
+    @test ptracec_gap == PTraceConstraint(1.0, complex(0.1), reg_gap)
+
+    # Type-enforcing keyword constructors
+    @test RegularizerConstraint{Float32}(; shift=0.5, q0=complex(0.1)) isa
+        RegularizerConstraint{Float32}
+    @test PTraceConstraint{Float32}(1.0; q0=complex(0.1), gap0=0.25) isa
+        PTraceConstraint{Float32}
+
+    # Errors propagate through constructors
+    @test_throws ArgumentError RegularizerConstraint(; q0=complex(0.1))
+    @test_throws ArgumentError RegularizerConstraint(; shift=0.5, gap=0.25, q0=complex(0.1))
+    @test_throws ArgumentError PTraceConstraint(1.0; q0=complex(0.1))
+    @test_throws ArgumentError PTraceConstraint(1.0; q0=complex(0.1), shift0=0.5, gap0=0.25)
 end
 
 @testitem "PointProblems" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceInit, PointProblem, RegularizerInit, ResolventEquation, issameproblem, update
-    using GaussianSpectralDensities.Regularizers: Regularizer, regularizertype
+        PTraceConstraint,
+        PointProblem,
+        RegularizerConstraint,
+        ResolventEquation,
+        issameproblem,
+        update
+    using GaussianSpectralDensities.Regularizers: Regularizer
 
     using LinearAlgebra: I
 
@@ -345,51 +444,37 @@ end
 
     reg_type = :gap
     reg = Regularizer(0.5, reg_type)
-    ptrace = PTrace(1.0)
-    z, q = complex(0.25), complex(0.25)
-    z_updated = z / q
-    q_updated = 2q
+    q0, z = complex(0.25), complex(0.25)
+    z_new = 2z
+    q0_new = 2q0
 
-    reg_init = RegularizerInit(q)
-    reg_init_updated = RegularizerInit(q_updated)
-    ptrace_init = PTraceInit(q, reg)
-    ptrace_init_updated = PTraceInit(q_updated, reg)
+    regc = RegularizerConstraint(reg, q0)
+    regc_newinit = RegularizerConstraint(reg, q0_new)
+    ptracec = PTraceConstraint(1.0, q0, reg)
+    ptracec_newinit = PTraceConstraint(1.0, q0_new, reg)
 
-    @testset "$(nameof(typeof(constraint)))" for (
-        constraint, init, init_updated, init_wrong
-    ) in [
-        (reg, reg_init, reg_init_updated, ptrace_init),
-        (ptrace, ptrace_init, ptrace_init_updated, reg_init),
+    @testset "$(nameof(typeof(constraint)))" for (constraint, constraint_newinit) in [
+        (regc, regc_newinit), (ptracec, ptracec_newinit)
     ]
-        problem64 = PointProblem(eq64, constraint, z, init)
+        problem64 = PointProblem(eq64, constraint, z)
 
         @testset "$F" for F in [Float32, Float64]
             eqF = ResolventEquation{F}(eq64)
-            problemF = PointProblem(eqF, constraint, z, init)
-
-            # Init check/adaptation
-            if constraint isa Regularizer
-                # Constructing Regularizer-constrained problem using PTraceInit is OK
-                @test PointProblem(eqF, constraint, z, init_wrong) == problemF
-            else
-                @test_throws ArgumentError PointProblem(eqF, constraint, z, init_wrong)
-            end
+            problemF = PointProblem(eqF, constraint, z)
 
             # Traits
             @test problemF isa PointProblem{F}
-            @test regularizertype(problemF) == reg_type
 
-            # Same problem?
-            problemF_newinit = PointProblem(eqF, constraint, z, init_updated)
+            # Same problem? (same target, different init)
+            problemF_newinit = PointProblem(eqF, constraint_newinit, z)
             @test issameproblem(problemF, problemF_newinit)
 
             # Update
-            problemF_updated = update(problemF; z=z_updated, init=init_updated)
+            problemF_updated = update(problemF; z=z_new, constraint=constraint_newinit)
             @test problemF_updated isa PointProblem{F}
             @test problemF_updated.equation === problemF.equation
-            @test problemF_updated.constraint === problemF.constraint
-            @test problemF_updated.z == z_updated
-            @test problemF_updated.init == init_updated
+            @test problemF_updated.z == z_new
+            @test problemF_updated.constraint == constraint_newinit
             @test !issameproblem(problemF, problemF_updated)
 
             # Floattype enforcing constructor

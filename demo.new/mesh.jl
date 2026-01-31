@@ -3,10 +3,9 @@ using CairoMakie: Axis3, Figure
 
 using CommonSolve: solve
 using GaussianSpectralDensities.Algorithms: RegularizerSchedule
-using GaussianSpectralDensities.Constraints: PTrace
 using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-using GaussianSpectralDensities.GlobalData: GlobalProblem, GlobalSolution  #, zvalues
-using GaussianSpectralDensities.Problems: PTraceInit, ResolventEquation
+using GaussianSpectralDensities.GlobalData: GlobalProblem, GlobalSolution  #, zvals
+using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
 using GaussianSpectralDensities.Regularizers: Regularizer
 using LinearAlgebra: I
 using Meshes:
@@ -31,13 +30,10 @@ mesh = simplexify(refine(disc, MaxLengthRefinement(0.2)))
 ensemble = MatrixEnsemble(0I, I, I, I / 2)
 equation = ResolventEquation(ensemble; shiftmin=-2)
 
-constraint = PTrace(1)
-# FIXME: Make init types friendlier to varying float/real types
-# should be able to initialize as init = PTraceInit(0, Regularizer(1, :shift))
-init = PTraceInit(complex(0.0), Regularizer(1.0, :shift))
+constraint = PTraceConstraint(1; shift0=1, q0=0)
 algorithm = RegularizerSchedule()
 
-prob = GlobalProblem(equation, constraint, mesh, init)
+prob = GlobalProblem(equation, constraint, mesh)
 sol = GlobalSolution(equation, mesh)
 
 for i in 1:length(prob)

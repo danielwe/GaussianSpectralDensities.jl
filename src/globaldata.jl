@@ -4,63 +4,58 @@ using AutoHashEquals: @auto_hash_equals
 using Meshes: Meshes, SimpleMesh, centroid, coords, elements, indices, topology, vertices
 using StructArrays: StructVector
 
-using ..Constraints: AbstractConstraint
-using ..Problems: AbstractInit, PointProblem, ResolventEquation, adaptinit
+using ..Problems: AbstractConstraint, PointProblem, ResolventEquation
 using ..Solutions: PointSolution, ResolventParams
 
 using ..ArrayTools: adaptrealtype
 
-public ElementGradient, GlobalProblem, GlobalSolution, element_gradients, zvalue, zvalues
+public ElementGradient, GlobalProblem, GlobalSolution, element_gradients, zval, zvals
 
 ## Complex plane mapping
 ## =====================
 
 """
-    zvalue(mesh, i::Int) -> Complex
+    zval(mesh, i::Int) -> Complex
 
 Return the complex z-value for vertex `i` of `mesh`, where `z = x + iy`.
 """
-function zvalue(mesh, i::Int)
+function zval(mesh, i::Int)
     c = coords(vertices(mesh)[i])
     return Complex(c.x.val, c.y.val)
 end
 
 """
-    zvalues(mesh) -> Vector{Complex}
+    zvals(mesh) -> Vector{Complex}
 
 Return all vertex z-values for `mesh`.
 """
-zvalues(mesh) = [zvalue(mesh, i) for i in 1:Meshes.nvertices(mesh)]
+zvals(mesh) = [zval(mesh, i) for i in eachindex(vertices(mesh))]
 
 ## GlobalProblem
 ## =============
 
 @auto_hash_equals typearg=true struct GlobalProblem{
-    F,E<:ResolventEquation{F},C<:AbstractConstraint{F},M<:SimpleMesh,I<:AbstractInit{F}
+    F,E<:ResolventEquation{F},C<:AbstractConstraint{F},M<:SimpleMesh
 }
     equation::E
     constraint::C
     mesh::M
-    init::I
 
-    function GlobalProblem{F}(equation, constraint, mesh::SimpleMesh, init) where {F}
+    function GlobalProblem{F}(equation, constraint, mesh::SimpleMesh) where {F}
         eqF = convert(ResolventEquation{F}, equation)
         constraintF = adaptrealtype(F, constraint)
-        initF = adaptinit(constraintF, init)
-        return new{F,typeof(eqF),typeof(constraintF),typeof(mesh),typeof(initF)}(
-            eqF, constraintF, mesh, initF
-        )
+        return new{F,typeof(eqF),typeof(constraintF),typeof(mesh)}(eqF, constraintF, mesh)
     end
 end
 
-function GlobalProblem(equation::ResolventEquation{F}, constraint, mesh, init) where {F}
-    return GlobalProblem{F}(equation, constraint, mesh, init)
+function GlobalProblem(equation::ResolventEquation{F}, constraint, mesh) where {F}
+    return GlobalProblem{F}(equation, constraint, mesh)
 end
 
 Base.length(prob::GlobalProblem) = Meshes.nvertices(prob.mesh)
 
 function Base.getindex(prob::GlobalProblem, i::Int)
-    return PointProblem(prob.equation, prob.constraint, zvalue(prob.mesh, i), prob.init)
+    return PointProblem(prob.equation, prob.constraint, zval(prob.mesh, i))
 end
 
 ## GlobalSolution
@@ -90,7 +85,7 @@ end
 Base.length(sol::GlobalSolution) = Meshes.nvertices(sol.mesh)
 
 function Base.setindex!(sol::GlobalSolution, ps::PointSolution, i::Int)
-    expected_z = zvalue(sol.mesh, i)
+    expected_z = zval(sol.mesh, i)
     if ps.z != expected_z
         throw(
             ArgumentError("PointSolution z=$(ps.z) does not match vertex $i z=$expected_z")
@@ -159,45 +154,43 @@ end
 
 end  # module GlobalData
 
-@testitem "zvalue" begin
-    using GaussianSpectralDensities.GlobalData: zvalue, zvalues
+@testitem "zval" begin
+    using GaussianSpectralDensities.GlobalData: zval, zvals
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
     disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
     mesh = simplexify(disc)
 
-    @test zvalue(mesh, 1) == 0.0 + 0.0im
-    @test length(zvalues(mesh)) == nvertices(mesh)
+    @test zval(mesh, 1) == 0.0 + 0.0im
+    @test length(zvals(mesh)) == nvertices(mesh)
 
-    zs = zvalues(mesh)
+    zs = zvals(mesh)
     @test all(z -> 0 <= real(z) <= 1 && 0 <= imag(z) <= 1, zs)
 end
 
 @testitem "GlobalProblem" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.GlobalData: GlobalProblem, zvalue
+    using GaussianSpectralDensities.GlobalData: GlobalProblem, zval
     using GaussianSpectralDensities.Problems:
-        PointProblem, RegularizerInit, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+        PointProblem, RegularizerConstraint, ResolventEquation
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
     disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
     mesh = simplexify(disc)
     eq = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
-    reg = Regularizer(0.5, :gap)
-    init = RegularizerInit(complex(0.25))
+    constraint = RegularizerConstraint(; gap=0.5, q0=complex(0.25))
 
-    prob = GlobalProblem(eq, reg, mesh, init)
+    prob = GlobalProblem(eq, constraint, mesh)
 
     @test prob isa GlobalProblem{Float64}
     @test length(prob) == nvertices(mesh)
 
     pp = prob[1]
     @test pp isa PointProblem{Float64}
-    @test pp.z == zvalue(mesh, 1)
+    @test pp.z == zval(mesh, 1)
     @test pp.equation == eq
-    @test pp.constraint == reg
+    @test pp.constraint == constraint
 end
 
 @testitem "GlobalSolution" begin

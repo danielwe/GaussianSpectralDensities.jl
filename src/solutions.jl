@@ -2,10 +2,8 @@ module Solutions
 
 using AutoHashEquals: @auto_hash_equals
 
-using ..Constraints: PTrace
 using ..Defaults: approxequal
-using ..Problems: PointProblem, ResolventEquation
-using ..Regularizers: Regularizer
+using ..Problems: PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
 using ..Workspaces: Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
 using ..ArrayTools: ArrayTools
@@ -112,12 +110,13 @@ function solves(solution::PointSolution, problem::PointProblem)
     return satisfies(solution.params, problem.constraint)
 end
 
-function satisfies(params::ResolventParams, constraint::Regularizer)
-    return approxequal(getproperty(params, Symbol(constraint.type)), constraint.value)
+function satisfies(params::ResolventParams, constraint::RegularizerConstraint)
+    reg_val = getproperty(params, Symbol(constraint.val.type))
+    return approxequal(reg_val, constraint.val.val)
 end
 
-function satisfies(params::ResolventParams, constraint::PTrace)
-    return approxequal(params.ptrace, constraint.value)
+function satisfies(params::ResolventParams, constraint::PTraceConstraint)
+    return approxequal(params.ptrace, constraint.val)
 end
 
 end  # module Solutions
@@ -152,11 +151,10 @@ end
 
 @testitem "PointSolution" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Defaults: approxequal
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceInit, PointProblem, RegularizerInit, ResolventEquation, update
+        PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation, update
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Workspaces:
@@ -172,7 +170,6 @@ end
     # that are satisfied simultaneously
     reg_type = :gap
     reg = Regularizer(0.5, reg_type)
-    ptrace = PTrace(2.0)
 
     # We're relying on some very particular parameter tuning here to create a solution we
     # know a priori to be consistent and to survive roundtrip floattype conversion
@@ -207,8 +204,8 @@ end
         @test approxequal(solF_par.q, qFP!(wsF, eqF, solutionF.z, solF_par.q, solF_reg))
 
         # Actually solves the problems we expect it to
-        problem_regF = PointProblem(eqF, reg, z, RegularizerInit(q))
-        problem_ptraceF = PointProblem(eqF, ptrace, z, PTraceInit(q, reg))
+        problem_regF = PointProblem(eqF, RegularizerConstraint(reg, q), z)
+        problem_ptraceF = PointProblem(eqF, PTraceConstraint(2.0, q, reg), z)
         @test solves(solutionF, problem_regF)
         @test solves(solutionF, problem_ptraceF)
 

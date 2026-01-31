@@ -5,8 +5,7 @@ using CommonSolve: CommonSolve
 using StructArrays: StructArray
 
 using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, statetype
-using ..Constraints: AbstractConstraint
-using ..Problems: PointProblem
+using ..Problems: AbstractConstraint, PointProblem
 using ..Solutions: PointSolution, ResolventParams
 using ..Workspaces: Workspace
 
@@ -111,10 +110,9 @@ end  # module Solvers
 
 @testitem "Solver construction" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
-    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceInit, PointProblem, RegularizerInit, ResolventEquation
+        PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solvers: Solver
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -124,17 +122,15 @@ end  # module Solvers
     ensemble64 = MatrixEnsemble(I, I, I, I / 2)
     eq64 = ResolventEquation(ensemble64)
     z64 = 0.5 + 0.5im
-    reg64 = Regularizer(0.25, :shift)
-    ptrace64 = PTrace(1.0)
-    init64 = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
+    regc64 = RegularizerConstraint(; shift=0.25, q0=complex(0.1))
+    ptracec64 = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
 
     alg_direct = DirectSolve()
     alg_schedule = RegularizerSchedule([2.0, 1.0, 0.5, 0.25], :gap)
 
     @testset "$F" for F in [Float32, Float64]
-        @testset "$(nameof(typeof(constraint)))" for constraint in [reg64, ptrace64]
-            init = constraint isa Regularizer ? RegularizerInit(complex(0.1)) : init64
-            problem = PointProblem(eq64, constraint, z64, init)
+        @testset "$(nameof(typeof(constraint)))" for constraint in [regc64, ptracec64]
+            problem = PointProblem(eq64, constraint, z64)
             @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_schedule]
                 # Type-inferring constructor
                 solver = Solver(problem, alg)
@@ -160,9 +156,9 @@ end
 
 @testitem "Solver iteration interface" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
-    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: PointSolution, solves
     using GaussianSpectralDensities.Solvers: Solver
@@ -172,9 +168,8 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    ptrace = PTrace(1.0)
-    init = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
-    problem = PointProblem(eq, ptrace, z, init)
+    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    problem = PointProblem(eq, constraint, z)
 
     @testset "DirectSolve" begin
         solver = Solver(problem, DirectSolve())
@@ -206,10 +201,10 @@ end
     end
 
     @testset "RegularizerSchedule" begin
-        schedule_values = [4.0, 2.0, 1.0, 0.5, 0.25]
-        alg = RegularizerSchedule(schedule_values, :gap)
-        init_sched = PTraceInit(complex(0.1), Regularizer(schedule_values[1], :gap))
-        problem_sched = PointProblem(eq, ptrace, z, init_sched)
+        schedule_vals = [4.0, 2.0, 1.0, 0.5, 0.25]
+        alg = RegularizerSchedule(schedule_vals, :gap)
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        problem_sched = PointProblem(eq, constraint_sched, z)
         solver = Solver(problem_sched, alg)
 
         # Step through via for-loop
@@ -222,7 +217,7 @@ end
         # RegularizerSchedule terminates early once ptrace crosses target,
         # so we don't necessarily exhaust the full schedule
         @test step_count > 0
-        @test step_count <= length(schedule_values) + 1
+        @test step_count <= length(schedule_vals) + 1
         @test length(solver.trace) == step_count
         @test Base.isdone(solver)
 
@@ -239,10 +234,9 @@ end
     using CommonSolve: init, solve!, step!
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
-    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Solvers: Solution, Solver
 
     using LinearAlgebra: I
@@ -250,9 +244,8 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    ptrace = PTrace(1.0)
-    initvals = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
-    problem = PointProblem(eq, ptrace, z, initvals)
+    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    problem = PointProblem(eq, constraint, z)
 
     @testset "init" begin
         solver = init(problem, DirectSolve())
@@ -278,10 +271,10 @@ end
     end
 
     @testset "solve!" begin
-        schedule_values = [4.0, 2.0, 1.0, 0.5]
-        initvals_sched = PTraceInit(complex(0.1), Regularizer(schedule_values[1], :gap))
-        problem_sched = PointProblem(eq, ptrace, z, initvals_sched)
-        solver = init(problem_sched, RegularizerSchedule(schedule_values, :gap))
+        schedule_vals = [4.0, 2.0, 1.0, 0.5]
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        problem_sched = PointProblem(eq, constraint_sched, z)
+        solver = init(problem_sched, RegularizerSchedule(schedule_vals, :gap))
 
         solution = solve!(solver)
         @test solution isa Solution{Float64}
@@ -297,10 +290,9 @@ end
     using CommonSolve: init, solve!
 
     using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
-    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Solvers: Solution
 
@@ -309,9 +301,8 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    ptrace = PTrace(1.0)
-    initvals = PTraceInit(complex(0.1), Regularizer(1.0, :gap))
-    problem = PointProblem(eq, ptrace, z, initvals)
+    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    problem = PointProblem(eq, constraint, z)
 
     @testset "Solution from completed solver" begin
         solver = init(problem, DirectSolve())
@@ -336,7 +327,7 @@ end
         # z outside support with shiftmin=0 will fail to find valid solution
         eq_impossible = ResolventEquation(ensemble; shiftmin=0.0)
         z_impossible = 2.0 + 2.0im
-        problem_impossible = PointProblem(eq_impossible, ptrace, z_impossible, initvals)
+        problem_impossible = PointProblem(eq_impossible, constraint, z_impossible)
         solver = init(problem_impossible, DirectSolve())
         for _ in solver
         end
@@ -349,10 +340,10 @@ end
     end
 
     @testset "Solution properties" begin
-        schedule_values = [4.0, 2.0, 1.0, 0.5]
-        initvals_sched = PTraceInit(complex(0.1), Regularizer(schedule_values[1], :gap))
-        problem_sched = PointProblem(eq, ptrace, z, initvals_sched)
-        alg = RegularizerSchedule(schedule_values, :gap)
+        schedule_vals = [4.0, 2.0, 1.0, 0.5]
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        problem_sched = PointProblem(eq, constraint_sched, z)
+        alg = RegularizerSchedule(schedule_vals, :gap)
         solver = init(problem_sched, alg)
         solution = solve!(solver)
 
@@ -371,10 +362,9 @@ end
     using CommonSolve: init, solve!
 
     using GaussianSpectralDensities.Algorithms: RegularizerSchedule
-    using GaussianSpectralDensities.Constraints: PTrace
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceInit, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, PointProblem, ResolventEquation
 
     using LinearAlgebra: I
 
@@ -382,9 +372,8 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.0I)
     eq = ResolventEquation(ensemble; shiftmin=0.0)
     z = 1.0 + 1.0im
-    ptrace = PTrace(1.0)
-    initvals = PTraceInit(complex(0.1), Regularizer(4.0, :gap))
-    problem = PointProblem(eq, ptrace, z, initvals)
+    constraint = PTraceConstraint(1.0; gap0=4.0, q0=complex(0.1))
+    problem = PointProblem(eq, constraint, z)
 
     alg = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
     solver = init(problem, alg)

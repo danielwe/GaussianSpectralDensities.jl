@@ -38,20 +38,20 @@ module Defaults
     public approxequal,
         q0,
         regularizer_schedule_type,
-        regularizer_schedule_values,
+        regularizer_schedule_vals,
         regularizer_target_type,
-        regularizer_target_value,
-        symmetry_schedule_values,
+        regularizer_target_val,
+        symmetry_schedule_vals,
         tol,
         trace_target
 
     const trace_target = 1.0
-    const regularizer_target_value = 0.0
+    const regularizer_target_val = 0.0
     const regularizer_target_type = :shift
     const q0 = ComplexF64(sqrt(eps(Float32)))
-    const regularizer_schedule_values = 2.0 .^ (4:-0.5:-4)
+    const regularizer_schedule_vals = 2.0 .^ (4:-0.5:-4)
     const regularizer_schedule_type = :gap
-    const symmetry_schedule_values = 0:0.1:1
+    const symmetry_schedule_vals = 0:0.1:1
     # const regularizer_init = Regularizer(1.0, :gap)
     # const margin = 0.1
 
@@ -67,7 +67,6 @@ include("arraytools.jl")
 include("mathtools.jl")
 # include("matrix_utils.jl")
 include("ensembles.jl")
-include("constraints.jl")
 include("regularizers.jl")
 include("problems.jl")
 include("workspaces.jl")
