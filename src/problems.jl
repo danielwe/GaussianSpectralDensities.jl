@@ -8,7 +8,14 @@ using ..Regularizers: Regularizer, Regularizers, regularizertype
 
 using ..ArrayTools: ArrayTools, adaptrealtype
 
-public PTraceInit, PointProblem, RegularizerInit, ResolventEquation, issameproblem, update
+public AbstractInit,
+    PTraceInit,
+    PointProblem,
+    RegularizerInit,
+    ResolventEquation,
+    adaptinit,
+    issameproblem,
+    update
 
 """
     ResolventEquation(ensemble::MatrixEnsemble; shiftmin=-Inf, normalizeQ=false, sscale=1)

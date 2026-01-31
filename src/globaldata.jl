@@ -1,0 +1,253 @@
+module GlobalData
+
+using AutoHashEquals: @auto_hash_equals
+using Meshes: Meshes, SimpleMesh, centroid, coords, elements, indices, topology, vertices
+using StructArrays: StructVector
+
+using ..Constraints: AbstractConstraint
+using ..Problems: AbstractInit, PointProblem, ResolventEquation, adaptinit
+using ..Solutions: PointSolution, ResolventParams
+
+using ..ArrayTools: adaptrealtype
+
+public ElementGradient, GlobalProblem, GlobalSolution, element_gradients, zvalue, zvalues
+
+## Complex plane mapping
+## =====================
+
+"""
+    zvalue(mesh, i::Int) -> Complex
+
+Return the complex z-value for vertex `i` of `mesh`, where `z = x + iy`.
+"""
+function zvalue(mesh, i::Int)
+    c = coords(vertices(mesh)[i])
+    return Complex(c.x.val, c.y.val)
+end
+
+"""
+    zvalues(mesh) -> Vector{Complex}
+
+Return all vertex z-values for `mesh`.
+"""
+zvalues(mesh) = [zvalue(mesh, i) for i in 1:Meshes.nvertices(mesh)]
+
+## GlobalProblem
+## =============
+
+@auto_hash_equals typearg=true struct GlobalProblem{
+    F,E<:ResolventEquation{F},C<:AbstractConstraint{F},M<:SimpleMesh,I<:AbstractInit{F}
+}
+    equation::E
+    constraint::C
+    mesh::M
+    init::I
+
+    function GlobalProblem{F}(equation, constraint, mesh::SimpleMesh, init) where {F}
+        eqF = convert(ResolventEquation{F}, equation)
+        constraintF = adaptrealtype(F, constraint)
+        initF = adaptinit(constraintF, init)
+        return new{F,typeof(eqF),typeof(constraintF),typeof(mesh),typeof(initF)}(
+            eqF, constraintF, mesh, initF
+        )
+    end
+end
+
+function GlobalProblem(equation::ResolventEquation{F}, constraint, mesh, init) where {F}
+    return GlobalProblem{F}(equation, constraint, mesh, init)
+end
+
+Base.length(prob::GlobalProblem) = Meshes.nvertices(prob.mesh)
+
+function Base.getindex(prob::GlobalProblem, i::Int)
+    return PointProblem(prob.equation, prob.constraint, zvalue(prob.mesh, i), prob.init)
+end
+
+## GlobalSolution
+## ==============
+
+@auto_hash_equals typearg=true struct GlobalSolution{
+    F,E<:ResolventEquation{F},M<:SimpleMesh,P<:StructVector{ResolventParams{F}}
+}
+    equation::E
+    mesh::M
+    params::P
+    success::BitVector
+
+    function GlobalSolution{F}(equation, mesh::SimpleMesh) where {F}
+        eqF = convert(ResolventEquation{F}, equation)
+        n = Meshes.nvertices(mesh)
+        params = StructVector{ResolventParams{F}}(undef, n)
+        success = falses(n)
+        return new{F,typeof(eqF),typeof(mesh),typeof(params)}(eqF, mesh, params, success)
+    end
+end
+
+function GlobalSolution(equation::ResolventEquation{F}, mesh::SimpleMesh) where {F}
+    return GlobalSolution{F}(equation, mesh)
+end
+
+Base.length(sol::GlobalSolution) = Meshes.nvertices(sol.mesh)
+
+function Base.setindex!(sol::GlobalSolution, ps::PointSolution, i::Int)
+    expected_z = zvalue(sol.mesh, i)
+    if ps.z != expected_z
+        throw(
+            ArgumentError("PointSolution z=$(ps.z) does not match vertex $i z=$expected_z")
+        )
+    end
+    sol.params[i] = ps.params
+    sol.success[i] = ps.success
+    return sol
+end
+
+## Element gradients
+## =================
+
+"""
+    ElementGradient{F,V}
+
+Gradient of a field evaluated at an element centroid.
+
+# Fields
+
+  - `centroid::Complex{F}`: z-location of element centroid
+  - `dfdx::V`: derivative with respect to Re(z)
+  - `dfdy::V`: derivative with respect to Im(z)
+
+`V` matches the field type: `F` for real fields, `Complex{F}` for complex fields.
+"""
+@auto_hash_equals struct ElementGradient{F<:AbstractFloat,V}
+    centroid::Complex{F}
+    dfdx::V
+    dfdy::V
+end
+
+"""
+    element_gradients(sol::GlobalSolution, field::Symbol) -> Vector{ElementGradient}
+
+Compute element-wise gradients of a ResolventParams field over the solution mesh.
+
+Uses linear FEM basis functions, so gradient is constant over each triangular element
+and evaluated at the centroid.
+
+`field` must be one of: `:q`, `:shift`, `:gap`, `:ptrace`, `:greens`.
+"""
+function element_gradients(sol::GlobalSolution, field::Symbol)
+    mesh = sol.mesh
+    fvals = getproperty(sol.params, field)
+    verts = vertices(mesh)
+    connec = collect(elements(topology(mesh)))
+
+    return map(enumerate(connec)) do (i, conn)
+        vidx = indices(conn)
+
+        x = ntuple(j -> coords(verts[vidx[j]]).x.val, 3)
+        y = ntuple(j -> coords(verts[vidx[j]]).y.val, 3)
+        fv = ntuple(j -> fvals[vidx[j]], 3)
+
+        A2 = (x[2] - x[1]) * (y[3] - y[1]) - (x[3] - x[1]) * (y[2] - y[1])
+        dfdx = (fv[1] * (y[2] - y[3]) + fv[2] * (y[3] - y[1]) + fv[3] * (y[1] - y[2])) / A2
+        dfdy = (fv[1] * (x[3] - x[2]) + fv[2] * (x[1] - x[3]) + fv[3] * (x[2] - x[1])) / A2
+
+        c = centroid(mesh[i])
+        z_centroid = Complex(coords(c).x.val, coords(c).y.val)
+
+        return ElementGradient(z_centroid, dfdx, dfdy)
+    end
+end
+
+end  # module GlobalData
+
+@testitem "zvalue" begin
+    using GaussianSpectralDensities.GlobalData: zvalue, zvalues
+    using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
+
+    disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
+    mesh = simplexify(disc)
+
+    @test zvalue(mesh, 1) == 0.0 + 0.0im
+    @test length(zvalues(mesh)) == nvertices(mesh)
+
+    zs = zvalues(mesh)
+    @test all(z -> 0 <= real(z) <= 1 && 0 <= imag(z) <= 1, zs)
+end
+
+@testitem "GlobalProblem" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.GlobalData: GlobalProblem, zvalue
+    using GaussianSpectralDensities.Problems:
+        PointProblem, RegularizerInit, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using LinearAlgebra: I
+    using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
+
+    disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
+    mesh = simplexify(disc)
+    eq = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
+    reg = Regularizer(0.5, :gap)
+    init = RegularizerInit(complex(0.25))
+
+    prob = GlobalProblem(eq, reg, mesh, init)
+
+    @test prob isa GlobalProblem{Float64}
+    @test length(prob) == nvertices(mesh)
+
+    pp = prob[1]
+    @test pp isa PointProblem{Float64}
+    @test pp.z == zvalue(mesh, 1)
+    @test pp.equation == eq
+    @test pp.constraint == reg
+end
+
+@testitem "GlobalSolution" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.GlobalData: GlobalSolution
+    using GaussianSpectralDensities.Problems: ResolventEquation
+    using GaussianSpectralDensities.Solutions: ResolventParams
+    using LinearAlgebra: I
+    using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
+
+    disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
+    mesh = simplexify(disc)
+    eq = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
+
+    sol = GlobalSolution(eq, mesh)
+
+    @test sol isa GlobalSolution{Float64}
+    @test length(sol) == nvertices(mesh)
+    @test all(!, sol.success)
+
+    params = ResolventParams(0.5 + 0.5im, 0.25, 0.5, 1.0, -0.5 + 2.0im)
+    sol.params[1] = params
+    sol.success[1] = true
+
+    @test sol.params[1] == params
+    @test sol.success[1]
+end
+
+@testitem "element_gradients" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.GlobalData:
+        ElementGradient, GlobalSolution, element_gradients
+    using GaussianSpectralDensities.Problems: ResolventEquation
+    using LinearAlgebra: I
+    using Meshes: Box, Point, RegularDiscretization, discretize, nelements, simplexify
+
+    disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
+    mesh = simplexify(disc)
+    eq = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
+
+    sol = GlobalSolution(eq, mesh)
+    sol.params.shift .= [float(i) for i in 1:length(sol)]
+    sol.params.greens .= [complex(float(i), float(i)^2) for i in 1:length(sol)]
+
+    grads_real = element_gradients(sol, :shift)
+    @test length(grads_real) == nelements(mesh)
+    @test grads_real[1] isa ElementGradient{Float64,Float64}
+    @test all(g -> 0 <= real(g.centroid) <= 1 && 0 <= imag(g.centroid) <= 1, grads_real)
+
+    grads_complex = element_gradients(sol, :greens)
+    @test length(grads_complex) == nelements(mesh)
+    @test grads_complex[1] isa ElementGradient{Float64,ComplexF64}
+end

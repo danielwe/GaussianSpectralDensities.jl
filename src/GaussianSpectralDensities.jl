@@ -76,6 +76,7 @@ include("newton.jl")
 include("equationsolvers.jl")
 include("algorithms.jl")
 include("solvers.jl")
+include("globaldata.jl")
 
 # include("solve.jl")
 # include("density.jl")
