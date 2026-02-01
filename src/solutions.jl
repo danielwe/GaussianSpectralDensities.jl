@@ -9,8 +9,7 @@ using ..Workspaces: Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
 using ..ArrayTools: ArrayTools
 
-public AbstractSolution,
-    PointSolution, ResolventParams, greens, issuccess, ptrace, q, regularizer, solves
+public PointSolution, ResolventParams, greens, issuccess, ptrace, q, regularizer, solves
 
 """
     ResolventParams(q, shift, gap, ptrace, greens)
@@ -64,10 +63,6 @@ function satisfies(params::ResolventParams, constraint::PTraceConstraint)
     return approxequal(params.ptrace, constraint.val)
 end
 
-## Solution types
-## ==============
-abstract type AbstractSolution{F} end
-
 """
     PointSolution(equation, z, q, reg; workspace=Workspace(equation))
     PointSolution{F}(equation, z, q, reg, workspace) where {F}
@@ -82,12 +77,19 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
   - `params`: derived parameter values (q, shift, gap, ptrace, greens)
   - `success`: whether the derived parameters are finite, self-consistent, and satisfy shiftmin
 """
-@auto_hash_equals typearg=true struct PointSolution{F,E<:ResolventEquation{F}} <:
-                                      AbstractSolution{F}
+@auto_hash_equals typearg=true struct PointSolution{F,E<:ResolventEquation{F}}
     equation::E
     z::Complex{F}
     params::ResolventParams{F}
     success::Bool
+
+    # Secret constructor that doesn't assert invariants, mainly to support GlobalSolution
+    # getindex
+    function PointSolution{F,E}(
+        equation::E, z, params, success
+    ) where {F,E<:ResolventEquation{F}}
+        return new{F,E}(equation, z, params, success)
+    end
 
     function PointSolution{F}(equation, z, q, reg, workspace) where {F}
         eqF = convert(ResolventEquation{F}, equation)
@@ -140,53 +142,53 @@ end
 ## Accessors
 ## =========
 """
-    issuccess(sol::AbstractSolution) -> Bool
+    issuccess(sol::PointSolution) -> Bool
 
 Return whether the solution is finite, self-consistent, and satisfies shiftmin.
 """
-issuccess(sol::AbstractSolution) = sol.success
+issuccess(sol::PointSolution) = sol.success
 
 """
-    q(sol::AbstractSolution) -> Complex
+    q(sol::PointSolution{F}) -> Complex{F}
 
 Return the self-consistency parameter q of the solution.
 """
-q(sol::AbstractSolution) = sol.params.q
+q(sol::PointSolution) = sol.params.q
 
 """
-    ptrace(sol::AbstractSolution) -> Real
+    ptrace(sol::PointSolution{F}) -> F
 
 Return the partial trace parameter ptrace of the solution.
 """
-ptrace(sol::AbstractSolution) = sol.params.ptrace
+ptrace(sol::PointSolution) = sol.params.ptrace
 
 """
-    greens(sol::AbstractSolution) -> Complex
+    greens(sol::PointSolution{F}) -> Complex{F}
 
 Return the Green's function value of the solution.
 """
-greens(sol::AbstractSolution) = sol.params.greens
+greens(sol::PointSolution) = sol.params.greens
 
 """
-    shift(sol::AbstractSolution) -> Real
+    shift(sol::PointSolution{F}) -> F
 
 Return the shift regularizer value of the solution.
 """
-Regularizers.shift(sol::AbstractSolution) = sol.params.shift
+Regularizers.shift(sol::PointSolution) = sol.params.shift
 
 """
-    gap(sol::AbstractSolution) -> Real
+    gap(sol::PointSolution{F}) -> F
 
 Return the gap regularizer value of the solution.
 """
-Regularizers.gap(sol::AbstractSolution) = sol.params.gap
+Regularizers.gap(sol::PointSolution) = sol.params.gap
 
 """
-    regularizer(sol::AbstractSolution, type) -> Regularizer
+    regularizer(sol::PointSolution{F}, type) -> Regularizer{F}
 
 Return the regularizer of type `type` of the solution.
 """
-regularizer(sol::AbstractSolution, type) = regularizer(sol.params, type)
+regularizer(sol::PointSolution, type) = regularizer(sol.params, type)
 
 end  # module Solutions
 

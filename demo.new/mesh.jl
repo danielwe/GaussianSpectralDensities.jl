@@ -38,7 +38,7 @@ algorithm = RegularizerSchedule()
 prob = GlobalProblem(equation, constraint, mesh)
 sol = GlobalSolution(equation, mesh)
 
-for i in 1:length(prob)
+for i in eachindex(prob, sol)
     sol[i] = pointsolve(prob[i], algorithm)
 end
 

@@ -5,8 +5,8 @@ using Meshes: Meshes, SimpleMesh, centroid, coords, elements, indices, topology,
 using StructArrays: StructVector
 
 using ..Problems: AbstractConstraint, PointProblem, ResolventEquation
-using ..Regularizers: Regularizer
-using ..Solutions: AbstractSolution, PointSolution, ResolventParams, Solutions
+using ..Regularizers: Regularizer, Regularizers
+using ..Solutions: PointSolution, ResolventParams, Solutions
 
 using ..ArrayTools: adaptrealtype
 
@@ -32,12 +32,17 @@ Return all vertex z-values for `mesh`.
 """
 zvals(mesh) = [zval(mesh, i) for i in eachindex(vertices(mesh))]
 
+abstract type AbstractGlobalMesh{T} <: AbstractVector{T} end
+
+Base.size(d::AbstractGlobalMesh) = (Meshes.nvertices(d.mesh),)
+Base.IndexStyle(::Type{<:AbstractGlobalMesh}) = IndexLinear()
+
 ## GlobalProblem
 ## =============
 
 @auto_hash_equals typearg=true struct GlobalProblem{
     F,E<:ResolventEquation{F},C<:AbstractConstraint{F},M<:SimpleMesh
-}
+} <: AbstractGlobalMesh{PointProblem{F,E,C}}
     equation::E
     constraint::C
     mesh::M
@@ -53,8 +58,6 @@ function GlobalProblem(equation::ResolventEquation{F}, constraint, mesh) where {
     return GlobalProblem{F}(equation, constraint, mesh)
 end
 
-Base.length(prob::GlobalProblem) = Meshes.nvertices(prob.mesh)
-
 function Base.getindex(prob::GlobalProblem, i::Int)
     return PointProblem(prob.equation, prob.constraint, zval(prob.mesh, i))
 end
@@ -64,7 +67,7 @@ end
 
 @auto_hash_equals typearg=true struct GlobalSolution{
     F,E<:ResolventEquation{F},M<:SimpleMesh,P<:StructVector{ResolventParams{F}}
-} <: AbstractSolution{F}
+} <: AbstractGlobalMesh{PointSolution{F,E}}
     equation::E
     mesh::M
     params::P
@@ -83,7 +86,10 @@ function GlobalSolution(equation::ResolventEquation{F}, mesh::SimpleMesh) where 
     return GlobalSolution{F}(equation, mesh)
 end
 
-Base.length(sol::GlobalSolution) = Meshes.nvertices(sol.mesh)
+function Base.getindex(sol::GlobalSolution{F,E}, i::Int) where {F,E}
+    (; equation, mesh, params, success) = sol
+    return PointSolution{F,E}(equation, zval(mesh, i), params[i], success[i])
+end
 
 function Base.setindex!(sol::GlobalSolution, ps::PointSolution, i::Int)
     if ps.equation !== sol.equation
@@ -158,10 +164,53 @@ end
 
 ## Accessors for GlobalSolution
 ## ----------------------------
-## Most methods are inherited from AbstractSolution. Only ones that require specialized
-## methods are implemented here.
+## We had to choose between having an abstract solution type to avoid duplicated accessor
+## implementations, or subtyping AbstractArray to get full-featured iteration and indexing
+## (complete with axes, eachindex, et cetera) for free. We chose the latter.
 """
-regularizer(sol::GlobalSolution, type) -> Vector{<:Regularizer}
+    issuccess(sol::GlobalSolution) -> BitVector
+
+Return whether the solution is finite, self-consistent, and satisfies shiftmin.
+"""
+Solutions.issuccess(sol::GlobalSolution) = sol.success
+
+"""
+    q(sol::GlobalSolution{F}) -> Vector{Complex{F}}
+
+Return the self-consistency parameter q of the solution.
+"""
+Solutions.q(sol::GlobalSolution) = sol.params.q
+
+"""
+    ptrace(sol::GlobalSolution{F}) -> Vector{F}
+
+Return the partial trace parameter ptrace of the solution.
+"""
+Solutions.ptrace(sol::GlobalSolution) = sol.params.ptrace
+
+"""
+    greens(sol::GlobalSolution{F}) -> Vector{Complex{F}}
+
+Return the Green's function value of the solution.
+"""
+Solutions.greens(sol::GlobalSolution) = sol.params.greens
+
+"""
+    shift(sol::GlobalSolution{F}) -> Vector{F}
+
+Return the shift regularizer value of the solution.
+"""
+Regularizers.shift(sol::GlobalSolution) = sol.params.shift
+
+"""
+    gap(sol::GlobalSolution{F}) -> Vector{F}
+
+Return the gap regularizer value of the solution.
+"""
+Regularizers.gap(sol::GlobalSolution) = sol.params.gap
+
+"""
+    regularizer(sol::GlobalSolution{F}, type) -> Vector{Regularizer{F}}
 
 Return the regularizer of type `type` of the solution.
 """
@@ -203,6 +252,7 @@ end
     prob = GlobalProblem(eq, constraint, mesh)
 
     @test prob isa GlobalProblem{Float64}
+    @test IndexStyle(typeof(prob)) == IndexLinear()
     @test length(prob) == nvertices(mesh)
 
     pp = prob[1]
@@ -216,9 +266,9 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.GlobalData: GlobalSolution, zval
     using GaussianSpectralDensities.Problems: ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, ResolventParams, issuccess, regularizer
+        PointSolution, ResolventParams, greens, issuccess, ptrace, q, regularizer
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
@@ -229,6 +279,7 @@ end
     sol = GlobalSolution(eq, mesh)
 
     @test sol isa GlobalSolution{Float64}
+    @test IndexStyle(typeof(sol)) == IndexLinear()
     @test length(sol) == nvertices(mesh)
     @test !any(issuccess(sol))
 
@@ -246,6 +297,9 @@ end
     @test sol.params[1] == ps.params
     @test sol.success[1] == ps.success
 
+    # getindex
+    @test sol[1] == ps
+
     # setindex! with mismatched eq or z throws ArgumentError
     eq2 = ResolventEquation(eq.ensemble; shiftmin=0)
     z2 = zval(mesh, 2)
@@ -254,9 +308,17 @@ end
     @test_throws ArgumentError sol[1] = ps_wrongA
     @test_throws ArgumentError sol[1] = ps_wrongB
 
-    # regularizer accessor
+    # accessors
+    sol.params.q .= ComplexF64[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
+    sol.params.ptrace .= [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    sol.params.greens .= ComplexF64[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
     sol.params.shift .= [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     sol.params.gap .= [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
+    @test q(sol) == sol.params.q
+    @test ptrace(sol) == sol.params.ptrace
+    @test greens(sol) == sol.params.greens
+    @test shift(sol) == sol.params.shift
+    @test gap(sol) == sol.params.gap
     regs_shift = regularizer(sol, :shift)
     regs_gap = regularizer(sol, :gap)
     @test length(regs_shift) == length(sol)
