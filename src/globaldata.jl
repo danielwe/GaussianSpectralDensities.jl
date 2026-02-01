@@ -5,7 +5,8 @@ using Meshes: Meshes, SimpleMesh, centroid, coords, elements, indices, topology,
 using StructArrays: StructVector
 
 using ..Problems: AbstractConstraint, PointProblem, ResolventEquation
-using ..Solutions: PointSolution, ResolventParams
+using ..Regularizers: Regularizer
+using ..Solutions: AbstractSolution, PointSolution, ResolventParams, Solutions
 
 using ..ArrayTools: adaptrealtype
 
@@ -63,7 +64,7 @@ end
 
 @auto_hash_equals typearg=true struct GlobalSolution{
     F,E<:ResolventEquation{F},M<:SimpleMesh,P<:StructVector{ResolventParams{F}}
-}
+} <: AbstractSolution{F}
     equation::E
     mesh::M
     params::P
@@ -152,6 +153,21 @@ function element_gradients(sol::GlobalSolution, field::Symbol)
     end
 end
 
+## Accessors for GlobalSolution
+## ----------------------------
+## Most methods are inherited from AbstractSolution. Only ones that require specialized
+## methods are implemented here.
+"""
+regularizer(sol::GlobalSolution, type) -> Vector{<:Regularizer}
+
+Return the regularizer of type `type` of the solution.
+"""
+function Solutions.regularizer(sol::GlobalSolution, type)
+    return map(getproperty(sol.params, Symbol(type))) do reg_val
+        return Regularizer(reg_val, type)
+    end
+end
+
 end  # module GlobalData
 
 @testitem "zval" begin
@@ -197,7 +213,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.GlobalData: GlobalSolution
     using GaussianSpectralDensities.Problems: ResolventEquation
-    using GaussianSpectralDensities.Solutions: ResolventParams
+    using GaussianSpectralDensities.Solutions: ResolventParams, issuccess
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
@@ -209,14 +225,14 @@ end
 
     @test sol isa GlobalSolution{Float64}
     @test length(sol) == nvertices(mesh)
-    @test all(!, sol.success)
+    @test !any(issuccess(sol))
 
     params = ResolventParams(0.5 + 0.5im, 0.25, 0.5, 1.0, -0.5 + 2.0im)
     sol.params[1] = params
     sol.success[1] = true
 
     @test sol.params[1] == params
-    @test sol.success[1]
+    @test issuccess(sol)[1]
 end
 
 @testitem "element_gradients" begin

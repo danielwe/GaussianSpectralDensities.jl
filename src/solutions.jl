@@ -4,11 +4,13 @@ using AutoHashEquals: @auto_hash_equals
 
 using ..Defaults: approxequal
 using ..Problems: PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
+using ..Regularizers: Regularizer, Regularizers
 using ..Workspaces: Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
 using ..ArrayTools: ArrayTools
 
-public PointSolution, ResolventParams, solves
+public AbstractSolution,
+    PointSolution, ResolventParams, greens, issuccess, ptrace, q, regularizer, solves
 
 """
     ResolventParams(q, shift, gap, ptrace, greens)
@@ -29,6 +31,17 @@ function ResolventParams{F}(p::ResolventParams) where {F}
     return ResolventParams{F}(p.q, p.shift, p.gap, p.ptrace, p.greens)
 end
 
+## Accessors
+## =========
+"""
+    regularizer(params::ResolventParams, type) -> Regularizer
+
+Return the regularizer of type `type` of the solution.
+"""
+function regularizer(params::ResolventParams, type)
+    return Regularizer(getproperty(params, Symbol(type)), type)
+end
+
 ## Conversions
 ## ===========
 function Base.convert(::Type{ResolventParams{F}}, p::ResolventParams) where {F}
@@ -38,6 +51,22 @@ end
 function ArrayTools.adaptrealtype(::Type{F}, p::ResolventParams) where {F}
     return convert(ResolventParams{F}, p)
 end
+
+## Consistency
+## ===========
+function satisfies(params::ResolventParams, constraint::RegularizerConstraint)
+    creg = constraint.val
+    reg = regularizer(params, creg.type)
+    return approxequal(reg.val, creg.val)
+end
+
+function satisfies(params::ResolventParams, constraint::PTraceConstraint)
+    return approxequal(params.ptrace, constraint.val)
+end
+
+## Solution types
+## ==============
+abstract type AbstractSolution{F} end
 
 """
     PointSolution(equation, z, q, reg; workspace=Workspace(equation))
@@ -53,7 +82,8 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
   - `params`: derived parameter values (q, shift, gap, ptrace, greens)
   - `success`: whether the derived parameters are finite, self-consistent, and satisfy shiftmin
 """
-@auto_hash_equals typearg=true struct PointSolution{F,E<:ResolventEquation{F}}
+@auto_hash_equals typearg=true struct PointSolution{F,E<:ResolventEquation{F}} <:
+                                      AbstractSolution{F}
     equation::E
     z::Complex{F}
     params::ResolventParams{F}
@@ -102,20 +132,61 @@ end
 ## Consistency
 ## ===========
 function solves(solution::PointSolution, problem::PointProblem)
-    solution.success || return false
-    (solution.equation === problem.equation) || return false
-    (solution.z === problem.z) || return false
+    issuccess(solution) || return false
+    ((solution.equation === problem.equation) && (solution.z == problem.z)) || return false
     return satisfies(solution.params, problem.constraint)
 end
 
-function satisfies(params::ResolventParams, constraint::RegularizerConstraint)
-    reg_val = getproperty(params, Symbol(constraint.val.type))
-    return approxequal(reg_val, constraint.val.val)
-end
+## Accessors
+## =========
+"""
+    issuccess(sol::AbstractSolution) -> Bool
 
-function satisfies(params::ResolventParams, constraint::PTraceConstraint)
-    return approxequal(params.ptrace, constraint.val)
-end
+Return whether the solution is finite, self-consistent, and satisfies shiftmin.
+"""
+issuccess(sol::AbstractSolution) = sol.success
+
+"""
+    q(sol::AbstractSolution) -> Complex
+
+Return the self-consistency parameter q of the solution.
+"""
+q(sol::AbstractSolution) = sol.params.q
+
+"""
+    ptrace(sol::AbstractSolution) -> Real
+
+Return the partial trace parameter ptrace of the solution.
+"""
+ptrace(sol::AbstractSolution) = sol.params.ptrace
+
+"""
+    greens(sol::AbstractSolution) -> Complex
+
+Return the Green's function value of the solution.
+"""
+greens(sol::AbstractSolution) = sol.params.greens
+
+"""
+    shift(sol::AbstractSolution) -> Real
+
+Return the shift regularizer value of the solution.
+"""
+Regularizers.shift(sol::AbstractSolution) = sol.params.shift
+
+"""
+    gap(sol::AbstractSolution) -> Real
+
+Return the gap regularizer value of the solution.
+"""
+Regularizers.gap(sol::AbstractSolution) = sol.params.gap
+
+"""
+    regularizer(sol::AbstractSolution, type) -> Regularizer
+
+Return the regularizer of type `type` of the solution.
+"""
+regularizer(sol::AbstractSolution, type) = regularizer(sol.params, type)
 
 end  # module Solutions
 
@@ -153,8 +224,9 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation, update
-    using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution, solves
+    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
+    using GaussianSpectralDensities.Solutions:
+        PointSolution, greens, issuccess, ptrace, q, regularizer, solves
     using GaussianSpectralDensities.Workspaces:
         Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
@@ -167,58 +239,55 @@ end
     # For an N=1 problem we always have gap * ptrace = 1, so it's easy to define constraints
     # that are satisfied simultaneously
     reg_type = :gap
-    reg = Regularizer(0.5, reg_type)
+    reg64 = Regularizer(0.5, reg_type)
+    ptrace64 = 2.0
 
     # We're relying on some very particular parameter tuning here to create a solution we
     # know a priori to be consistent and to survive roundtrip floattype conversion
-    z = 0.25 + 0.25im
-    q = -0.5 - 0.5im
+    z64 = 0.25 + 0.25im
+    q64 = -0.5 - 0.5im
 
-    solution64 = PointSolution(eq64, z, q, reg; workspace=ws64)
+    solution64 = PointSolution(eq64, z64, q64, reg64; workspace=ws64)
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(ensemble64)
         eqF = ResolventEquation(ensembleF)
         wsF = Workspace(eqF)
 
-        solutionF = PointSolution(eqF, z, q, reg; workspace=wsF)
+        solutionF = PointSolution(eqF, z64, q64, reg64; workspace=wsF)
 
-        # Type and fields
+        # Type and traits
         @test solutionF isa PointSolution{F}
-        @test solutionF.z == z
-        @test solutionF.success
+        @test issuccess(solutionF)
+        solF_q, solF_reg = q(solutionF), regularizer(solutionF, reg_type)
+        @test solF_q == q64
+        @test solF_reg == reg64
 
-        solF_par = solutionF.params
-        @test solF_par.q == q
+        @test shift(solutionF) == shift!(wsF, eqF, solutionF.z, solF_q, solF_reg)
+        @test gap(solutionF) == gap!(wsF, eqF, solutionF.z, solF_q, solF_reg)
+        @test ptrace(solutionF) == ptrace!(wsF, eqF, solutionF.z, solF_q, solF_reg)
+        @test greens(solutionF) == greens!(wsF, eqF, solutionF.z, solF_q, solF_reg)
 
-        solF_reg = Regularizer(getproperty(solF_par, reg_type), reg_type)
-        @test solF_reg == reg
-
-        @test solF_par.shift == shift!(wsF, eqF, solutionF.z, solF_par.q, solF_reg)
-        @test solF_par.gap == gap!(wsF, eqF, solutionF.z, solF_par.q, solF_reg)
-        @test solF_par.ptrace == ptrace!(wsF, eqF, solutionF.z, solF_par.q, solF_reg)
-        @test solF_par.greens == greens!(wsF, eqF, solutionF.z, solF_par.q, solF_reg)
-
-        @test approxequal(solF_par.q, qFP!(wsF, eqF, solutionF.z, solF_par.q, solF_reg))
+        @test approxequal(solF_q, qFP!(wsF, eqF, solutionF.z, solF_q, solF_reg))
 
         # Actually solves the problems we expect it to
-        problem_regF = PointProblem(eqF, RegularizerConstraint(reg, q), z)
-        problem_ptraceF = PointProblem(eqF, PTraceConstraint(2.0, q, reg), z)
+        problem_regF = PointProblem(eqF, RegularizerConstraint(reg64, q64), z64)
+        problem_ptraceF = PointProblem(eqF, PTraceConstraint(ptrace64, q64, reg64), z64)
         @test solves(solutionF, problem_regF)
         @test solves(solutionF, problem_ptraceF)
 
         # Failure due to inconsistent parameters
-        solutionF_inconsistent = PointSolution(eqF, z, zero(q), reg; workspace=wsF)
-        @test !solutionF_inconsistent.success
+        solutionF_inconsistent = PointSolution(eqF, z64, zero(q64), reg64; workspace=wsF)
+        @test !issuccess(solutionF_inconsistent)
 
         # Failure due to NaN
-        solutionF_nan = PointSolution(eqF, z, oftype(q, NaN), reg; workspace=wsF)
-        @test !solutionF_nan.success
+        solutionF_nan = PointSolution(eqF, z64, oftype(q64, NaN), reg64; workspace=wsF)
+        @test !issuccess(solutionF_nan)
 
-        # Failure due to shiftmin (with the given params we know that shift = 0
+        # Failure due to shiftmin (with the given params we know that shift = 0)
         eqF_impossible = update(eqF; shiftmin=1.0)
-        solutionF_impossible = PointSolution(eqF_impossible, z, q, reg)
-        @test !solutionF_impossible.success
+        solutionF_impossible = PointSolution(eqF_impossible, z64, q64, reg64)
+        @test !issuccess(solutionF_impossible)
 
         # Floattype conversions
         @test PointSolution{F}(solution64) == solutionF
@@ -228,4 +297,37 @@ end
         @test adaptrealtype(F, solution64) == solutionF
         @test adaptrealtype(Float64, solutionF) == solution64
     end
+end
+
+@testitem "PointSolution accessors" begin
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems:
+        PointProblem, RegularizerConstraint, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
+    using GaussianSpectralDensities.Solutions:
+        PointSolution, greens, issuccess, ptrace, q, regularizer
+    using GaussianSpectralDensities.Workspaces: Workspace
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(I, I, I, I / 2)
+    eq = ResolventEquation(ensemble)
+    ws = Workspace(eq)
+
+    reg_type = :gap
+    reg = Regularizer(0.5, reg_type)
+    z = 0.25 + 0.25im
+    q_val = -0.5 - 0.5im
+
+    solution = PointSolution(eq, z, q_val, reg; workspace=ws)
+
+    # Test accessors
+    @test issuccess(solution) == solution.success
+    @test q(solution) == solution.params.q
+    @test ptrace(solution) == solution.params.ptrace
+    @test greens(solution) == solution.params.greens
+    @test shift(solution) == solution.params.shift
+    @test gap(solution) == solution.params.gap
+    @test regularizer(solution, :shift) == Regularizer(solution.params.shift, :shift)
+    @test regularizer(solution, :gap) == Regularizer(solution.params.gap, :gap)
 end

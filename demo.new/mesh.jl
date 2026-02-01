@@ -5,7 +5,8 @@ using GaussianSpectralDensities.Algorithms: RegularizerSchedule
 using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 using GaussianSpectralDensities.GlobalData: GlobalProblem, GlobalSolution  #, zvals
 using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
-using GaussianSpectralDensities.Regularizers: Regularizer
+using GaussianSpectralDensities.Regularizers: Regularizer, shift
+using GaussianSpectralDensities.Solutions: issuccess
 using GaussianSpectralDensities.Solvers: pointsolve
 using LinearAlgebra: I
 using Meshes:
@@ -41,13 +42,12 @@ for i in 1:length(prob)
     sol[i] = pointsolve(prob[i], algorithm)
 end
 
-# FIXME: for failed vertices, inject NaN (or maybe nothing/missing) in
-# setindex!(::GlobalSolution, ...)
-shiftmax = maximum(sol.params.shift)
-prunedshift = map(sol.params.shift, sol.success) do shift, success
-    return success ? max(shift, -shiftmax / 2) : oftype(shift, NaN)
+# FIXME: for failed vertices, inject NaN/nothing/missing in setindex!(::GlobalSolution, ...)
+shiftmax = maximum(shift(sol))
+prunedshift_vals = map(shift(sol), issuccess(sol)) do s, success
+    return success ? max(s, -shiftmax / 2) : oftype(s, NaN)
 end
-shiftvertices = map(mesh.vertices, prunedshift) do v, s
+shiftvertices = map(mesh.vertices, prunedshift_vals) do v, s
     c = coords(v)
     return Point(c.x.val, c.y.val, s)
 end
@@ -58,7 +58,7 @@ ax = Axis3(fig[1, 1]; xlabel="Re(z)", ylabel="Im(z)", zlabel="shift")
 viz!(
     ax,
     shiftmesh;
-    color=prunedshift,
-    colorrange=(0.0, maximum(prunedshift[isfinite.(prunedshift)])),
+    color=prunedshift_vals,
+    colorrange=(0.0, maximum(prunedshift_vals[isfinite.(prunedshift_vals)])),
 )
 fig

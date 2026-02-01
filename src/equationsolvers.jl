@@ -137,6 +137,7 @@ end
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
+    using GaussianSpectralDensities.Solutions: issuccess
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -157,6 +158,6 @@ end
 
         @test sol.equation == eq
         @test sol.z == z
-        @test !sol.success
+        @test !issuccess(sol)
     end
 end

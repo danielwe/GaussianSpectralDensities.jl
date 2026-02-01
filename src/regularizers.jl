@@ -5,7 +5,7 @@ using EnumX: @enumx
 
 using ..ArrayTools: ArrayTools
 
-public Regularizer, RegularizerType, gap, regularizertype, shift
+public Regularizer, RegularizerType, gap, shift
 
 @enumx RegularizerType::UInt8 shift gap
 
@@ -56,10 +56,6 @@ end
 
 Regularizer{F}(; kwargs...) where {F} = Regularizer{F}(Regularizer(; kwargs...))
 
-## Traits
-## ======
-regularizertype(reg::Regularizer) = Symbol(reg.type)
-
 ## Conversions
 ## ===========
 Base.convert(::Type{P}, r::Regularizer) where {P<:Regularizer} = (r isa P) ? r : P(r)
@@ -101,7 +97,7 @@ end  # module Regularizers
 
 @testitem "Regularizer" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Regularizers: Regularizer, gap, regularizertype, shift
+    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
 
     shift64, gap64 = 0.0, 0.5
     baregap64 = gap64 - shift64
@@ -111,8 +107,6 @@ end  # module Regularizers
     # Traits
     @test reg_shift64 isa Regularizer{Float64}
     @test reg_gap64 isa Regularizer{Float64}
-    @test regularizertype(reg_shift64) == :shift
-    @test regularizertype(reg_gap64) == :gap
 
     @testset "$F" for F in [Float32, Float64]
         shiftF, gapF, baregapF = F.((shift64, gap64, baregap64))
@@ -155,13 +149,11 @@ end  # module Regularizers
 end
 
 @testitem "Regularizer keyword constructor" begin
-    using GaussianSpectralDensities.Regularizers: Regularizer, regularizertype
+    using GaussianSpectralDensities.Regularizers: Regularizer
 
     # Valid calls
     @test Regularizer(; shift=0.5) == Regularizer(0.5, :shift)
     @test Regularizer(; gap=0.25) == Regularizer(0.25, :gap)
-    @test regularizertype(Regularizer(; shift=0.5)) == :shift
-    @test regularizertype(Regularizer(; gap=0.25)) == :gap
 
     # Type-enforcing
     @test Regularizer{Float32}(; shift=0.5) isa Regularizer{Float32}

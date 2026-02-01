@@ -6,7 +6,9 @@ using StructArrays: StructArray
 
 using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, statetype
 using ..Problems: AbstractConstraint, PointProblem
-using ..Solutions: PointSolution, ResolventParams
+using ..Regularizers: Regularizers, gap, shift
+using ..Solutions:
+    PointSolution, ResolventParams, Solutions, greens, issuccess, ptrace, q, regularizer
 using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
@@ -86,7 +88,7 @@ function CommonSolve.step!(solver::Solver)
     result = iterate(solver)
     isnothing(result) && throw(ArgumentError("cannot step! a finished Solver"))
     # CommonSolve.step! generally returns a retcode; in our case just success/failure
-    return (!isnothing(solver.pointsolution)) && solver.pointsolution.success
+    return (!isnothing(solver.pointsolution)) && issuccess(solver.pointsolution)
 end
 
 function CommonSolve.solve!(solver::Solver)
@@ -118,6 +120,57 @@ end
         return new{F,S,C,A,T}(pointsolution, constraint, algorithm, trace)
     end
 end
+
+## Accessors for Solution
+## ----------------------
+"""
+    issuccess(sol::Solution) -> Bool
+
+Return whether the solution is finite, self-consistent, and satisfies shiftmin.
+"""
+Solutions.issuccess(sol::Solution) = issuccess(sol.pointsolution)
+
+"""
+    q(sol::Solution) -> Complex
+
+Return the self-consistency parameter q of the solution.
+"""
+Solutions.q(sol::Solution) = q(sol.pointsolution)
+
+"""
+    ptrace(sol::Solution) -> Real
+
+Return the partial trace parameter ptrace of the solution.
+"""
+Solutions.ptrace(sol::Solution) = ptrace(sol.pointsolution)
+
+"""
+    greens(sol::Solution) -> Complex
+
+Return the Green's function value of the solution.
+"""
+Solutions.greens(sol::Solution) = greens(sol.pointsolution)
+
+"""
+    shift(sol::Solution) -> Real
+
+Return the shift regularizer value of the solution.
+"""
+Regularizers.shift(sol::Solution) = shift(sol.pointsolution)
+
+"""
+    gap(sol::Solution) -> Real
+
+Return the gap regularizer value of the solution.
+"""
+Regularizers.gap(sol::Solution) = gap(sol.pointsolution)
+
+"""
+    regularizer(sol::Solution, type::Symbol) -> Regularizer
+
+Return the regularizer of type `type` of the solution.
+"""
+Solutions.regularizer(sol::Solution, type::Symbol) = regularizer(sol.pointsolution, type)
 
 end  # module Solvers
 
@@ -173,7 +226,7 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: PointSolution, solves
+    using GaussianSpectralDensities.Solutions: PointSolution, issuccess, solves
     using GaussianSpectralDensities.Solvers: Solver
 
     using LinearAlgebra: I
@@ -209,7 +262,7 @@ end
         @test isnothing(iterate(solver))
 
         # Solution should match target
-        @test solver.pointsolution.success
+        @test issuccess(solver.pointsolution)
         @test solves(solver.pointsolution, solver.problem)
     end
 
@@ -235,7 +288,7 @@ end
         @test Base.isdone(solver)
 
         # Final solution should match target
-        @test solver.pointsolution.success
+        @test issuccess(solver.pointsolution)
         @test solves(solver.pointsolution, solver.problem)
 
         # Trace contains resolvent params
@@ -306,7 +359,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Solutions: solves
+    using GaussianSpectralDensities.Solutions: issuccess, solves
     using GaussianSpectralDensities.Solvers: Solution
 
     using LinearAlgebra: I
@@ -349,7 +402,7 @@ end
         # Solution can still be constructed; it just has success=false
         solution = Solution(solver)
         @test solution isa Solution{Float64}
-        @test !solution.pointsolution.success
+        @test !issuccess(solution)
     end
 
     @testset "Solution properties" begin
@@ -361,7 +414,7 @@ end
         solution = solve!(solver)
 
         # Final solution matches target
-        @test solution.pointsolution.success
+        @test issuccess(solution)
         @test solves(solution.pointsolution, problem_sched)
 
         # Trace captures history (may terminate early when ptrace crosses target)
@@ -378,6 +431,8 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: shift
+    using GaussianSpectralDensities.Solutions: issuccess
 
     using LinearAlgebra: I
 
@@ -397,12 +452,45 @@ end
     @test Base.isdone(solver)
 
     # Last solution failed
-    @test !solution.pointsolution.success
-    @test solution.pointsolution.params.shift < eq.shiftmin
+    @test !issuccess(solution)
+    @test shift(solution) < eq.shiftmin
 
     # Trace is still what we expect
     @test solution.trace === solver.trace
     @test last(solution.trace) == solution.pointsolution.params
+end
+
+@testitem "Solution accessors" begin
+    using CommonSolve: init, solve!
+
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: gap, shift
+    using GaussianSpectralDensities.Solutions: greens, issuccess, ptrace, q, regularizer
+    using GaussianSpectralDensities.Solvers: Solution
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    z = 0.5 + 0.5im
+    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    problem = PointProblem(eq, constraint, z)
+
+    solver = init(problem, DirectSolve())
+    solution = solve!(solver)
+
+    # Test accessors forward to pointsolution
+    @test issuccess(solution) == issuccess(solution.pointsolution)
+    @test q(solution) == q(solution.pointsolution)
+    @test ptrace(solution) == ptrace(solution.pointsolution)
+    @test greens(solution) == greens(solution.pointsolution)
+    @test shift(solution) == shift(solution.pointsolution)
+    @test gap(solution) == gap(solution.pointsolution)
+    @test regularizer(solution, :shift) == regularizer(solution.pointsolution, :shift)
+    @test regularizer(solution, :gap) == regularizer(solution.pointsolution, :gap)
 end
 
 @testitem "pointsolve/pointsolve! interface" begin
@@ -410,7 +498,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Solutions: PointSolution, solves
+    using GaussianSpectralDensities.Solutions: PointSolution, issuccess, solves
     using GaussianSpectralDensities.Solvers: Solver, pointsolve, pointsolve!
 
     using LinearAlgebra: I
@@ -424,7 +512,7 @@ end
     @testset "pointsolve(problem, alg)" begin
         ps = pointsolve(problem, DirectSolve())
         @test ps isa PointSolution{Float64}
-        @test ps.success
+        @test issuccess(ps)
         @test solves(ps, problem)
     end
 
@@ -433,7 +521,7 @@ end
         ps = pointsolve!(solver)
         @test ps isa PointSolution{Float64}
         @test ps === solver.pointsolution
-        @test ps.success
+        @test issuccess(ps)
         @test solves(ps, problem)
         @test Base.isdone(solver)
     end
@@ -446,7 +534,7 @@ end
 
         ps = pointsolve(problem_sched, alg)
         @test ps isa PointSolution{Float64}
-        @test ps.success
+        @test issuccess(ps)
         @test solves(ps, problem_sched)
     end
 
@@ -458,6 +546,6 @@ end
 
         ps = pointsolve(problem_impossible, DirectSolve())
         @test ps isa PointSolution{Float64}
-        @test !ps.success
+        @test !issuccess(ps)
     end
 end
