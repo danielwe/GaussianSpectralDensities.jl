@@ -1,3 +1,4 @@
 style = "blue"
 format_docstrings = true
 always_use_return = true
+long_to_short_function_def = true
