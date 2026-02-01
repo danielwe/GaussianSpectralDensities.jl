@@ -26,7 +26,7 @@ public Solution, Solver
     const problem::P
     const algorithm::A
     state::Union{Nothing,S}
-    current::Union{Nothing,PointSolution{F,E}}
+    pointsolution::Union{Nothing,PointSolution{F,E}}
     const trace::T
 
     function Solver{F}(problem::PointProblem, algorithm::AbstractAlgorithm) where {F}
@@ -50,7 +50,7 @@ Solver(problem::PointProblem{F}, algorithm) where {F} = Solver{F}(problem, algor
     A<:AbstractAlgorithm,
     T<:StructArray{ResolventParams{F}},
 }
-    solution::S
+    pointsolution::S
     constraint::C
     algorithm::A
     trace::T
@@ -59,11 +59,10 @@ Solver(problem::PointProblem{F}, algorithm) where {F} = Solver{F}(problem, algor
         if !Base.isdone(solver)
             throw(ArgumentError("cannot create Solution from unfinished Solver"))
         end
-        (; problem, algorithm, trace) = solver
-        solution = solver.current
+        (; problem, algorithm, pointsolution, trace) = solver
         (; constraint) = problem
-        S, C, A, T = typeof.((solution, constraint, algorithm, trace))
-        return new{F,S,C,A,T}(solution, constraint, algorithm, trace)
+        S, C, A, T = typeof.((pointsolution, constraint, algorithm, trace))
+        return new{F,S,C,A,T}(pointsolution, constraint, algorithm, trace)
     end
 end
 
@@ -81,7 +80,7 @@ function Base.iterate(solver::Solver, (::Nothing)=nothing)
     isnothing(result) && return nothing
     stepsolution, stepstate = result
     solver.state = stepstate
-    solver.current = stepsolution
+    solver.pointsolution = stepsolution
     push!(solver.trace, stepsolution.params)
     return solver, nothing
 end
@@ -96,7 +95,7 @@ function CommonSolve.step!(solver::Solver)
     result = iterate(solver)
     isnothing(result) && throw(ArgumentError("cannot step! a finished Solver"))
     # CommonSolve.step! generally returns a retcode; in our case just success/failure
-    return !isnothing(solver.current) && solver.current.success
+    return !isnothing(solver.pointsolution) && solver.pointsolution.success
 end
 
 function CommonSolve.solve!(solver::Solver)
@@ -146,7 +145,7 @@ end  # module Solvers
 
                 # Initial state
                 @test isnothing(solverF.state)
-                @test isnothing(solverF.current)
+                @test isnothing(solverF.pointsolution)
                 @test isempty(solverF.trace)
                 @test !Base.isdone(solverF)
             end
@@ -187,17 +186,17 @@ end
         @test !isnothing(result)
         returned_solver, _ = result
         @test returned_solver === solver
-        @test solver.current isa PointSolution{Float64}
+        @test solver.pointsolution isa PointSolution{Float64}
         @test length(solver.trace) == 1
-        @test first(solver.trace) == solver.current.params
+        @test first(solver.trace) == solver.pointsolution.params
 
         # After DirectSolve, should be done
         @test Base.isdone(solver)
         @test isnothing(iterate(solver))
 
         # Solution should match target
-        @test solver.current.success
-        @test solves(solver.current, solver.problem)
+        @test solver.pointsolution.success
+        @test solves(solver.pointsolution, solver.problem)
     end
 
     @testset "RegularizerSchedule" begin
@@ -222,11 +221,11 @@ end
         @test Base.isdone(solver)
 
         # Final solution should match target
-        @test solver.current.success
-        @test solves(solver.current, solver.problem)
+        @test solver.pointsolution.success
+        @test solves(solver.pointsolution, solver.problem)
 
         # Trace contains resolvent params
-        @test last(solver.trace) == solver.current.params
+        @test last(solver.trace) == solver.pointsolution.params
     end
 end
 
@@ -278,7 +277,7 @@ end
 
         solution = solve!(solver)
         @test solution isa Solution{Float64}
-        @test solution.solution === solver.current
+        @test solution.pointsolution === solver.pointsolution
         @test solution.constraint === solver.problem.constraint
         @test solution.algorithm === solver.algorithm
         @test solution.trace === solver.trace
@@ -310,7 +309,7 @@ end
 
         solution = Solution(solver)
         @test solution isa Solution{Float64}
-        @test solution.solution === solver.current
+        @test solution.pointsolution === solver.pointsolution
         @test solution.constraint === solver.problem.constraint
         @test solution.algorithm === solver.algorithm
         @test solution.trace === solver.trace
@@ -336,7 +335,7 @@ end
         # Solution can still be constructed; it just has success=false
         solution = Solution(solver)
         @test solution isa Solution{Float64}
-        @test !solution.solution.success
+        @test !solution.pointsolution.success
     end
 
     @testset "Solution properties" begin
@@ -348,13 +347,13 @@ end
         solution = solve!(solver)
 
         # Final solution matches target
-        @test solution.solution.success
-        @test solves(solution.solution, problem_sched)
+        @test solution.pointsolution.success
+        @test solves(solution.pointsolution, problem_sched)
 
         # Trace captures history (may terminate early when ptrace crosses target)
         @test length(solution.trace) > 0
         @test length(solution.trace) <= length(alg) + 1
-        @test last(solution.trace) == solution.solution.params
+        @test last(solution.trace) == solution.pointsolution.params
     end
 end
 
@@ -384,10 +383,10 @@ end
     @test Base.isdone(solver)
 
     # Last solution failed
-    @test !solution.solution.success
-    @test solution.solution.params.shift < eq.shiftmin
+    @test !solution.pointsolution.success
+    @test solution.pointsolution.params.shift < eq.shiftmin
 
     # Trace is still what we expect
     @test solution.trace === solver.trace
-    @test last(solution.trace) == solution.solution.params
+    @test last(solution.trace) == solution.pointsolution.params
 end

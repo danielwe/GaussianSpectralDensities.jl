@@ -37,7 +37,7 @@ prob = GlobalProblem(equation, constraint, mesh)
 sol = GlobalSolution(equation, mesh)
 
 for i in 1:length(prob)
-    sol[i] = solve(prob[i], algorithm).solution
+    sol[i] = solve(prob[i], algorithm).pointsolution
 end
 
 # FIXME: for failed vertices, inject NaN (or maybe nothing/missing) in
