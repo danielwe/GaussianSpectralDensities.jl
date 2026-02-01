@@ -367,6 +367,14 @@ end
         @test regcF isa RegularizerConstraint{F}
         @test ptracecF isa PTraceConstraint{F}
 
+        # Type-inferring constructor: RegularizerConstraint(val::Regularizer{F}, q0)
+        @test RegularizerConstraint(regF, q0_64) == regcF
+        @test RegularizerConstraint(reg64, q0_F) == regc64
+
+        # Type-inferring constructor: PTraceConstraint(val::F, q0, reg0)
+        @test PTraceConstraint(F(ptrace64), q0_64, reg64) == ptracecF
+        @test PTraceConstraint(ptrace64, q0_F, regF) == ptracec64
+
         # User-friendly constructor (keyword args)
         @test RegularizerConstraint(; gap=F(0.5), q0=q0_F) == regcF
         @test PTraceConstraint(F(ptrace64); q0=q0_F, gap0=F(0.5)) == ptracecF
@@ -411,17 +419,111 @@ end
     @test ptracec_shift == PTraceConstraint(1.0, complex(0.1), reg_shift)
     @test ptracec_gap == PTraceConstraint(1.0, complex(0.1), reg_gap)
 
+    # Keyword constructor from Regularizer: RegularizerConstraint(val; q0)
+    @test RegularizerConstraint(reg_shift; q0=complex(0.1)) == regc_shift
+    @test RegularizerConstraint(reg_gap; q0=complex(0.1)) == regc_gap
+
     # Type-enforcing keyword constructors
     @test RegularizerConstraint{Float32}(; shift=0.5, q0=complex(0.1)) isa
         RegularizerConstraint{Float32}
     @test PTraceConstraint{Float32}(1.0; q0=complex(0.1), gap0=0.25) isa
         PTraceConstraint{Float32}
 
+    # Type-enforcing keyword constructor from Regularizer: RegularizerConstraint{F}(val; q0)
+    @test RegularizerConstraint{Float32}(reg_shift; q0=complex(0.1)) isa
+        RegularizerConstraint{Float32}
+    @test RegularizerConstraint{Float64}(reg_gap; q0=complex(0.1)) isa
+        RegularizerConstraint{Float64}
+
     # Errors propagate through constructors
     @test_throws ArgumentError RegularizerConstraint(; q0=complex(0.1))
     @test_throws ArgumentError RegularizerConstraint(; shift=0.5, gap=0.25, q0=complex(0.1))
     @test_throws ArgumentError PTraceConstraint(1.0; q0=complex(0.1))
     @test_throws ArgumentError PTraceConstraint(1.0; q0=complex(0.1), shift0=0.5, gap0=0.25)
+end
+
+@testitem "Constraint update methods" begin
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, RegularizerConstraint, update
+    using GaussianSpectralDensities.Regularizers: Regularizer
+
+    @testset "update(::RegularizerConstraint)" begin
+        reg = Regularizer(0.5, :gap)
+        q0 = complex(0.25)
+        regc = RegularizerConstraint(reg, q0)
+
+        # Update q0 only
+        regc_newq0 = update(regc; q0=complex(0.5))
+        @test regc_newq0.val == regc.val
+        @test regc_newq0.q0 == complex(0.5)
+
+        # Update to shift regularizer
+        regc_shift = update(regc; shift=0.75)
+        @test regc_shift.val == Regularizer(0.75, :shift)
+        @test regc_shift.q0 == q0
+
+        # Update to gap regularizer
+        regc_gap = update(regc; gap=0.75)
+        @test regc_gap.val == Regularizer(0.75, :gap)
+        @test regc_gap.q0 == q0
+
+        # Update both regularizer and q0
+        regc_both = update(regc; shift=0.75, q0=complex(0.5))
+        @test regc_both.val == Regularizer(0.75, :shift)
+        @test regc_both.q0 == complex(0.5)
+
+        # Error when specifying both shift and gap
+        @test_throws ArgumentError update(regc; shift=0.5, gap=0.25)
+    end
+
+    @testset "update(::PTraceConstraint)" begin
+        reg = Regularizer(0.5, :gap)
+        q0 = complex(0.25)
+        ptracec = PTraceConstraint(1.0, q0, reg)
+
+        # Update val only
+        ptracec_newval = update(ptracec; val=2.0)
+        @test ptracec_newval.val == 2.0
+        @test ptracec_newval.q0 == q0
+        @test ptracec_newval.reg0 == reg
+
+        # Update q0 only
+        ptracec_newq0 = update(ptracec; q0=complex(0.5))
+        @test ptracec_newq0.val == ptracec.val
+        @test ptracec_newq0.q0 == complex(0.5)
+        @test ptracec_newq0.reg0 == reg
+
+        # Update reg0 via shift0
+        ptracec_shift = update(ptracec; shift0=0.75)
+        @test ptracec_shift.val == ptracec.val
+        @test ptracec_shift.q0 == q0
+        @test ptracec_shift.reg0 == Regularizer(0.75, :shift)
+
+        # Update reg0 via gap0
+        ptracec_gap = update(ptracec; gap0=0.75)
+        @test ptracec_gap.val == ptracec.val
+        @test ptracec_gap.q0 == q0
+        @test ptracec_gap.reg0 == Regularizer(0.75, :gap)
+
+        # Update reg0 directly
+        reg_new = Regularizer(0.25, :shift)
+        ptracec_reg = update(ptracec; reg0=reg_new)
+        @test ptracec_reg.val == ptracec.val
+        @test ptracec_reg.q0 == q0
+        @test ptracec_reg.reg0 == reg_new
+
+        # Update everything
+        ptracec_all = update(ptracec; val=2.0, q0=complex(0.5), shift0=0.75)
+        @test ptracec_all.val == 2.0
+        @test ptracec_all.q0 == complex(0.5)
+        @test ptracec_all.reg0 == Regularizer(0.75, :shift)
+
+        # Error when specifying multiple of shift0, gap0, reg0
+        @test_throws ArgumentError update(ptracec; shift0=0.5, gap0=0.25)
+        @test_throws ArgumentError update(ptracec; shift0=0.5, reg0=reg)
+        @test_throws ArgumentError update(ptracec; gap0=0.25, reg0=reg)
+        @test_throws ArgumentError update(ptracec; shift0=0.5, gap0=0.25, reg0=reg)
+    end
 end
 
 @testitem "PointProblems" begin
@@ -463,9 +565,12 @@ end
             # Traits
             @test problemF isa PointProblem{F}
 
-            # Same problem? (same target, different init)
+            # Same problem? (same target, different init or type)
             problemF_newinit = PointProblem(eqF, constraint_newinit, z)
             @test issameproblem(problemF, problemF_newinit)
+            if F === Float32
+                @test !issameproblem(problemF, problem64)
+            end
 
             # Update
             problemF_updated = update(problemF; z=z_new, constraint=constraint_newinit)

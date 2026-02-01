@@ -86,11 +86,14 @@ end
 Base.length(sol::GlobalSolution) = Meshes.nvertices(sol.mesh)
 
 function Base.setindex!(sol::GlobalSolution, ps::PointSolution, i::Int)
-    expected_z = zval(sol.mesh, i)
-    if ps.z != expected_z
-        throw(
-            ArgumentError("PointSolution z=$(ps.z) does not match vertex $i z=$expected_z")
-        )
+    if ps.equation !== sol.equation
+        msg = "Cannot assign to GlobalSolution using PointSolution for different equation"
+        throw(ArgumentError(msg))
+    end
+    zi = zval(sol.mesh, i)
+    if ps.z != zi
+        msg = "PointSolution z=$(ps.z) does not match vertex $i with z=$zi"
+        throw(ArgumentError(msg))
     end
     sol.params[i] = ps.params
     sol.success[i] = ps.success
@@ -211,9 +214,11 @@ end
 
 @testitem "GlobalSolution" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.GlobalData: GlobalSolution
+    using GaussianSpectralDensities.GlobalData: GlobalSolution, zval
     using GaussianSpectralDensities.Problems: ResolventEquation
-    using GaussianSpectralDensities.Solutions: ResolventParams, issuccess
+    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Solutions:
+        PointSolution, ResolventParams, issuccess, regularizer
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
@@ -233,6 +238,35 @@ end
 
     @test sol.params[1] == params
     @test issuccess(sol)[1]
+
+    # setindex! with PointSolution
+    z1 = zval(mesh, 1)
+    ps = PointSolution(eq, z1, 1.0, Regularizer(; shift=1.0))
+    sol[1] = ps
+    @test sol.params[1] == ps.params
+    @test sol.success[1] == ps.success
+
+    # setindex! with mismatched eq or z throws ArgumentError
+    eq2 = ResolventEquation(eq.ensemble; shiftmin=0)
+    z2 = zval(mesh, 2)
+    ps_wrongA = PointSolution(eq2, z1, 1.0, Regularizer(; shift=1.0))
+    ps_wrongB = PointSolution(eq, z2, 1.0, Regularizer(; shift=1.0))
+    @test_throws ArgumentError sol[1] = ps_wrongA
+    @test_throws ArgumentError sol[1] = ps_wrongB
+
+    # regularizer accessor
+    sol.params.shift .= [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    sol.params.gap .= [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
+    regs_shift = regularizer(sol, :shift)
+    regs_gap = regularizer(sol, :gap)
+    @test length(regs_shift) == length(sol)
+    @test length(regs_gap) == length(sol)
+    @test all(r -> r isa Regularizer, regs_shift)
+    @test all(r -> r isa Regularizer, regs_gap)
+    @test all(r -> Symbol(r.type) == :shift, regs_shift)
+    @test all(r -> Symbol(r.type) == :gap, regs_gap)
+    @test [r.val for r in regs_shift] == sol.params.shift
+    @test [r.val for r in regs_gap] == sol.params.gap
 end
 
 @testitem "element_gradients" begin
@@ -248,8 +282,9 @@ end
     eq = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
 
     sol = GlobalSolution(eq, mesh)
-    sol.params.shift .= [float(i) for i in 1:length(sol)]
-    sol.params.greens .= [complex(float(i), float(i)^2) for i in 1:length(sol)]
+    shift_vals = 1:length(sol)
+    sol.params.shift .= shift_vals
+    sol.params.greens .= complex.(shift_vals, shift_vals .^ 2)
 
     grads_real = element_gradients(sol, :shift)
     @test length(grads_real) == nelements(mesh)
