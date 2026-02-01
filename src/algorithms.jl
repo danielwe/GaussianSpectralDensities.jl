@@ -25,8 +25,12 @@ public AbstractAlgorithm,
     statetype,
     step!
 
-abstract type AbstractAlgorithm end
+# Since Julia doesn't have traits, and we want _some_ algorithms to have array semantics,
+# all of them must
+abstract type AbstractAlgorithm{T} <: AbstractVector{T} end
 abstract type AbstractAlgorithmState end
+
+Base.IndexStyle(::Type{<:AbstractAlgorithm}) = IndexLinear()
 
 ## AbstractAlgorithm interface
 ## ===========================
@@ -50,9 +54,8 @@ abstract type AbstractAlgorithmState end
 ## - stepproblem(index, ::PointProblem, ::SomeAlgorithm, ::SomeAlgorithmState)::PointProblem
 ## - newstate(index, ::PointProblem, ::PointSolution, ::SomeAlgorithm, ::SomeAlgorithmState)::SomeAlgorithmState
 ##
-## Algorithms that implement the indexing interface (Base.getindex, Base.firstindex,
-## Base.lastindex, Base.length) should forward the stateless method
-## nextindex(::SomeAlgorithm, ::Nothing) to Base.firstindex.
+## Algorithms that implement the indexing or array interface should forward the stateless
+## method nextindex(::SomeAlgorithm, ::Nothing) to Base.firstindex.
 function nextindex end
 function isdone end
 function stepproblem end
@@ -90,7 +93,7 @@ Solve the average resolvent equation directly for the given objective
 This solution strategy can converge to the wrong branch when ``T ≠ 0``. A scheduling
 algorithm is recommended to mitigate this.
 """
-struct DirectSolve <: AbstractAlgorithm end
+struct DirectSolve <: AbstractAlgorithm{Union{}} end
 struct DirectSolveState <: AbstractAlgorithmState end
 
 DirectSolve(::DirectSolve) = DirectSolve()
@@ -101,6 +104,11 @@ Base.convert(::Type{DirectSolve}, alg::DirectSolve) = alg
 
 # Interface
 # ---------
+# We have no intention of indexing DirectSolve, but since it is a subtype of AbstractVector
+# we need to implement Base.size, otherwise printing would error.
+Base.size(::DirectSolve) = (0,)
+Base.getindex(alg::DirectSolve, i::Int) = Base.throw_boundserror(alg, (i,)) # XXX: needs test
+
 ArrayTools.adaptrealtype(::Type{F}, alg::DirectSolve) where {F<:AbstractFloat} = alg
 
 nextindex(::DirectSolve, ::Nothing) = nothing
@@ -119,30 +127,34 @@ statetype(::Type{DirectSolve}) = DirectSolveState
 ##
 ## Provided interface methods:
 ##
+## - Read-only array interface: Base.size, Base.IndexStyle, Base.getindex
 ## - nextindex(::AbstractSchedule{F}, ::Nothing)::Int
 ## - nextindex(::AbstractSchedule{F}, ::ScheduleState{F})::Int
-## - newstate(::Integer, PointProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}, ::Nothing)::ScheduleState{F}
-## - newstate(::Integer, PointProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::ScheduleState{F}
+## - newstate(::Int, PointProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}, ::Nothing)::ScheduleState{F}
+## - newstate(::Int, PointProblem{F}, ::PointSolution{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::ScheduleState{F}
 ## - isdone(::PointProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
 ## - statetype(::Type{<:AbstractSchedule{F}})::Type{ScheduleState{F}}
 ##
 ## Provided non-interface functions:
 ##
-## - stepproblem_predict(::Integer, ::PointProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::PointProblem{F}
+## - stepproblem_predict(::Int, ::PointProblem{F}, ::AbstractSchedule{F}, ::ScheduleState{F})::PointProblem{F}
 ## - predictconstraint(::AbstractConstraint{F}, ::PointSolution{F}, ::PointSolution{F})::AbstractConstraint{F}
 ##
 ## Required methods:
 ##
-## - Indexing interface (Base.getindex, Base.firstindex, Base.lastindex, Base.length)
 ## - Base.convert(::Type{SomeSchedule{F}}, alg::SomeSchedule)::SomeSchedule{F}
 ## - ArrayTools.adaptrealtype(::Type{F}, ::SomeSchedule)::SomeSchedule{F}
-## - stepproblem(::Integer, ::PointProblem{F}, ::SomeSchedule{F}, ::Nothing)::PointProblem{F}
+## - stepproblem(::Int, ::PointProblem{F}, ::SomeSchedule{F}, ::Nothing)::PointProblem{F}
 ## - iscomplete(::PointProblem{F}, ::SomeSchedule{F}, ::ScheduleState{F})::Bool
 ##
 ## Required properties:
 ## - :vals: should be an indexable collection of raw schedule values; while indexing the
 ##     schedule itself may return an instance of a richer type, indexing this collection
 ##     should return a plain number
+##
+## NOTE: The default getindex method is simply Base.getindex(alg, i) = alg.vals[i]. Subtypes
+## may # override this if needed as long as the indexing remains linear and the valid
+## indices are identical to the linear indices of alg.vals.
 ##
 ## NOTE: stepproblem_predict works by calling the stateless stepproblem (the one taking a
 ## Nothing state, for the initial step) and using predictconstraint to update the initial
@@ -155,7 +167,10 @@ statetype(::Type{DirectSolve}) = DirectSolveState
 ## to the end. Other termination criteria, including whether the most recent intermediate
 ## step happened upon a successful solution of the final problem, are handled by the
 ## provided isdone method.
-abstract type AbstractSchedule{F<:AbstractFloat} <: AbstractAlgorithm end
+abstract type AbstractSchedule{F<:AbstractFloat,T} <: AbstractAlgorithm{T} end
+
+Base.size(alg::AbstractSchedule) = (length(alg.vals),)
+Base.getindex(alg::AbstractSchedule, i::Int) = alg.vals[i]
 
 @auto_hash_equals typearg=true struct ScheduleState{
     F,E,P<:PointProblem{F,E},S<:PointSolution{F,E}
@@ -174,19 +189,13 @@ nextindex(alg::AbstractSchedule, ::Nothing) = firstindex(alg)
 nextindex(::AbstractSchedule{F}, state::ScheduleState{F}) where {F} = (state.index + 1)
 
 function stepproblem(
-    index::Integer,
-    problem::PointProblem{F},
-    alg::AbstractSchedule{F},
-    state::ScheduleState{F},
+    index::Int, problem::PointProblem{F}, alg::AbstractSchedule{F}, state::ScheduleState{F}
 ) where {F}
     return stepproblem_predict(index, problem, alg, state)
 end
 
 function stepproblem_predict(
-    index::Integer,
-    problem::PointProblem{F},
-    alg::AbstractSchedule{F},
-    state::ScheduleState{F},
+    index::Int, problem::PointProblem{F}, alg::AbstractSchedule{F}, state::ScheduleState{F}
 ) where {F}
     newproblem = stepproblem(index, problem, alg, nothing)
     newconstraint = predictconstraint(
@@ -199,7 +208,7 @@ function stepproblem_predict(
 end
 
 function newstate(
-    index::Integer,
+    index::Int,
     problem::PointProblem{F},
     solution::PointSolution{F},
     ::AbstractSchedule{F},
@@ -209,7 +218,7 @@ function newstate(
 end
 
 function newstate(
-    index::Integer,
+    index::Int,
     problem::PointProblem{F},
     solution::PointSolution{F},
     ::AbstractSchedule{F},
@@ -276,7 +285,7 @@ RegularizerSchedule(Defaults.regularizer_schedule_vals, Defaults.regularizer_sch
 ```
 """
 @auto_hash_equals typearg=true struct RegularizerSchedule{F,U<:AbstractVector{F}} <:
-                                      AbstractSchedule{F}
+                                      AbstractSchedule{F,Regularizer{F}}
     vals::U
     type::RegularizerType.T
 
@@ -315,20 +324,17 @@ end
 
 # Interface
 # ---------
-Base.getindex(alg::RegularizerSchedule, i::Integer) = Regularizer(alg.vals[i], alg.type)
-Base.firstindex(alg::RegularizerSchedule) = firstindex(alg.vals)
-Base.lastindex(alg::RegularizerSchedule) = lastindex(alg.vals)
-Base.length(alg::RegularizerSchedule) = length(alg.vals)
+Base.getindex(alg::RegularizerSchedule, i::Int) = Regularizer(alg.vals[i], alg.type)
 
 function stepproblem(
-    index::Integer, problem::PointProblem{F}, alg::RegularizerSchedule{F}, ::Nothing
+    index::Int, problem::PointProblem{F}, alg::RegularizerSchedule{F}, ::Nothing
 ) where {F}
     constraint = RegularizerConstraint(alg[index], problem.constraint.q0)
     return update(problem; constraint)
 end
 
 function stepproblem(
-    index::Integer,
+    index::Int,
     problem::PointProblem{F},
     alg::RegularizerSchedule{F},
     state::ScheduleState{F},
@@ -389,7 +395,7 @@ end
     SymmetrySchedule()
     SymmetrySchedule(vals)
     SymmetrySchedule{F}(vals) where {F<:AbstractFloat}
-    SymmetrySchedule{F}(steps::Integer) where {F<:AbstractFloat}
+    SymmetrySchedule{F}(steps::Int) where {F<:AbstractFloat}
 
 Solve the average resolvent equation by annealing the degree of symmetry in the ensemble
 
@@ -419,7 +425,7 @@ SymmetrySchedule(Defaults.symmetry_schedule_vals)
 ```
 """
 @auto_hash_equals typearg=true struct SymmetrySchedule{F,U<:AbstractVector{F}} <:
-                                      AbstractSchedule{F}
+                                      AbstractSchedule{F,F}
     vals::U
 
     function SymmetrySchedule{F}(vals) where {F}
@@ -438,7 +444,7 @@ SymmetrySchedule(Defaults.symmetry_schedule_vals)
     end
 end
 
-function SymmetrySchedule{F}(steps::Integer) where {F}
+function SymmetrySchedule{F}(steps::Int) where {F}
     return SymmetrySchedule{F}(range(zero(F), one(F), steps))
 end
 
@@ -459,13 +465,8 @@ end
 
 # Interface
 # ---------
-Base.getindex(alg::SymmetrySchedule, i::Integer) = alg.vals[i]
-Base.firstindex(alg::SymmetrySchedule) = firstindex(alg.vals)
-Base.lastindex(alg::SymmetrySchedule) = lastindex(alg.vals)
-Base.length(alg::SymmetrySchedule) = length(alg.vals)
-
 function stepproblem(
-    index::Integer, problem::PointProblem{F}, alg::SymmetrySchedule{F}, ::Nothing
+    index::Int, problem::PointProblem{F}, alg::SymmetrySchedule{F}, ::Nothing
 ) where {F}
     return update(problem; equation=update(problem.equation; sscale=alg[index]))
 end
@@ -488,6 +489,9 @@ end  # module Algorithms
     @test alg isa DirectSolve
     @test statetype(DirectSolve) === DirectSolveState
 
+    # Indexing errors
+    @test_throws BoundsError alg[1]
+
     # Conversion
     @test DirectSolve(alg) === DirectSolve()
     @test convert(DirectSolve, alg) === alg
@@ -508,6 +512,9 @@ end
     @test RegularizerSchedule() === RegularizerSchedule(
         Defaults.regularizer_schedule_vals, Defaults.regularizer_schedule_type
     )
+
+    # Traits
+    IndexStyle(typeof(alg64)) == IndexLinear()
 
     @testset "$F" for F in [Float32, Float64]
         valsF = map(F, vals64)  # map preserves ranges types etc. better than broadcasting
@@ -546,6 +553,9 @@ end
 
     # Defaults
     @test SymmetrySchedule() === SymmetrySchedule(Defaults.symmetry_schedule_vals)
+
+    # Traits
+    IndexStyle(typeof(alg64)) == IndexLinear()
 
     @testset "$F" for F in [Float32, Float64]
         valsF = map(F, vals64)  # map preserves ranges types etc. better than broadcasting
@@ -869,6 +879,7 @@ end
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
         PointProblem, RegularizerConstraint, ResolventEquation
+    using GaussianSpectralDensities.Regularizers: Regularizer
     using GaussianSpectralDensities.Solutions: issuccess, q, solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -883,8 +894,7 @@ end
     nsteps = 3
 
     @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
-        kwargs = (; reg_type => 0.25, :q0 => complex(1.0))
-        constraint64 = RegularizerConstraint(; kwargs...)
+        constraint64 = RegularizerConstraint(Regularizer(0.25, reg_type); q0=complex(1.0))
 
         @testset "$label" for (label, A64, D64) in [
             ("Array", A64data, Diagonal(D64data)),

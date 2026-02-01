@@ -39,15 +39,16 @@ end
     test_all_qualified_accesses_are_public(
         GaussianSpectralDensities;
         ignore=(
-            :SizeUnknown, # Base
-            :CHOLMOD,     # SparseArrays.jl
-            :LM,          # ArnoldiMethod.jl
-            :sym_uplo,    # LinearAlgebra
-            :potrf!,      # LinearAlgebra.LAPACK
-            :potri!,      # LinearAlgebra.LAPACK
-            :init,        # CommonSolve.jl
-            :step!,       # CommonSolve.jl
-            :solve!,      # CommonSolve.jl
+            :SizeUnknown,        # Base
+            :throw_boundserror,  # Base
+            :CHOLMOD,            # SparseArrays.jl
+            :LM,                 # ArnoldiMethod.jl
+            :sym_uplo,           # LinearAlgebra
+            :potrf!,             # LinearAlgebra.LAPACK
+            :potri!,             # LinearAlgebra.LAPACK
+            :init,               # CommonSolve.jl
+            :step!,              # CommonSolve.jl
+            :solve!,             # CommonSolve.jl
         ),
         allow_internal_accesses=false,
     )
