@@ -273,9 +273,7 @@ function Base.convert(::Type{P}, p::PointProblem) where {F,P<:PointProblem{F}}
     return (p isa P) ? p : PointProblem{F}(p)
 end
 
-function ArrayTools.adaptrealtype(::Type{F}, p::PointProblem) where {F}
-    return convert(PointProblem{F}, p)
-end
+ArrayTools.adaptrealtype(::Type{F}, p::PointProblem) where {F} = convert(PointProblem{F}, p)
 
 ## Comparisons
 ## ===========

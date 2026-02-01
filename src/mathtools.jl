@@ -311,9 +311,7 @@ decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = ldlt(A; kwargs...)
 
 Return `A + shift * I`
 """
-function decompose(A::Diagonal{T}; shift=zero(T)) where {T}
-    return A + T(shift) * I
-end
+decompose(A::Diagonal{T}; shift=zero(T)) where {T} = A + T(shift) * I
 
 """
     decompose!!(F::Cholesky{T}, A::Hermitian{T}; shift=zero(T)) where {T}

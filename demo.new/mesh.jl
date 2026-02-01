@@ -15,6 +15,7 @@ using Meshes:
     Point,
     RegularDiscretization,
     SimpleMesh,
+    coords,
     discretize,
     hull,
     refine,
@@ -47,7 +48,8 @@ prunedshift = map(sol.params.shift, sol.success) do shift, success
     return success ? max(shift, -shiftmax / 2) : oftype(shift, NaN)
 end
 shiftvertices = map(mesh.vertices, prunedshift) do v, s
-    return Point(v.coords.x.val, v.coords.y.val, s)
+    c = coords(v)
+    return Point(c.x.val, c.y.val, s)
 end
 shiftmesh = SimpleMesh(shiftvertices, mesh.topology)
 

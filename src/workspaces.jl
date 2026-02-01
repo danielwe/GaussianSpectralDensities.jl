@@ -197,7 +197,7 @@ end
 
 function set_Q_params!(ws::Workspace{F}, eq, z, q) where {F}
     set_G0i_params!(ws, eq, z)
-    qscaled = ws.eq.sscale * q
+    qscaled = eq.sscale * q
     (ws.qscaled == qscaled) && return nothing
     ws.qscaled = qscaled
     return nothing
@@ -216,7 +216,7 @@ end
 
 Calculate `Q(z, q) * Q'(z, q)`
 
-If `ws.eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
+If `eq.normalizeQ` is `true`, this actually calculates `(Q * Q' + Q' * Q) / 2`. See the
 `ResolventEquation` documentation for further explanation.
 """
 function QQh!(ws::Workspace{F}, eq, z, q) where {F}
@@ -225,9 +225,7 @@ function QQh!(ws::Workspace{F}, eq, z, q) where {F}
     return ws.QQh
 end
 
-function set_QQh_params!(ws::Workspace{F}, eq, z, q) where {F}
-    return set_Q_params!(ws, eq, z, q)
-end
+set_QQh_params!(ws::Workspace{F}, eq, z, q) where {F} = set_Q_params!(ws, eq, z, q)
 
 function update_QQh!(ws::Workspace)
     (ws.valid >= Valid.QQh) && return nothing
@@ -377,9 +375,7 @@ Calculate the normalized trace of `P(z, q, γ²)`, i.e., `tr(P) / size(P, 2)`
 
 The arguments are the same as for `P!`
 """
-function ptrace!(ws::Workspace{F}, eq, z, q, reg) where {F}
-    return tr_normalized(P!(ws, eq, z, q, reg))
-end
+ptrace!(ws::Workspace{F}, eq, z, q, reg) where {F} = tr_normalized(P!(ws, eq, z, q, reg))
 
 """
     greens!(ws, eq, z, q, reg)

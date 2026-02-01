@@ -25,10 +25,8 @@ Parameter values for a self-consistent resolvent solution.
     greens::Complex{F}
 end
 
-function ResolventParams{F}(params::ResolventParams) where {F}
-    return ResolventParams{F}(
-        params.q, params.shift, params.gap, params.ptrace, params.greens
-    )
+function ResolventParams{F}(p::ResolventParams) where {F}
+    return ResolventParams{F}(p.q, p.shift, p.gap, p.ptrace, p.greens)
 end
 
 ## Conversions

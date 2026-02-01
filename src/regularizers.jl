@@ -45,10 +45,8 @@ Regularizer{F}(reg::Regularizer) where {F} = Regularizer{F}(reg.val, reg.type)
 Keyword constructor for Regularizer. Exactly one of `shift` or `gap` must be provided.
 """
 function Regularizer(; shift=nothing, gap=nothing)
-    if isnothing(shift) && isnothing(gap)
-        throw(ArgumentError("must specify either `shift` or `gap`"))
-    elseif !isnothing(shift) && !isnothing(gap)
-        throw(ArgumentError("cannot specify both `shift` and `gap`"))
+    if !xor(isnothing(shift), isnothing(gap))
+        throw(ArgumentError("must specify exactly one of `shift` or `gap`"))
     elseif !isnothing(shift)
         return Regularizer(shift, :shift)
     else
@@ -56,17 +54,7 @@ function Regularizer(; shift=nothing, gap=nothing)
     end
 end
 
-function Regularizer{F}(; shift=nothing, gap=nothing) where {F}
-    if isnothing(shift) && isnothing(gap)
-        throw(ArgumentError("must specify either `shift` or `gap`"))
-    elseif !isnothing(shift) && !isnothing(gap)
-        throw(ArgumentError("cannot specify both `shift` and `gap`"))
-    elseif !isnothing(shift)
-        return Regularizer{F}(shift, :shift)
-    else
-        return Regularizer{F}(gap, :gap)
-    end
-end
+Regularizer{F}(; kwargs...) where {F} = Regularizer{F}(Regularizer(; kwargs...))
 
 ## Traits
 ## ======
@@ -181,9 +169,9 @@ end
 
     # Errors
     @test_throws ArgumentError Regularizer()
-    @test_throws "must specify" Regularizer()
+    @test_throws "exactly one" Regularizer()
     @test_throws ArgumentError Regularizer(; shift=0.5, gap=0.25)
-    @test_throws "cannot specify both" Regularizer(; shift=0.5, gap=0.25)
+    @test_throws "exactly one" Regularizer(; shift=0.5, gap=0.25)
 end
 
 @testitem "Regularizer errors" begin
