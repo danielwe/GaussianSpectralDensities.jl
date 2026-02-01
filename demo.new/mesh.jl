@@ -1,12 +1,12 @@
 using CairoMakie: Axis3, Figure
 # using GLMakie: Axis3, Figure
 
-using CommonSolve: solve
 using GaussianSpectralDensities.Algorithms: RegularizerSchedule
 using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 using GaussianSpectralDensities.GlobalData: GlobalProblem, GlobalSolution  #, zvals
 using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
 using GaussianSpectralDensities.Regularizers: Regularizer
+using GaussianSpectralDensities.Solvers: pointsolve
 using LinearAlgebra: I
 using Meshes:
     Ball,
@@ -37,7 +37,7 @@ prob = GlobalProblem(equation, constraint, mesh)
 sol = GlobalSolution(equation, mesh)
 
 for i in 1:length(prob)
-    sol[i] = solve(prob[i], algorithm).pointsolution
+    sol[i] = pointsolve(prob[i], algorithm)
 end
 
 # FIXME: for failed vertices, inject NaN (or maybe nothing/missing) in

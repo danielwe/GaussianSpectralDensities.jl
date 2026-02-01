@@ -11,8 +11,10 @@ using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
 
-public Solution, Solver
+public Solution, Solver, pointsolve, pointsolve!
 
+## Solver
+## ======
 @auto_hash_equals typearg=true mutable struct Solver{
     F,
     E,
@@ -43,6 +45,57 @@ end
 
 Solver(problem::PointProblem{F}, algorithm) where {F} = Solver{F}(problem, algorithm)
 
+# Iterator interface
+# ------------------
+Base.IteratorSize(::Type{<:Solver}) = Base.SizeUnknown()
+Base.eltype(::Type{S}) where {S<:Solver} = S
+
+function Base.isdone(solver::Solver, (::Nothing)=nothing)
+    return Algorithms.isdone(solver.problem, solver.algorithm, solver.state)
+end
+
+function Base.iterate(solver::Solver, (::Nothing)=nothing)
+    result = Algorithms.step!(solver.ws, solver.problem, solver.algorithm, solver.state)
+    isnothing(result) && return nothing
+    stepsolution, stepstate = result
+    solver.state = stepstate
+    solver.pointsolution = stepsolution
+    push!(solver.trace, stepsolution.params)
+    return solver, nothing
+end
+
+# Internal interface (returns PointSolution)
+# ------------------------------------------
+function pointsolve!(solver::Solver)
+    for _ in solver
+    end  # Just stepping through
+    return solver.pointsolution
+end
+
+function pointsolve(problem::PointProblem, algorithm::AbstractAlgorithm)
+    return pointsolve!(Solver(problem, algorithm))
+end
+
+# CommonSolve interface (returns Solution)
+# ----------------------------------------
+function CommonSolve.init(problem::PointProblem, algorithm::AbstractAlgorithm)
+    return Solver(problem, algorithm)
+end
+
+function CommonSolve.step!(solver::Solver)
+    result = iterate(solver)
+    isnothing(result) && throw(ArgumentError("cannot step! a finished Solver"))
+    # CommonSolve.step! generally returns a retcode; in our case just success/failure
+    return (!isnothing(solver.pointsolution)) && solver.pointsolution.success
+end
+
+function CommonSolve.solve!(solver::Solver)
+    pointsolve!(solver)
+    return Solution(solver)  # Defined below
+end
+
+## Solution
+## ========
 @auto_hash_equals typearg=true struct Solution{
     F,
     S<:PointSolution{F},
@@ -64,45 +117,6 @@ Solver(problem::PointProblem{F}, algorithm) where {F} = Solver{F}(problem, algor
         S, C, A, T = typeof.((pointsolution, constraint, algorithm, trace))
         return new{F,S,C,A,T}(pointsolution, constraint, algorithm, trace)
     end
-end
-
-# Iterator interface
-# ------------------
-Base.IteratorSize(::Type{<:Solver}) = Base.SizeUnknown()
-Base.eltype(::Type{S}) where {S<:Solver} = S
-
-function Base.isdone(solver::Solver, (::Nothing)=nothing)
-    return Algorithms.isdone(solver.problem, solver.algorithm, solver.state)
-end
-
-function Base.iterate(solver::Solver, (::Nothing)=nothing)
-    result = Algorithms.step!(solver.ws, solver.problem, solver.algorithm, solver.state)
-    isnothing(result) && return nothing
-    stepsolution, stepstate = result
-    solver.state = stepstate
-    solver.pointsolution = stepsolution
-    push!(solver.trace, stepsolution.params)
-    return solver, nothing
-end
-
-# CommonSolve interface
-# ---------------------
-function CommonSolve.init(problem::PointProblem, algorithm::AbstractAlgorithm)
-    return Solver(problem, algorithm)
-end
-
-function CommonSolve.step!(solver::Solver)
-    result = iterate(solver)
-    isnothing(result) && throw(ArgumentError("cannot step! a finished Solver"))
-    # CommonSolve.step! generally returns a retcode; in our case just success/failure
-    return !isnothing(solver.pointsolution) && solver.pointsolution.success
-end
-
-function CommonSolve.solve!(solver::Solver)
-    for _ in solver
-        # Just stepping through
-    end
-    return Solution(solver)
 end
 
 end  # module Solvers
@@ -389,4 +403,61 @@ end
     # Trace is still what we expect
     @test solution.trace === solver.trace
     @test last(solution.trace) == solution.pointsolution.params
+end
+
+@testitem "pointsolve/pointsolve! interface" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Solutions: PointSolution, solves
+    using GaussianSpectralDensities.Solvers: Solver, pointsolve, pointsolve!
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    z = 0.5 + 0.5im
+    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    problem = PointProblem(eq, constraint, z)
+
+    @testset "pointsolve(problem, alg)" begin
+        ps = pointsolve(problem, DirectSolve())
+        @test ps isa PointSolution{Float64}
+        @test ps.success
+        @test solves(ps, problem)
+    end
+
+    @testset "pointsolve!(solver)" begin
+        solver = Solver(problem, DirectSolve())
+        ps = pointsolve!(solver)
+        @test ps isa PointSolution{Float64}
+        @test ps === solver.pointsolution
+        @test ps.success
+        @test solves(ps, problem)
+        @test Base.isdone(solver)
+    end
+
+    @testset "pointsolve with RegularizerSchedule" begin
+        schedule_vals = [4.0, 2.0, 1.0, 0.5]
+        alg = RegularizerSchedule(schedule_vals, :gap)
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        problem_sched = PointProblem(eq, constraint_sched, z)
+
+        ps = pointsolve(problem_sched, alg)
+        @test ps isa PointSolution{Float64}
+        @test ps.success
+        @test solves(ps, problem_sched)
+    end
+
+    @testset "pointsolve returns failure when unsolvable" begin
+        # z outside support with shiftmin=0 will fail
+        eq_impossible = ResolventEquation(ensemble; shiftmin=0.0)
+        z_impossible = 2.0 + 2.0im
+        problem_impossible = PointProblem(eq_impossible, constraint, z_impossible)
+
+        ps = pointsolve(problem_impossible, DirectSolve())
+        @test ps isa PointSolution{Float64}
+        @test !ps.success
+    end
 end
