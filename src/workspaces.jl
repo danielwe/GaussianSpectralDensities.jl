@@ -342,8 +342,8 @@ The arguments are the same as for `P!`
 """
 function shift!(ws::Workspace{F}, eq, z, q, reg) where {F}
     baregap = let ws = ws, eq=eq, z = z, q = q
-        # Use a closure to defer computation of baregap in case it's not needed for this reg
-        baregap!(ws, eq, z, q)
+        # Use closure to defer baregap calculation in case it's not needed
+        baregap() = baregap!(ws, eq, z, q)
     end
     return shift(convert(Regularizer{F}, reg), baregap)::F
 end
@@ -357,8 +357,8 @@ The arguments are the same as for `P!`
 """
 function gap!(ws::Workspace{F}, eq, z, q, reg) where {F}
     baregap = let ws = ws, eq=eq, z = z, q = q
-        # Use a closure to defer computation of baregap in case it's not needed for this reg
-        baregap!(ws, eq, z, q)
+        # Use closure to defer baregap calculation in case it's not needed
+        baregap() = baregap!(ws, eq, z, q)
     end
     return gap(convert(Regularizer{F}, reg), baregap)::F
 end

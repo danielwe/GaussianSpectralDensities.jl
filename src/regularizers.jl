@@ -67,13 +67,13 @@ ArrayTools.adaptrealtype(::Type{F}, r::Regularizer) where {F} = convert(Regulari
 
 Get the regularizer shift ``γ²`` given a Regularizer and the bare gap `eigmin(QQ†)`
 
-`baregap` can be given either as a numerical value or as a callable returning the value. The
-latter is useful for deferring any computation necessary to only be invoked if needed, that
-is, if the regularizer type of `reg` is `:gap`.
+`baregap` can be either a numerical value or as a callable returning the value. The callable
+form is useful for deferring the eigmin calculation in case it's not needed, which is the
+case if `reg.type` is `:shift`.
 """
 function shift(reg::Regularizer{F}, baregap) where {F}
     (reg.type === RegularizerType.shift) && return reg.val
-    bg = (baregap isa Real) ? baregap : baregap()
+    bg = (baregap isa Number) ? baregap : baregap()
     return F(reg.val - bg)::F
 end
 
@@ -83,13 +83,13 @@ end
 
 Get the regularized gap `eigmin(QQ†) + γ²` given a Regularizer and the bare gap `eigmin(QQ†)`
 
-`baregap` can be given either as a numerical value or as a callable returning the value. The
-latter is useful for deferring any computation necessary to only be invoked if needed, that
-is, if the regularizer type of `reg` is `:shift`.
+`baregap` can be either a numerical value or as a callable returning the value. The callable
+form is useful for deferring the eigmin calculation in case it's not needed, which is the
+case if `reg.type` is `:gap`.
 """
 function gap(reg::Regularizer{F}, baregap) where {F}
     (reg.type === RegularizerType.gap) && return reg.val
-    bg = (baregap isa Real) ? baregap : baregap()
+    bg = (baregap isa Number) ? baregap : baregap()
     return F(reg.val + bg)::F
 end
 
