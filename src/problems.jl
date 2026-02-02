@@ -3,15 +3,15 @@ module Problems
 using AutoHashEquals: @auto_hash_equals
 
 using ..Ensembles: MatrixEnsemble
-using ..Regularizers: Regularizer, Regularizers
+using ..Spreads: Spread, Spreads
 
 using ..ArrayTools: ArrayTools, adaptrealtype
 
 public AbstractConstraint,
     PTraceConstraint,
     PointProblem,
-    RegularizerConstraint,
     ResolventEquation,
+    SpreadConstraint,
     issameproblem,
     update
 
@@ -25,7 +25,7 @@ Specify the shared context for an averaged resolvent equation over an ensemble
 # Arguments
 
   - `ensemble`: random matrix ensemble over which to average the resolvent
-  - `shiftmin=-Inf`: lower bound on the value of the regularizer shift ``γ²``. Solutions with
+  - `shiftmin=-Inf`: lower bound on the value of the shift ``γ²``. Solutions with
     `shift < shiftmin` are marked as failed. Strictly speaking, the averaged resolvent
     equations are derived assuming ``γ² ≥ 0``, suggesting `shiftmin = 0`, but in practice it
     is useful to allow analytic continuation to negative values such that the averaged
@@ -101,101 +101,105 @@ end
 
 Abstract supertype for constraint specifications in point problems.
 
-Concrete subtypes: [`RegularizerConstraint`](@ref), [`PTraceConstraint`](@ref)
+Concrete subtypes: [`SpreadConstraint`](@ref), [`PTraceConstraint`](@ref)
 """
 abstract type AbstractConstraint{F<:Real} end
 
 """
-    RegularizerConstraint(val, q0)
-    RegularizerConstraint(val; q0)
-    RegularizerConstraint(; shift, gap, q0)
-    RegularizerConstraint{F}(val, q0) where {F}
-    RegularizerConstraint{F}(val; q0) where {F}
-    RegularizerConstraint{F}(; shift, gap, q0) where {F}
-    RegularizerConstraint{F}(c::RegularizerConstraint) where {F}
+    SpreadConstraint(val, q0)
+    SpreadConstraint(val; q0)
+    SpreadConstraint(; shift, gap, q0)
+    SpreadConstraint{F}(val, q0) where {F}
+    SpreadConstraint{F}(val; q0) where {F}
+    SpreadConstraint{F}(; shift, gap, q0) where {F}
+    SpreadConstraint{F}(c::SpreadConstraint) where {F}
 
-Constraint specifying a target regularizer value, with initial guess for solving.
+Constraint specifying a target value for the spread parameter
 
-Keyword constructors require exactly one of `shift` or `gap` to specify the regularizer.
+Includes an initial guess for the stretch parameter to use when solving for this constraint.
+
+Keyword constructors require exactly one of `shift` or `gap`.
 
 # Fields
 
-  - `val::Regularizer{F}`: the target regularizer value
-  - `q0::Complex{F}`: initial guess for the resolvent parameter q
+  - `val::Spread{F}`: the target value for the spread parameter
+  - `q0::Complex{F}`: initial guess for the stretch parameter
 """
-@auto_hash_equals struct RegularizerConstraint{F} <: AbstractConstraint{F}
-    val::Regularizer{F}
+@auto_hash_equals struct SpreadConstraint{F} <: AbstractConstraint{F}
+    val::Spread{F}
     q0::Complex{F}
 end
 
-RegularizerConstraint(val::Regularizer{F}, q0) where {F} = RegularizerConstraint{F}(val, q0)
-RegularizerConstraint(val; q0) = RegularizerConstraint(val, q0)
-RegularizerConstraint{F}(val; q0) where {F} = RegularizerConstraint{F}(val, q0)
-RegularizerConstraint(; q0, kwargs...) = RegularizerConstraint(Regularizer(; kwargs...), q0)
+SpreadConstraint(val::Spread{F}, q0) where {F} = SpreadConstraint{F}(val, q0)
+SpreadConstraint(val; q0) = SpreadConstraint(val, q0)
+SpreadConstraint{F}(val; q0) where {F} = SpreadConstraint{F}(val, q0)
+SpreadConstraint(; q0, kwargs...) = SpreadConstraint(Spread(; kwargs...), q0)
 
-function RegularizerConstraint{F}(; q0, kwargs...) where {F}
-    return RegularizerConstraint{F}(Regularizer(; kwargs...), q0)
+function SpreadConstraint{F}(; q0, kwargs...) where {F}
+    return SpreadConstraint{F}(Spread(; kwargs...), q0)
 end
 
-function RegularizerConstraint{F}(c::RegularizerConstraint) where {F}
-    return RegularizerConstraint{F}(c.val, c.q0)
-end
+SpreadConstraint{F}(c::SpreadConstraint) where {F} = SpreadConstraint{F}(c.val, c.q0)
 
 function update(
-    constraint::RegularizerConstraint{F};
+    constraint::SpreadConstraint{F};
     shift=nothing,
     gap=nothing,
     val=(isnothing(shift) && isnothing(gap)) ? constraint.val : nothing,
     q0=constraint.q0,
 ) where {F}
-    return RegularizerConstraint{F}(someregularizer(; shift, gap, reg=val), q0)
+    return SpreadConstraint{F}(somespread(; shift, gap, spread=val), q0)
 end
 
-function Base.convert(::Type{RegularizerConstraint{F}}, c::RegularizerConstraint) where {F}
-    return (c isa RegularizerConstraint{F}) ? c : RegularizerConstraint{F}(c)
+function Base.convert(::Type{SpreadConstraint{F}}, c::SpreadConstraint) where {F}
+    return (c isa SpreadConstraint{F}) ? c : SpreadConstraint{F}(c)
 end
 
-function ArrayTools.adaptrealtype(::Type{F}, c::RegularizerConstraint) where {F}
-    return convert(RegularizerConstraint{F}, c)
+function ArrayTools.adaptrealtype(::Type{F}, c::SpreadConstraint) where {F}
+    return convert(SpreadConstraint{F}, c)
 end
 
 """
-    PTraceConstraint(val, q0, reg0)
-    PTraceConstraint(val; q0, shift0, gap0, reg0)
-    PTraceConstraint{F}(val, q0, reg0) where {F}
-    PTraceConstraint{F}(val; q0, shift0, gap0, reg0) where {F}
+    PTraceConstraint(val, q0, spread0)
+    PTraceConstraint(val; q0, shift0, gap0, spread0)
+    PTraceConstraint{F}(val, q0, spread0) where {F}
+    PTraceConstraint{F}(val; q0, shift0, gap0, spread0) where {F}
     PTraceConstraint{F}(c::PTraceConstraint) where {F}
 
-Constraint specifying a target value of ``\tr P``, with initial guesses for solving.
+Constraint specifying a target value for ``\tr P``
 
-Keyword constructors require exactly one of `shift0`, `gap0`, or `reg0` to specify the
-initial regularizer guess.
+Includes initial guesses for the spread and stretch parameters to use when solving for this
+constraint.
+
+Keyword constructors require exactly one of `shift0`, `gap0`, or `spread0`.
 
 # Fields
 
-  - `val::F`: the target value of `tr(P)`
-  - `q0::Complex{F}`: initial guess for the resolvent parameter q
-  - `reg0::Regularizer{F}`: initial guess for the regularizer
+  - `val::F`: the target value for `tr(P)`
+  - `q0::Complex{F}`: initial guess for the stretch parameter
+  - `spread0::Spread{F}`: initial guess for the spread parameter
 """
 @auto_hash_equals struct PTraceConstraint{F} <: AbstractConstraint{F}
     val::F
     q0::Complex{F}
-    reg0::Regularizer{F}
+    spread0::Spread{F}
 end
 
-PTraceConstraint(val::F, q0, reg0) where {F} = PTraceConstraint{F}(val, q0, reg0)
+PTraceConstraint(val::F, q0, spread0) where {F} = PTraceConstraint{F}(val, q0, spread0)
 
-function PTraceConstraint(val; q0, shift0=nothing, gap0=nothing, reg0=nothing)
-    return PTraceConstraint(val, q0, someregularizer(; shift=shift0, gap=gap0, reg=reg0))
+function PTraceConstraint(val; q0, shift0=nothing, gap0=nothing, spread0=nothing)
+    return PTraceConstraint(val, q0, somespread(; shift=shift0, gap=gap0, spread=spread0))
 end
 
-function PTraceConstraint{F}(val; q0, shift0=nothing, gap0=nothing, reg0=nothing) where {F}
-    somereg0 = someregularizer(; shift=shift0, gap=gap0, reg=reg0)
-    return PTraceConstraint{F}(val, q0, somereg0)
+function PTraceConstraint{F}(
+    val; q0, shift0=nothing, gap0=nothing, spread0=nothing
+) where {F}
+    somespread0 = somespread(; shift=shift0, gap=gap0, spread=spread0)
+    return PTraceConstraint{F}(val, q0, somespread0)
 end
 
 function PTraceConstraint{F}(c::PTraceConstraint) where {F}
-    return PTraceConstraint{F}(c.val, c.q0, c.reg0)
+    return PTraceConstraint{F}(c.val, c.q0, c.spread0)
 end
 
 function update(
@@ -204,9 +208,9 @@ function update(
     q0=constraint.q0,
     shift0=nothing,
     gap0=nothing,
-    reg0=(isnothing(shift0) && isnothing(gap0)) ? constraint.reg0 : nothing,
+    spread0=(isnothing(shift0) && isnothing(gap0)) ? constraint.spread0 : nothing,
 ) where {F}
-    return PTraceConstraint{F}(val; q0, shift0, gap0, reg0)
+    return PTraceConstraint{F}(val; q0, shift0, gap0, spread0)
 end
 
 function Base.convert(::Type{PTraceConstraint{F}}, c::PTraceConstraint) where {F}
@@ -217,12 +221,12 @@ function ArrayTools.adaptrealtype(::Type{F}, c::PTraceConstraint) where {F}
     return convert(PTraceConstraint{F}, c)
 end
 
-# Regularizer constructor/selector helper for update methods
-function someregularizer(; shift=nothing, gap=nothing, reg=nothing)
-    if count(isnothing, (shift, gap, reg)) != 2
-        throw(ArgumentError("must specify exactly one of `shift`, `gap`, or `reg`"))
+# Spread type selector for update methods
+function somespread(; shift=nothing, gap=nothing, spread=nothing)
+    if count(isnothing, (shift, gap, spread)) != 2
+        throw(ArgumentError("must specify exactly one of `shift`, `gap`, or `spread`"))
     end
-    return isnothing(reg) ? Regularizer(; shift, gap) : reg
+    return isnothing(spread) ? Spread(; shift, gap) : spread
 end
 
 ## Problem type
@@ -344,185 +348,183 @@ end
 @testitem "Constraint types" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Problems:
-        AbstractConstraint, PTraceConstraint, RegularizerConstraint
-    using GaussianSpectralDensities.Regularizers: Regularizer
+        AbstractConstraint, PTraceConstraint, SpreadConstraint
+    using GaussianSpectralDensities.Spreads: Spread
 
     q0_64 = complex(0.25)
-    reg64 = Regularizer(0.5, :gap)
+    spread64 = Spread(0.5, :gap)
     ptrace64 = 1.0
-    regc64 = RegularizerConstraint(reg64, q0_64)
-    ptracec64 = PTraceConstraint(ptrace64, q0_64, reg64)
+    spreadc64 = SpreadConstraint(spread64, q0_64)
+    ptracec64 = PTraceConstraint(ptrace64, q0_64, spread64)
 
     # Traits
-    @test regc64 isa AbstractConstraint{Float64}
+    @test spreadc64 isa AbstractConstraint{Float64}
     @test ptracec64 isa AbstractConstraint{Float64}
 
     @testset "$F" for F in [Float32, Float64]
         q0_F = Complex{F}(q0_64)
-        regF = Regularizer{F}(reg64)
-        regcF = RegularizerConstraint(regF, q0_F)
-        ptracecF = PTraceConstraint(F(ptrace64), q0_F, regF)
+        spreadF = Spread{F}(spread64)
+        spreadcF = SpreadConstraint(spreadF, q0_F)
+        ptracecF = PTraceConstraint(F(ptrace64), q0_F, spreadF)
 
-        # Floattype inferring constructor (from Regularizer)
-        @test regcF isa RegularizerConstraint{F}
+        # Floattype inferring constructor (from Spread)
+        @test spreadcF isa SpreadConstraint{F}
         @test ptracecF isa PTraceConstraint{F}
 
-        # Type-inferring constructor: RegularizerConstraint(val::Regularizer{F}, q0)
-        @test RegularizerConstraint(regF, q0_64) == regcF
-        @test RegularizerConstraint(reg64, q0_F) == regc64
+        # Type-inferring constructor: SpreadConstraint(val::Spread{F}, q0)
+        @test SpreadConstraint(spreadF, q0_64) == spreadcF
+        @test SpreadConstraint(spread64, q0_F) == spreadc64
 
-        # Type-inferring constructor: PTraceConstraint(val::F, q0, reg0)
-        @test PTraceConstraint(F(ptrace64), q0_64, reg64) == ptracecF
-        @test PTraceConstraint(ptrace64, q0_F, regF) == ptracec64
+        # Type-inferring constructor: PTraceConstraint(val::F, q0, spread0)
+        @test PTraceConstraint(F(ptrace64), q0_64, spread64) == ptracecF
+        @test PTraceConstraint(ptrace64, q0_F, spreadF) == ptracec64
 
         # User-friendly constructor (keyword args)
-        @test RegularizerConstraint(; gap=F(0.5), q0=q0_F) == regcF
+        @test SpreadConstraint(; gap=F(0.5), q0=q0_F) == spreadcF
         @test PTraceConstraint(F(ptrace64); q0=q0_F, gap0=F(0.5)) == ptracecF
 
         # Floattype enforcing constructor
-        @test RegularizerConstraint{F}(reg64, q0_64) == regcF
-        @test RegularizerConstraint{Float64}(regF, q0_F) == regc64
-        @test PTraceConstraint{F}(ptrace64, q0_64, reg64) == ptracecF
-        @test PTraceConstraint{Float64}(F(ptrace64), q0_F, regF) == ptracec64
+        @test SpreadConstraint{F}(spread64, q0_64) == spreadcF
+        @test SpreadConstraint{Float64}(spreadF, q0_F) == spreadc64
+        @test PTraceConstraint{F}(ptrace64, q0_64, spread64) == ptracecF
+        @test PTraceConstraint{Float64}(F(ptrace64), q0_F, spreadF) == ptracec64
 
         # Copy-converting constructor
-        @test RegularizerConstraint{F}(regc64) == regcF
-        @test RegularizerConstraint{Float64}(regcF) == regc64
+        @test SpreadConstraint{F}(spreadc64) == spreadcF
+        @test SpreadConstraint{Float64}(spreadcF) == spreadc64
         @test PTraceConstraint{F}(ptracec64) == ptracecF
         @test PTraceConstraint{Float64}(ptracecF) == ptracec64
 
         # Floattype conversions
-        @test convert(RegularizerConstraint{F}, regc64) == regcF
-        @test convert(RegularizerConstraint{Float64}, regcF) == regc64
+        @test convert(SpreadConstraint{F}, spreadc64) == spreadcF
+        @test convert(SpreadConstraint{Float64}, spreadcF) == spreadc64
         @test convert(PTraceConstraint{F}, ptracec64) == ptracecF
         @test convert(PTraceConstraint{Float64}, ptracecF) == ptracec64
-        @test adaptrealtype(F, regc64) == regcF
-        @test adaptrealtype(Float64, regcF) == regc64
+        @test adaptrealtype(F, spreadc64) == spreadcF
+        @test adaptrealtype(Float64, spreadcF) == spreadc64
         @test adaptrealtype(F, ptracec64) == ptracecF
         @test adaptrealtype(Float64, ptracecF) == ptracec64
     end
 end
 
 @testitem "Constraint keyword constructors" begin
-    using GaussianSpectralDensities.Problems: PTraceConstraint, RegularizerConstraint
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Problems: PTraceConstraint, SpreadConstraint
+    using GaussianSpectralDensities.Spreads: Spread
 
     # Keyword constructors
-    reg_shift = Regularizer(0.5, :shift)
-    reg_gap = Regularizer(0.25, :gap)
-    regc_shift = RegularizerConstraint(; shift=reg_shift.val, q0=complex(0.1))
-    regc_gap = RegularizerConstraint(; gap=reg_gap.val, q0=complex(0.1))
-    ptracec_shift = PTraceConstraint(1.0; q0=complex(0.1), shift0=reg_shift.val)
-    ptracec_gap = PTraceConstraint(1.0; q0=complex(0.1), gap0=reg_gap.val)
-    @test regc_shift == RegularizerConstraint(reg_shift, complex(0.1))
-    @test regc_gap == RegularizerConstraint(reg_gap, complex(0.1))
-    @test ptracec_shift == PTraceConstraint(1.0, complex(0.1), reg_shift)
-    @test ptracec_gap == PTraceConstraint(1.0, complex(0.1), reg_gap)
+    spread_shift = Spread(0.5, :shift)
+    spread_gap = Spread(0.25, :gap)
+    spreadc_shift = SpreadConstraint(; shift=spread_shift.val, q0=complex(0.1))
+    spreadc_gap = SpreadConstraint(; gap=spread_gap.val, q0=complex(0.1))
+    ptracec_shift = PTraceConstraint(1.0; q0=complex(0.1), shift0=spread_shift.val)
+    ptracec_gap = PTraceConstraint(1.0; q0=complex(0.1), gap0=spread_gap.val)
+    @test spreadc_shift == SpreadConstraint(spread_shift, complex(0.1))
+    @test spreadc_gap == SpreadConstraint(spread_gap, complex(0.1))
+    @test ptracec_shift == PTraceConstraint(1.0, complex(0.1), spread_shift)
+    @test ptracec_gap == PTraceConstraint(1.0, complex(0.1), spread_gap)
 
-    # Keyword constructor from Regularizer: RegularizerConstraint(val; q0)
-    @test RegularizerConstraint(reg_shift; q0=complex(0.1)) == regc_shift
-    @test RegularizerConstraint(reg_gap; q0=complex(0.1)) == regc_gap
+    # Keyword constructor from Spread: SpreadConstraint(val; q0)
+    @test SpreadConstraint(spread_shift; q0=complex(0.1)) == spreadc_shift
+    @test SpreadConstraint(spread_gap; q0=complex(0.1)) == spreadc_gap
 
     # Type-enforcing keyword constructors
-    @test RegularizerConstraint{Float32}(; shift=0.5, q0=complex(0.1)) isa
-        RegularizerConstraint{Float32}
+    @test SpreadConstraint{Float32}(; shift=0.5, q0=complex(0.1)) isa
+        SpreadConstraint{Float32}
     @test PTraceConstraint{Float32}(1.0; q0=complex(0.1), gap0=0.25) isa
         PTraceConstraint{Float32}
 
-    # Type-enforcing keyword constructor from Regularizer: RegularizerConstraint{F}(val; q0)
-    @test RegularizerConstraint{Float32}(reg_shift; q0=complex(0.1)) isa
-        RegularizerConstraint{Float32}
-    @test RegularizerConstraint{Float64}(reg_gap; q0=complex(0.1)) isa
-        RegularizerConstraint{Float64}
+    # Type-enforcing keyword constructor from Spread: SpreadConstraint{F}(val; q0)
+    @test SpreadConstraint{Float32}(spread_shift; q0=complex(0.1)) isa
+        SpreadConstraint{Float32}
+    @test SpreadConstraint{Float64}(spread_gap; q0=complex(0.1)) isa
+        SpreadConstraint{Float64}
 
     # Errors propagate through constructors
-    @test_throws ArgumentError RegularizerConstraint(; q0=complex(0.1))
-    @test_throws ArgumentError RegularizerConstraint(; shift=0.5, gap=0.25, q0=complex(0.1))
+    @test_throws ArgumentError SpreadConstraint(; q0=complex(0.1))
+    @test_throws ArgumentError SpreadConstraint(; shift=0.5, gap=0.25, q0=complex(0.1))
     @test_throws ArgumentError PTraceConstraint(1.0; q0=complex(0.1))
     @test_throws ArgumentError PTraceConstraint(1.0; q0=complex(0.1), shift0=0.5, gap0=0.25)
 end
 
 @testitem "Constraint update methods" begin
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, RegularizerConstraint, update
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Problems: PTraceConstraint, SpreadConstraint, update
+    using GaussianSpectralDensities.Spreads: Spread
 
-    @testset "update(::RegularizerConstraint)" begin
-        reg = Regularizer(0.5, :gap)
+    @testset "update(::SpreadConstraint)" begin
         q0 = complex(0.25)
-        regc = RegularizerConstraint(reg, q0)
+        spreadc = SpreadConstraint(Spread(0.5, :gap), q0)
 
         # Update q0 only
-        regc_newq0 = update(regc; q0=complex(0.5))
-        @test regc_newq0.val == regc.val
-        @test regc_newq0.q0 == complex(0.5)
+        spreadc_newq0 = update(spreadc; q0=complex(0.5))
+        @test spreadc_newq0.val == spreadc.val
+        @test spreadc_newq0.q0 == complex(0.5)
 
-        # Update to shift regularizer
-        regc_shift = update(regc; shift=0.75)
-        @test regc_shift.val == Regularizer(0.75, :shift)
-        @test regc_shift.q0 == q0
+        # Update to shift spread
+        spreadc_shift = update(spreadc; shift=0.75)
+        @test spreadc_shift.val == Spread(0.75, :shift)
+        @test spreadc_shift.q0 == q0
 
-        # Update to gap regularizer
-        regc_gap = update(regc; gap=0.75)
-        @test regc_gap.val == Regularizer(0.75, :gap)
-        @test regc_gap.q0 == q0
+        # Update to gap spread
+        spreadc_gap = update(spreadc; gap=0.75)
+        @test spreadc_gap.val == Spread(0.75, :gap)
+        @test spreadc_gap.q0 == q0
 
-        # Update both regularizer and q0
-        regc_both = update(regc; shift=0.75, q0=complex(0.5))
-        @test regc_both.val == Regularizer(0.75, :shift)
-        @test regc_both.q0 == complex(0.5)
+        # Update both spread and q0
+        spreadc_both = update(spreadc; shift=0.75, q0=complex(0.5))
+        @test spreadc_both.val == Spread(0.75, :shift)
+        @test spreadc_both.q0 == complex(0.5)
 
         # Error when specifying both shift and gap
-        @test_throws ArgumentError update(regc; shift=0.5, gap=0.25)
+        @test_throws ArgumentError update(spreadc; shift=0.5, gap=0.25)
     end
 
     @testset "update(::PTraceConstraint)" begin
-        reg = Regularizer(0.5, :gap)
         q0 = complex(0.25)
-        ptracec = PTraceConstraint(1.0, q0, reg)
+        spread = Spread(0.5, :gap)
+        ptracec = PTraceConstraint(1.0, q0, spread)
 
         # Update val only
         ptracec_newval = update(ptracec; val=2.0)
         @test ptracec_newval.val == 2.0
         @test ptracec_newval.q0 == q0
-        @test ptracec_newval.reg0 == reg
+        @test ptracec_newval.spread0 == spread
 
         # Update q0 only
         ptracec_newq0 = update(ptracec; q0=complex(0.5))
         @test ptracec_newq0.val == ptracec.val
         @test ptracec_newq0.q0 == complex(0.5)
-        @test ptracec_newq0.reg0 == reg
+        @test ptracec_newq0.spread0 == spread
 
-        # Update reg0 via shift0
+        # Update spread0 via shift0
         ptracec_shift = update(ptracec; shift0=0.75)
         @test ptracec_shift.val == ptracec.val
         @test ptracec_shift.q0 == q0
-        @test ptracec_shift.reg0 == Regularizer(0.75, :shift)
+        @test ptracec_shift.spread0 == Spread(0.75, :shift)
 
-        # Update reg0 via gap0
+        # Update spread0 via gap0
         ptracec_gap = update(ptracec; gap0=0.75)
         @test ptracec_gap.val == ptracec.val
         @test ptracec_gap.q0 == q0
-        @test ptracec_gap.reg0 == Regularizer(0.75, :gap)
+        @test ptracec_gap.spread0 == Spread(0.75, :gap)
 
-        # Update reg0 directly
-        reg_new = Regularizer(0.25, :shift)
-        ptracec_reg = update(ptracec; reg0=reg_new)
-        @test ptracec_reg.val == ptracec.val
-        @test ptracec_reg.q0 == q0
-        @test ptracec_reg.reg0 == reg_new
+        # Update spread0 directly
+        spread_new = Spread(0.25, :shift)
+        ptracec_spread = update(ptracec; spread0=spread_new)
+        @test ptracec_spread.val == ptracec.val
+        @test ptracec_spread.q0 == q0
+        @test ptracec_spread.spread0 == spread_new
 
         # Update everything
         ptracec_all = update(ptracec; val=2.0, q0=complex(0.5), shift0=0.75)
         @test ptracec_all.val == 2.0
         @test ptracec_all.q0 == complex(0.5)
-        @test ptracec_all.reg0 == Regularizer(0.75, :shift)
+        @test ptracec_all.spread0 == Spread(0.75, :shift)
 
-        # Error when specifying multiple of shift0, gap0, reg0
+        # Error when specifying multiple of shift0, gap0, spread0
         @test_throws ArgumentError update(ptracec; shift0=0.5, gap0=0.25)
-        @test_throws ArgumentError update(ptracec; shift0=0.5, reg0=reg)
-        @test_throws ArgumentError update(ptracec; gap0=0.25, reg0=reg)
-        @test_throws ArgumentError update(ptracec; shift0=0.5, gap0=0.25, reg0=reg)
+        @test_throws ArgumentError update(ptracec; shift0=0.5, spread0=spread)
+        @test_throws ArgumentError update(ptracec; gap0=0.25, spread0=spread)
+        @test_throws ArgumentError update(ptracec; shift0=0.5, gap0=0.25, spread0=spread)
     end
 end
 
@@ -532,29 +534,29 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint,
         PointProblem,
-        RegularizerConstraint,
         ResolventEquation,
+        SpreadConstraint,
         issameproblem,
         update
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Spreads: Spread
 
     using LinearAlgebra: I
 
     eq64 = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
 
-    reg_type = :gap
-    reg = Regularizer(0.5, reg_type)
+    spread_type = :gap
+    spread = Spread(0.5, spread_type)
     q0, z = complex(0.25), complex(0.25)
     z_new = 2z
     q0_new = 2q0
 
-    regc = RegularizerConstraint(reg, q0)
-    regc_newinit = RegularizerConstraint(reg, q0_new)
-    ptracec = PTraceConstraint(1.0, q0, reg)
-    ptracec_newinit = PTraceConstraint(1.0, q0_new, reg)
+    spreadc = SpreadConstraint(spread, q0)
+    spreadc_newinit = SpreadConstraint(spread, q0_new)
+    ptracec = PTraceConstraint(1.0, q0, spread)
+    ptracec_newinit = PTraceConstraint(1.0, q0_new, spread)
 
     @testset "$(nameof(typeof(constraint)))" for (constraint, constraint_newinit) in [
-        (regc, regc_newinit), (ptracec, ptracec_newinit)
+        (spreadc, spreadc_newinit), (ptracec, ptracec_newinit)
     ]
         problem64 = PointProblem(eq64, constraint, z)
 

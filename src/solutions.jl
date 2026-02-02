@@ -3,13 +3,13 @@ module Solutions
 using AutoHashEquals: @auto_hash_equals
 
 using ..Defaults: approxequal
-using ..Problems: PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
-using ..Regularizers: Regularizer, Regularizers
+using ..Problems: PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+using ..Spreads: Spread, Spreads
 using ..Workspaces: Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
 using ..ArrayTools: ArrayTools
 
-public PointSolution, ResolventParams, greens, issuccess, ptrace, q, regularizer, solves
+public PointSolution, ResolventParams, greens, issuccess, ptrace, q, solves, spreadfrom
 
 """
     ResolventParams(q, shift, gap, ptrace, greens)
@@ -33,13 +33,11 @@ end
 ## Accessors
 ## =========
 """
-    regularizer(params::ResolventParams, type) -> Regularizer
+    spreadfrom(params::ResolventParams, type) -> Spread
 
-Return the regularizer of type `type` of the solution.
+Create a spread parameter of the given `type` from the parameters.
 """
-function regularizer(params::ResolventParams, type)
-    return Regularizer(getproperty(params, Symbol(type)), type)
-end
+spreadfrom(params::ResolventParams, type) = Spread(getproperty(params, Symbol(type)), type)
 
 ## Conversions
 ## ===========
@@ -53,10 +51,10 @@ end
 
 ## Consistency
 ## ===========
-function satisfies(params::ResolventParams, constraint::RegularizerConstraint)
-    creg = constraint.val
-    reg = regularizer(params, creg.type)
-    return approxequal(reg.val, creg.val)
+function satisfies(params::ResolventParams, constraint::SpreadConstraint)
+    cspread = constraint.val
+    spread = spreadfrom(params, cspread.type)
+    return approxequal(spread.val, cspread.val)
 end
 
 function satisfies(params::ResolventParams, constraint::PTraceConstraint)
@@ -64,8 +62,8 @@ function satisfies(params::ResolventParams, constraint::PTraceConstraint)
 end
 
 """
-    PointSolution(equation, z, q, reg; workspace=Workspace(equation))
-    PointSolution{F}(equation, z, q, reg, workspace) where {F}
+    PointSolution(equation, z, q, spread; workspace=Workspace(equation))
+    PointSolution{F}(equation, z, q, spread, workspace) where {F}
     PointSolution{F}(s::PointSolution) where {F}
 
 Represent a self-consistent solution of an averaged resolvent equation at a point.
@@ -91,34 +89,44 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
         return new{F,E}(equation, z, params, success)
     end
 
-    function PointSolution{F}(equation, z, q, reg, workspace) where {F}
+    function PointSolution{F}(equation, z, q, spread, workspace) where {F}
         eqF = convert(ResolventEquation{F}, equation)
-        shiftF = shift!(workspace, eqF, z, q, reg)
-        gapF = gap!(workspace, eqF, z, q, reg)
-        ptraceF = ptrace!(workspace, eqF, z, q, reg)
-        greensF = greens!(workspace, eqF, z, q, reg)
+        shiftF = shift!(workspace, eqF, z, q, spread)
+        gapF = gap!(workspace, eqF, z, q, spread)
+        ptraceF = ptrace!(workspace, eqF, z, q, spread)
+        greensF = greens!(workspace, eqF, z, q, spread)
         paramsF = ResolventParams{F}(q, shiftF, gapF, ptraceF, greensF)
+        # FIXME: we should distinguish between failure by shiftmin (where the parameters are
+        # still consistent, it's more of a "you may come this far, but no farther" signpost)
+        # and failure by q != qFP, where the parameters are not self-consistent. Should we
+        # just manually set them to NaN in the latter case?
+        #
+        # Or should we move shiftmin out of the equation spec and let
+        # success == self-consistent? Setting a shiftmin and declaring "you shall not pass"
+        # would then be the purview of the algorithm, not the problem or solution. This
+        # makes sense because, as I'm discovering (see FIXME in algorithms.jl), shiftmin is
+        # only actually reveltn for SpreadSchedule, not even SymmetrySchedule.
         success =
             all(isfinite, (shiftF, gapF, ptraceF, greensF)) &&
             (shiftF >= eqF.shiftmin) &&
-            approxequal(qFP!(workspace, eqF, z, q, reg), q)
+            approxequal(qFP!(workspace, eqF, z, q, spread), q)
         return new{F,typeof(eqF)}(eqF, z, paramsF, success)
     end
 
     function PointSolution{F}(s::PointSolution) where {F}
-        # Direct conversion instead of redoing calculations may lead to rounding error
-        # differences between solutions that are otherwise the same. This is OK---it was
-        # already true for solutions instantiated with :shift vs. :gap regularizers but
-        # otherwise the same.
+        # This direct conversion may result in rounding differences compared to redoing the
+        # calculation of derived parameters in the new precision. This is OK---it was
+        # already true for otherwise identical solutions instantiated with spread.type being
+        # :shift vs. :gap.
         eqF = convert(ResolventEquation{F}, s.equation)
         return new{F,typeof(eqF)}(eqF, s.z, s.params, s.success)
     end
 end
 
 function PointSolution(
-    equation::ResolventEquation{F}, z, q, reg; workspace=Workspace(equation)
+    equation::ResolventEquation{F}, z, q, spread; workspace=Workspace(equation)
 ) where {F}
-    return PointSolution{F}(equation, z, q, reg, workspace)
+    return PointSolution{F}(equation, z, q, spread, workspace)
 end
 
 ## Conversions
@@ -151,44 +159,44 @@ issuccess(sol::PointSolution) = sol.success
 """
     q(sol::PointSolution{F}) -> Complex{F}
 
-Return the self-consistency parameter q of the solution.
+Return the self-consistency parameter `q` from the solution.
 """
 q(sol::PointSolution) = sol.params.q
 
 """
     ptrace(sol::PointSolution{F}) -> F
 
-Return the partial trace parameter ptrace of the solution.
+Return the trace parameter `ptrace` from the solution.
 """
 ptrace(sol::PointSolution) = sol.params.ptrace
 
 """
     greens(sol::PointSolution{F}) -> Complex{F}
 
-Return the Green's function value of the solution.
+Return the value of the Green's function (resolvent trace) from the solution.
 """
 greens(sol::PointSolution) = sol.params.greens
 
 """
     shift(sol::PointSolution{F}) -> F
 
-Return the shift regularizer value of the solution.
+Return the spectral shift from the solution.
 """
-Regularizers.shift(sol::PointSolution) = sol.params.shift
+Spreads.shift(sol::PointSolution) = sol.params.shift
 
 """
     gap(sol::PointSolution{F}) -> F
 
-Return the gap regularizer value of the solution.
+Return the spectral gap from the solution.
 """
-Regularizers.gap(sol::PointSolution) = sol.params.gap
+Spreads.gap(sol::PointSolution) = sol.params.gap
 
 """
-    regularizer(sol::PointSolution{F}, type) -> Regularizer{F}
+    spreadfrom(sol::PointSolution{F}, type) -> Spread{F}
 
-Return the regularizer of type `type` of the solution.
+Create a spread parameter of the given `type` from the solution.
 """
-regularizer(sol::PointSolution, type) = regularizer(sol.params, type)
+spreadfrom(sol::PointSolution, type) = spreadfrom(sol.params, type)
 
 end  # module Solutions
 
@@ -225,10 +233,10 @@ end
     using GaussianSpectralDensities.Defaults: approxequal
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation, update
-    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
+        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint, update
+    using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, greens, issuccess, ptrace, q, regularizer, solves
+        PointSolution, greens, issuccess, ptrace, q, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces:
         Workspace, gap!, greens!, ptrace!, qFP!, shift!
 
@@ -240,8 +248,8 @@ end
 
     # For an N=1 problem we always have gap * ptrace = 1, so it's easy to define constraints
     # that are satisfied simultaneously
-    reg_type = :gap
-    reg64 = Regularizer(0.5, reg_type)
+    spread_type = :gap
+    spread64 = Spread(0.5, spread_type)
     ptrace64 = 2.0
 
     # We're relying on some very particular parameter tuning here to create a solution we
@@ -249,46 +257,46 @@ end
     z64 = 0.25 + 0.25im
     q64 = -0.5 - 0.5im
 
-    solution64 = PointSolution(eq64, z64, q64, reg64; workspace=ws64)
+    solution64 = PointSolution(eq64, z64, q64, spread64; workspace=ws64)
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(ensemble64)
         eqF = ResolventEquation(ensembleF)
         wsF = Workspace(eqF)
 
-        solutionF = PointSolution(eqF, z64, q64, reg64; workspace=wsF)
+        solutionF = PointSolution(eqF, z64, q64, spread64; workspace=wsF)
 
         # Type and traits
         @test solutionF isa PointSolution{F}
         @test issuccess(solutionF)
-        solF_q, solF_reg = q(solutionF), regularizer(solutionF, reg_type)
+        solF_q, solF_spread = q(solutionF), spreadfrom(solutionF, spread_type)
         @test solF_q == q64
-        @test solF_reg == reg64
+        @test solF_spread == spread64
 
-        @test shift(solutionF) == shift!(wsF, eqF, solutionF.z, solF_q, solF_reg)
-        @test gap(solutionF) == gap!(wsF, eqF, solutionF.z, solF_q, solF_reg)
-        @test ptrace(solutionF) == ptrace!(wsF, eqF, solutionF.z, solF_q, solF_reg)
-        @test greens(solutionF) == greens!(wsF, eqF, solutionF.z, solF_q, solF_reg)
+        @test shift(solutionF) == shift!(wsF, eqF, solutionF.z, solF_q, solF_spread)
+        @test gap(solutionF) == gap!(wsF, eqF, solutionF.z, solF_q, solF_spread)
+        @test ptrace(solutionF) == ptrace!(wsF, eqF, solutionF.z, solF_q, solF_spread)
+        @test greens(solutionF) == greens!(wsF, eqF, solutionF.z, solF_q, solF_spread)
 
-        @test approxequal(solF_q, qFP!(wsF, eqF, solutionF.z, solF_q, solF_reg))
+        @test approxequal(solF_q, qFP!(wsF, eqF, solutionF.z, solF_q, solF_spread))
 
         # Actually solves the problems we expect it to
-        problem_regF = PointProblem(eqF, RegularizerConstraint(reg64, q64), z64)
-        problem_ptraceF = PointProblem(eqF, PTraceConstraint(ptrace64, q64, reg64), z64)
-        @test solves(solutionF, problem_regF)
+        problem_spreadF = PointProblem(eqF, SpreadConstraint(spread64, q64), z64)
+        problem_ptraceF = PointProblem(eqF, PTraceConstraint(ptrace64, q64, spread64), z64)
+        @test solves(solutionF, problem_spreadF)
         @test solves(solutionF, problem_ptraceF)
 
         # Failure due to inconsistent parameters
-        solutionF_inconsistent = PointSolution(eqF, z64, zero(q64), reg64; workspace=wsF)
+        solutionF_inconsistent = PointSolution(eqF, z64, zero(q64), spread64; workspace=wsF)
         @test !issuccess(solutionF_inconsistent)
 
         # Failure due to NaN
-        solutionF_nan = PointSolution(eqF, z64, oftype(q64, NaN), reg64; workspace=wsF)
+        solutionF_nan = PointSolution(eqF, z64, oftype(q64, NaN), spread64; workspace=wsF)
         @test !issuccess(solutionF_nan)
 
         # Failure due to shiftmin (with the given params we know that shift = 0)
         eqF_impossible = update(eqF; shiftmin=1.0)
-        solutionF_impossible = PointSolution(eqF_impossible, z64, q64, reg64)
+        solutionF_impossible = PointSolution(eqF_impossible, z64, q64, spread64)
         @test !issuccess(solutionF_impossible)
 
         # Floattype conversions
@@ -304,10 +312,10 @@ end
 @testitem "PointSolution accessors" begin
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PointProblem, RegularizerConstraint, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
+        PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, greens, issuccess, ptrace, q, regularizer
+        PointSolution, greens, issuccess, ptrace, q, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -316,12 +324,12 @@ end
     eq = ResolventEquation(ensemble)
     ws = Workspace(eq)
 
-    reg_type = :gap
-    reg = Regularizer(0.5, reg_type)
+    spread_type = :gap
+    spread = Spread(0.5, spread_type)
     z = 0.25 + 0.25im
     q_val = -0.5 - 0.5im
 
-    solution = PointSolution(eq, z, q_val, reg; workspace=ws)
+    solution = PointSolution(eq, z, q_val, spread; workspace=ws)
 
     # Test accessors
     @test issuccess(solution) == solution.success
@@ -330,6 +338,6 @@ end
     @test greens(solution) == solution.params.greens
     @test shift(solution) == solution.params.shift
     @test gap(solution) == solution.params.gap
-    @test regularizer(solution, :shift) == Regularizer(solution.params.shift, :shift)
-    @test regularizer(solution, :gap) == Regularizer(solution.params.gap, :gap)
+    @test spreadfrom(solution, :shift) == Spread(solution.params.shift, :shift)
+    @test spreadfrom(solution, :gap) == Spread(solution.params.gap, :gap)
 end

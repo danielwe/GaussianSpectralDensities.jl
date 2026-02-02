@@ -4,8 +4,8 @@ using LinearAlgebra: LAPACKException, SingularException
 using StaticArrays: SVector
 
 using ..Newton: NewtonException, newton
-using ..Problems: PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
-using ..Regularizers: Regularizer
+using ..Problems: PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+using ..Spreads: Spread
 using ..Solutions: PointSolution
 using ..Workspaces: Workspace, ptrace!, qFP!
 
@@ -25,21 +25,27 @@ end
 function eqsolve_inner!(
     ws::Workspace{F},
     eq::ResolventEquation{F},
-    constraint::RegularizerConstraint{F},
+    constraint::SpreadConstraint{F},
     z::Complex{F},
 ) where {F}
-    reg = constraint.val
-    fq = let ws = ws, eq = eq, reg = reg, z = z
+    spread = constraint.val
+    fq = let ws = ws, eq = eq, spread = spread, z = z
         function fq(qv)
             local q = complex(qv...)
-            dq = qFP!(ws, eq, z, q, reg) - q
+            dq = qFP!(ws, eq, z, q, spread) - q
             return SVector(real(dq), imag(dq))
         end
     end
     qv0 = SVector(real(constraint.q0), imag(constraint.q0))
     qv = eqsolve_common!(fq, qv0)
     q = complex(qv...)
-    return PointSolution(eq, z, q, reg; workspace=ws)
+    # FIXME: if the solution didn't converge (niters < 0) we need to make sure the solution
+    # has success = false. This is supposed to happen automatically due to the consistency
+    # check in the PointSolution constructor, but maybe we should let this function enforce
+    # it in case we're right on the tolerance margin and the stars somehow aligned such that
+    # newton declared failure but the result is good enough for PointSolution. Or is it
+    # actually more consistent to let the constructor be the sole arbiter of success? Think.
+    return PointSolution(eq, z, q, spread; workspace=ws)
 end
 
 function eqsolve_inner!(
@@ -48,19 +54,22 @@ function eqsolve_inner!(
     constraint::PTraceConstraint{F},
     z::Complex{F},
 ) where {F}
-    (; reg0) = constraint
-    fqreg = let ws = ws, eq = eq, ptrace = constraint.val, z = z, reg_type = reg0.type
-        function fqreg(qregv)
-            local q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], reg_type)
-            dq = qFP!(ws, eq, z, q, reg) - q
-            dptrace = ptrace!(ws, eq, z, q, reg) - ptrace
-            return SVector(real(dq), imag(dq), dptrace)
+    (; spread0) = constraint
+    fqspread =
+        let ws = ws, eq = eq, ptrace = constraint.val, z = z, spread_type = spread0.type
+            function fqspread(qspreadv)
+                local q = complex(qspreadv[1], qspreadv[2])
+                local spread = Spread(qspreadv[3], spread_type)
+                dq = qFP!(ws, eq, z, q, spread) - q
+                dptrace = ptrace!(ws, eq, z, q, spread) - ptrace
+                return SVector(real(dq), imag(dq), dptrace)
+            end
         end
-    end
-    qregv0 = SVector(real(constraint.q0), imag(constraint.q0), reg0.val)
-    qregv = eqsolve_common!(fqreg, qregv0)
-    q, reg = complex(qregv[1], qregv[2]), Regularizer(qregv[3], reg0.type)
-    return PointSolution(eq, z, q, reg; workspace=ws)
+    qspreadv0 = SVector(real(constraint.q0), imag(constraint.q0), spread0.val)
+    qspreadv = eqsolve_common!(fqspread, qspreadv0)
+    q, spread = complex(qspreadv[1], qspreadv[2]), Spread(qspreadv[3], spread0.type)
+    # FIXME: see above.
+    return PointSolution(eq, z, q, spread; workspace=ws)
 end
 
 function eqsolve_common!(f, v0)
@@ -83,7 +92,7 @@ end  # module EquationSolvers
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
+        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -95,14 +104,12 @@ end  # module EquationSolvers
     Ddata = [0.75, 0.25cispi(1 // 3)]
     z = complex(0.25)
     (; q0) = Defaults
-    reg_val = 0.5
+    spread = 0.5
     sscale = 2 // 3
 
-    @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
-        regc_kwargs = (; reg_type => reg_val, :q0 => q0)
-        regc = RegularizerConstraint(; regc_kwargs...)
-        ptracec_kwargs = (; Symbol(reg_type, :0) => reg_val, :q0 => q0)
-        ptracec = PTraceConstraint(0.01; ptracec_kwargs...)
+    @testset "Spread type = $spread_type" for spread_type in [:shift, :gap]
+        spreadc = SpreadConstraint(; spread_type => spread, q0)
+        ptracec = PTraceConstraint(0.01; q0, Symbol(spread_type, "0") => spread)
 
         @testset "$label" for (label, A, D) in [
             ("Array", Adata, Diagonal(Ddata)),
@@ -121,7 +128,7 @@ end  # module EquationSolvers
                     wsF = Workspace(eqF)
 
                     @testset "$(nameof(typeof(constraint)))" for constraint in
-                                                                 [regc, ptracec]
+                                                                 [spreadc, ptracec]
                         problemF = PointProblem(eqF, constraint, z)
                         solF = eqsolve!(wsF, problemF)
                         @test solves(solF, problemF)
@@ -136,7 +143,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
+        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: issuccess
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -149,10 +156,10 @@ end
     eq = ResolventEquation(ensemble)
     ws = Workspace(eq)
 
-    regc = RegularizerConstraint(; shift=0.0, q0)
+    spreadc = SpreadConstraint(; shift=0.0, q0)
     ptracec = PTraceConstraint(1.0; q0, gap0=0.0)
 
-    @testset "$(nameof(typeof(constraint)))" for constraint in [regc, ptracec]
+    @testset "$(nameof(typeof(constraint)))" for constraint in [spreadc, ptracec]
         problem = PointProblem(eq, constraint, z)
         sol = eqsolve!(ws, problem)
 

@@ -35,14 +35,14 @@ Active modules (in dependency order):
 1. `ArrayTools` — Utilities for generic array programming
 1. `MathTools` — Utilities for real/complex numbers and generic linear algebra
 1. `Ensembles` — `MatrixEnsemble` type for `M + L·J·R` ensembles
-1. `Regularizers` — `Regularizer` type (shift vs gap parameterization)
+1. `Spreads` — `Spread` type (shift vs gap parameterization)
 1. `Constraints` — `AbstractConstraint` and `PTrace` types for problem constraints
 1. `Problems` — `ResolventEquation` (shared context), `PointProblem`, init types
 1. `Workspaces` — Mutable workspace with cached intermediate computations
 1. `Solutions` — `ResolventParams` (data bundle) and `PointSolution` (result at a point)
 1. `Newton` — Generic Newton solver with finite-difference Jacobian
 1. `EquationSolvers` — `eqsolve!` implementations for problem types
-1. `Algorithms` — Solution strategies: `DirectSolve`, `RegularizerSchedule`, `SymmetrySchedule`
+1. `Algorithms` — Solution strategies: `DirectSolve`, `SpreadSchedule`, `SymmetrySchedule`
 1. `Solvers` — User-facing `Solver` and `Solution` types with CommonSolve.jl interface
 
 ## Architecture Patterns
@@ -69,7 +69,7 @@ Code supports `Array`, `SArray` (StaticArrays), and `SparseMatrixCSC`. The `Arra
 
 ### Workspace pattern
 
-`Workspace` is a mutable cache for intermediate matrices, constructed from a `ResolventEquation`. It tracks what's "valid" via the `Valid` enum to avoid redundant computation. Functions like `P!`, `Q!`, `ptrace!` update and return cached values. These functions take `(ws, eq, z, q, reg)` where `z` is the point in the complex plane.
+`Workspace` is a mutable cache for intermediate matrices, constructed from a `ResolventEquation`. It tracks what's "valid" via the `Valid` enum to avoid redundant computation. Functions like `P!`, `Q!`, `ptrace!` update and return cached values. These functions take `(ws, eq, z, q, spread)` where `z` is the point in the complex plane.
 
 ### Algorithm/State pattern
 
@@ -100,7 +100,7 @@ Functions ending in `!` mutate their first argument (Julia convention). Function
 | `ResolventParams{F}`   | Data bundle: `q, shift, gap, ptrace, greens`          |
 | `PointSolution{F}`     | Solution at a point with success flag                 |
 | `Workspace{F}`         | Cached intermediate computations                      |
-| `Regularizer{F}`       | Value + type (`:shift` or `:gap`)                     |
+| `Spread{F}`            | Value + type (`:shift` or `:gap`)                     |
 | `Solver{F}`            | User-facing pointwise solver with iteration interface |
 | `Solution{F}`          | Final pointwise result with trace history             |
 

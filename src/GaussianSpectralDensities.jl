@@ -37,23 +37,21 @@ module Defaults
 
     public approxequal,
         q0,
-        regularizer_schedule_type,
-        regularizer_schedule_vals,
-        regularizer_target_type,
-        regularizer_target_val,
+        spread_schedule_type,
+        spread_schedule_vals,
+        spread_target_type,
+        spread_target_val,
         symmetry_schedule_vals,
         tol,
         trace_target
 
     const trace_target = 1.0
-    const regularizer_target_val = 0.0
-    const regularizer_target_type = :shift
+    const spread_target_val = 0.0
+    const spread_target_type = :shift
     const q0 = ComplexF64(sqrt(eps(Float32)))
-    const regularizer_schedule_vals = 2.0 .^ (4:-0.5:-4)
-    const regularizer_schedule_type = :gap
+    const spread_schedule_vals = 2.0 .^ (4:-0.5:-4)
+    const spread_schedule_type = :gap
     const symmetry_schedule_vals = 0:0.1:1
-    # const regularizer_init = Regularizer(1.0, :gap)
-    # const margin = 0.1
 
     # NOTE: tol set by type of first argument
     approxequal(x::T, y) where {T} = isapprox(x, y; atol=tol(T), rtol=tol(T))
@@ -67,7 +65,7 @@ include("arraytools.jl")
 include("mathtools.jl")
 # include("matrix_utils.jl")
 include("ensembles.jl")
-include("regularizers.jl")
+include("spreads.jl")
 include("problems.jl")
 include("workspaces.jl")
 include("solutions.jl")

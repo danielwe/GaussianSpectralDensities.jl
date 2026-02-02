@@ -5,7 +5,7 @@ using Meshes: Meshes, SimpleMesh, centroid, coords, elements, indices, topology,
 using StructArrays: StructVector
 
 using ..Problems: AbstractConstraint, PointProblem, ResolventEquation
-using ..Regularizers: Regularizer, Regularizers
+using ..Spreads: Spread, Spreads
 using ..Solutions: PointSolution, ResolventParams, Solutions
 
 using ..ArrayTools: adaptrealtype
@@ -177,47 +177,45 @@ Solutions.issuccess(sol::GlobalSolution) = sol.success
 """
     q(sol::GlobalSolution{F}) -> Vector{Complex{F}}
 
-Return the self-consistency parameter q of the solution.
+Return the self-consistency parameter `q of the solution.
 """
 Solutions.q(sol::GlobalSolution) = sol.params.q
 
 """
     ptrace(sol::GlobalSolution{F}) -> Vector{F}
 
-Return the partial trace parameter ptrace of the solution.
+Return the trace parameter `ptrace` from the solution.
 """
 Solutions.ptrace(sol::GlobalSolution) = sol.params.ptrace
 
 """
     greens(sol::GlobalSolution{F}) -> Vector{Complex{F}}
 
-Return the Green's function value of the solution.
+Return the value of the Green's function (resolvent trace) from the solution.
 """
 Solutions.greens(sol::GlobalSolution) = sol.params.greens
 
 """
     shift(sol::GlobalSolution{F}) -> Vector{F}
 
-Return the shift regularizer value of the solution.
+Return the spectral shift from the solution.
 """
-Regularizers.shift(sol::GlobalSolution) = sol.params.shift
+Spreads.shift(sol::GlobalSolution) = sol.params.shift
 
 """
     gap(sol::GlobalSolution{F}) -> Vector{F}
 
-Return the gap regularizer value of the solution.
+Return the spectral gap from the solution.
 """
-Regularizers.gap(sol::GlobalSolution) = sol.params.gap
+Spreads.gap(sol::GlobalSolution) = sol.params.gap
 
 """
-    regularizer(sol::GlobalSolution{F}, type) -> Vector{Regularizer{F}}
+    spreadfrom(sol::GlobalSolution{F}, type) -> Vector{Spread{F}}
 
-Return the regularizer of type `type` of the solution.
+Create a spread parameter of the given `type` from the solution.
 """
-function Solutions.regularizer(sol::GlobalSolution, type)
-    return map(getproperty(sol.params, Symbol(type))) do reg_val
-        return Regularizer(reg_val, type)
-    end
+function Solutions.spreadfrom(sol::GlobalSolution, type)
+    return map(spread -> Spread(spread, type), getproperty(sol.params, Symbol(type)))
 end
 
 end  # module GlobalData
@@ -240,14 +238,14 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.GlobalData: GlobalProblem, zval
     using GaussianSpectralDensities.Problems:
-        PointProblem, RegularizerConstraint, ResolventEquation
+        PointProblem, ResolventEquation, SpreadConstraint
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
     disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
     mesh = simplexify(disc)
     eq = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
-    constraint = RegularizerConstraint(; gap=0.5, q0=complex(0.25))
+    constraint = SpreadConstraint(; gap=0.5, q0=complex(0.25))
 
     prob = GlobalProblem(eq, constraint, mesh)
 
@@ -266,9 +264,9 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.GlobalData: GlobalSolution, zval
     using GaussianSpectralDensities.Problems: ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer, gap, shift
+    using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, ResolventParams, greens, issuccess, ptrace, q, regularizer
+        PointSolution, ResolventParams, greens, issuccess, ptrace, q, spreadfrom
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
@@ -292,7 +290,7 @@ end
 
     # setindex! with PointSolution
     z1 = zval(mesh, 1)
-    ps = PointSolution(eq, z1, 1.0, Regularizer(; shift=1.0))
+    ps = PointSolution(eq, z1, 1.0, Spread(; shift=1.0))
     sol[1] = ps
     @test sol.params[1] == ps.params
     @test sol.success[1] == ps.success
@@ -303,8 +301,8 @@ end
     # setindex! with mismatched eq or z throws ArgumentError
     eq2 = ResolventEquation(eq.ensemble; shiftmin=0)
     z2 = zval(mesh, 2)
-    ps_wrongA = PointSolution(eq2, z1, 1.0, Regularizer(; shift=1.0))
-    ps_wrongB = PointSolution(eq, z2, 1.0, Regularizer(; shift=1.0))
+    ps_wrongA = PointSolution(eq2, z1, 1.0, Spread(; shift=1.0))
+    ps_wrongB = PointSolution(eq, z2, 1.0, Spread(; shift=1.0))
     @test_throws ArgumentError sol[1] = ps_wrongA
     @test_throws ArgumentError sol[1] = ps_wrongB
 
@@ -319,16 +317,16 @@ end
     @test greens(sol) == sol.params.greens
     @test shift(sol) == sol.params.shift
     @test gap(sol) == sol.params.gap
-    regs_shift = regularizer(sol, :shift)
-    regs_gap = regularizer(sol, :gap)
-    @test length(regs_shift) == length(sol)
-    @test length(regs_gap) == length(sol)
-    @test all(r -> r isa Regularizer, regs_shift)
-    @test all(r -> r isa Regularizer, regs_gap)
-    @test all(r -> Symbol(r.type) == :shift, regs_shift)
-    @test all(r -> Symbol(r.type) == :gap, regs_gap)
-    @test [r.val for r in regs_shift] == sol.params.shift
-    @test [r.val for r in regs_gap] == sol.params.gap
+    spread_shift = spreadfrom(sol, :shift)
+    spread_gap = spreadfrom(sol, :gap)
+    @test length(spread_shift) == length(sol)
+    @test length(spread_gap) == length(sol)
+    @test all(r -> r isa Spread, spread_shift)
+    @test all(r -> r isa Spread, spread_gap)
+    @test all(r -> Symbol(r.type) == :shift, spread_shift)
+    @test all(r -> Symbol(r.type) == :gap, spread_gap)
+    @test [r.val for r in spread_shift] == sol.params.shift
+    @test [r.val for r in spread_gap] == sol.params.gap
 end
 
 @testitem "element_gradients" begin

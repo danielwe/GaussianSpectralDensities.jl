@@ -4,10 +4,9 @@ using AutoHashEquals: @auto_hash_equals
 
 using ..Defaults: Defaults
 using ..EquationSolvers: eqsolve!
-using ..Problems:
-    PTraceConstraint, PointProblem, RegularizerConstraint, issameproblem, update
-using ..Regularizers: Regularizer, RegularizerType
-using ..Solutions: PointSolution, issuccess, ptrace, q, regularizer, solves
+using ..Problems: PTraceConstraint, PointProblem, SpreadConstraint, issameproblem, update
+using ..Spreads: Spread, SpreadType
+using ..Solutions: PointSolution, issuccess, ptrace, q, solves, spreadfrom
 using ..Workspaces: Workspace
 
 using ..ArrayTools: ArrayTools
@@ -18,8 +17,8 @@ public AbstractAlgorithm,
     AbstractSchedule,
     DirectSolve,
     DirectSolveState,
-    RegularizerSchedule,
     ScheduleState,
+    SpreadSchedule,
     SymmetrySchedule,
     isdone,
     statetype,
@@ -237,7 +236,7 @@ statetype(::Type{<:AbstractSchedule{F}}) where {F} = ScheduleState{F}
 
 # Prediction based on arbitrary knots, e.g., from schedule values
 function predictconstraint(
-    constraint::RegularizerConstraint{F},
+    constraint::SpreadConstraint{F},
     x::F,
     (x1, solution1)::Tuple{F,PointSolution{F}},
     (x2, solution2)::Tuple{F,PointSolution{F}},
@@ -252,92 +251,86 @@ function predictconstraint(
     (x2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
     q0 = predictlinear(x, (x1, q(solution1)), (x2, q(solution2)))
-    reg_type = constraint.reg0.type
-    reg1 = regularizer(solution1, reg_type)
-    reg2 = regularizer(solution2, reg_type)
-    reg0 = Regularizer(predictlinear(x, (x1, reg1.val), (x2, reg2.val)), reg_type)
-    return update(constraint; q0, reg0)
+    spread_type = constraint.spread0.type
+    spread1 = spreadfrom(solution1, spread_type)
+    spread2 = spreadfrom(solution2, spread_type)
+    spread0 = Spread(predictlinear(x, (x1, spread1.val), (x2, spread2.val)), spread_type)
+    return update(constraint; q0, spread0)
 end
 
 """
-    RegularizerSchedule()
-    RegularizerSchedule(vals, type)
-    RegularizerSchedule{F}(vals, type) where {F<:AbstractFloat}
+    SpreadSchedule()
+    SpreadSchedule(vals, type)
+    SpreadSchedule{F}(vals, type) where {F<:AbstractFloat}
 
-Solve the average resolvent equation by annealing the regularizer
+Solve the average resolvent equation by annealing the spread parameter
 
-The intended way to use this algorithm is to start from a large regularizer to ensure
-convergence to the correct solution branch, and schedule a gradual decay to approach the
-true solution along this branch.
+The intended way to use this algorithm is to start from a large (regularized) spread to
+ensure convergence to the correct solution branch, and schedule a gradual decay to track
+this branch down to the solution.
 
 The parameter `vals` should be a vector of numerical values, and `type` is the type of
-regularizer, see [`Regularizer`](@ref) for details. An error is thrown if the values do not
-monotonically decrease.
+spread parameter to use, see [`Spread`](@ref) for details. `vals` must be monotonically
+decreasing.
 
-The final step of the algorithm is a direct solve of the averaged resolvent problem. This
-either happens at the end of the prescribed schedule or when intersecting the target during
-the annealing, whichever comes first.
+The final step of the algorithm is to solve the true problem using values from the most
+recent annealing step as initial guesses for the Newton solve. This either happens at the
+end of the prescribed schedule or when the an annealing step intercepts the target
+constraint, whichever comes first.
 
 The default value is
 
 ```julia
-RegularizerSchedule(Defaults.regularizer_schedule_vals, Defaults.regularizer_schedule_type)
+SpreadSchedule(Defaults.spread_schedule_vals, Defaults.spread_schedule_type)
 ```
 """
-@auto_hash_equals typearg=true struct RegularizerSchedule{F,U<:AbstractVector{F}} <:
-                                      AbstractSchedule{F,Regularizer{F}}
+@auto_hash_equals typearg=true struct SpreadSchedule{F,U<:AbstractVector{F}} <:
+                                      AbstractSchedule{F,Spread{F}}
     vals::U
-    type::RegularizerType.T
+    type::SpreadType.T
 
-    function RegularizerSchedule{F}(vals, type) where {F}
+    function SpreadSchedule{F}(vals, type) where {F}
         # map preserves ranges types etc. better than broadcasting
         valsF = (eltype(vals) === F) ? vals : map(F, vals)
         schedule = new{F,typeof(valsF)}(valsF, type)
         # Validate post-instantiation in case the original vals was a single-use iterator
         if !monotonic(Iterators.reverse(schedule.vals))
-            throw(ArgumentError("regularizer schedule must decrease monotonically"))
+            throw(ArgumentError("spread schedule must decrease monotonically"))
         end
         return schedule
     end
 end
 
-RegularizerSchedule(vals, type) = RegularizerSchedule{eltype(vals)}(vals, type)
+SpreadSchedule(vals, type) = SpreadSchedule{eltype(vals)}(vals, type)
 
-function RegularizerSchedule()
-    vals, type = Defaults.regularizer_schedule_vals, Defaults.regularizer_schedule_type
-    return RegularizerSchedule(vals, type)
+function SpreadSchedule()
+    vals, type = Defaults.spread_schedule_vals, Defaults.spread_schedule_type
+    return SpreadSchedule(vals, type)
 end
 
-function RegularizerSchedule{F}(alg::RegularizerSchedule) where {F}
-    return RegularizerSchedule{F}(alg.vals, alg.type)
+SpreadSchedule{F}(alg::SpreadSchedule) where {F} = SpreadSchedule{F}(alg.vals, alg.type)
+
+function Base.convert(::Type{P}, alg::SpreadSchedule) where {F,P<:SpreadSchedule{F}}
+    return (alg isa P) ? alg : SpreadSchedule{F}(alg)
 end
 
-function Base.convert(
-    ::Type{P}, alg::RegularizerSchedule
-) where {F,P<:RegularizerSchedule{F}}
-    return (alg isa P) ? alg : RegularizerSchedule{F}(alg)
-end
-
-function ArrayTools.adaptrealtype(::Type{F}, alg::RegularizerSchedule) where {F}
-    return convert(RegularizerSchedule{F}, alg)
+function ArrayTools.adaptrealtype(::Type{F}, alg::SpreadSchedule) where {F}
+    return convert(SpreadSchedule{F}, alg)
 end
 
 # Interface
 # ---------
-Base.getindex(alg::RegularizerSchedule, i::Int) = Regularizer(alg.vals[i], alg.type)
+Base.getindex(alg::SpreadSchedule, i::Int) = Spread(alg.vals[i], alg.type)
 
 function stepproblem(
-    index::Int, problem::PointProblem{F}, alg::RegularizerSchedule{F}, ::Nothing
+    index::Int, problem::PointProblem{F}, alg::SpreadSchedule{F}, ::Nothing
 ) where {F}
-    constraint = RegularizerConstraint(alg[index], problem.constraint.q0)
+    constraint = SpreadConstraint(alg[index], problem.constraint.q0)
     return update(problem; constraint)
 end
 
 function stepproblem(
-    index::Int,
-    problem::PointProblem{F},
-    alg::RegularizerSchedule{F},
-    state::ScheduleState{F},
+    index::Int, problem::PointProblem{F}, alg::SpreadSchedule{F}, state::ScheduleState{F}
 ) where {F}
     solution1, solution2 = state.solution, state.prevsolution
     if (state.index == lastindex(alg)) ||
@@ -352,17 +345,17 @@ function stepproblem(
 end
 
 function iscomplete(
-    problem::PointProblem{F}, ::RegularizerSchedule{F}, state::ScheduleState{F}
+    problem::PointProblem{F}, ::SpreadSchedule{F}, state::ScheduleState{F}
 ) where {F}
     return issameproblem(state.problem, problem) || solves(state.solution, problem)
 end
 
 # Predicate for whether the target was crossed in the most recent step
 function intercepted(
-    constraint::RegularizerConstraint, solution1::PointSolution, solution2::PointSolution
+    constraint::SpreadConstraint, solution1::PointSolution, solution2::PointSolution
 )
-    cregv, reg1v, reg2v = constraintknots(constraint, solution1, solution2)
-    return !samesign(reg1v - cregv, reg2v - cregv)
+    cspreadv, spread1v, spread2v = constraintknots(constraint, solution1, solution2)
+    return !samesign(spread1v - cspreadv, spread2v - cspreadv)
 end
 
 function intercepted(
@@ -374,13 +367,14 @@ end
 
 # Prediction knots derived from problem constraint
 function constraintknots(
-    constraint::RegularizerConstraint{F},
+    constraint::SpreadConstraint{F},
     solution1::PointSolution{F},
     solution2::PointSolution{F},
 ) where {F}
-    creg = constraint.val
-    reg1, reg2 = regularizer(solution1, creg.type), regularizer(solution2, creg.type)
-    return creg.val, reg1.val, reg2.val
+    cspread = constraint.val
+    spread1 = spreadfrom(solution1, cspread.type)
+    spread2 = spreadfrom(solution2, cspread.type)
+    return cspread.val, spread1.val, spread2.val
 end
 
 function constraintknots(
@@ -400,23 +394,25 @@ end
 Solve the average resolvent equation by annealing the degree of symmetry in the ensemble
 
 What we're scheduling here is a prefactor ``μ ∈ [0, 1]`` such that the symmetry parameter
-``T`` is replaced by ``μT``. The idea is that the equations behave better for ``μ = 0``,
-i.e, the asymmetric problem, so we solve that first before gradually turning on the
-symmetry.
+``S`` is replaced by ``μS``. The motivation for this is that the averaged resolvent
+equations have a unique solution when ``S = 0``, so it makes some sense to solve that
+problem first and then track the solution branch while gradually turning on the symmetry.
 
-We know that when ``T ∝ I``, the correct solution branch at ``μ = 1`` is analytically
-connected to the solution at ``μ = 0``. However, this may not hold for general ``T``, so
-symmetry annealing may not always be a viable solution strategy. For example, the topology
-of the spectral support may change as a function of ``μ``. This is different from
-`RegularizerSchedule`, where the unique solution in the limit of large regularizer is on the
-correct branch by definition. Hence, annealing the regularization is usually the preferred
-solution strategy.
+The caveat is that a given ``z`` may be inside the spectral support at ``μ = 0`` and outside
+at ``μ = 1`` or vice versa, in which case the solutions are not analytically connected
+(there will be a bifurcation in the solution branches). Granted, we often use analytic
+continuation to extend the functional form of the averaged resolvent within the support out
+to some margin beyond the boundary such that we can precisely interpolate the boundary
+location. This works well for any ``z`` that's inside the support+margin at ``μ = 0``: the
+solution branch either survives to ``μ = 1``, or drops beyond the margin (in practical
+terms: below shiftmin) and turns into a `success = false` solution as it should. The more
+problematic case is if ``z`` is outside the support+margin at ``μ = 0``, such that we fail
+to obtain an initial solution, but nevertheless should be inside at ``μ = 1``.
 
 The schedule can be specified as an integer `steps`, which will set the schedule to
 `range(0, 1, steps)`. Alternatively, a custom schedule can be provided directly in the form
-of an `AbstractVector{<:Real}`; this can be useful if, for example, you want to take smaller
-steps in an unstable region. An error is thrown if the schedule does not increase
-monotonically from 0 to 1.
+of an `AbstractVector{<:Real}`, allowing non-uniform step sizes. An error is thrown if the
+schedule does not increase monotonically from 0 to 1.
 
 The default value is
 
@@ -424,6 +420,14 @@ The default value is
 SymmetrySchedule(Defaults.symmetry_schedule_vals)
 ```
 """
+# FIXME: Change abort heuristics. As described in the docstring above, we shouldn't abort
+# just because success = false at μ = 0. In fact, since the supports may have complex shapes
+# and topologies, we probably shouldn't ever abort: a point can go in and out of the
+# support+margin multiple times. If a failed step did converge to finite parameters (which
+# is often the case; the point of declaring failure based on shiftmin is to halt a spread
+# schedule _before_ it reaches a point where the solver fails to converge, not after), we
+# should use them to initialize the next step; if we got NaN, we should revert to the
+# initial guesses in the constraint.
 @auto_hash_equals typearg=true struct SymmetrySchedule{F,U<:AbstractVector{F}} <:
                                       AbstractSchedule{F,F}
     vals::U
@@ -499,40 +503,38 @@ end  # module Algorithms
     @test adaptrealtype(Float64, alg) == alg
 end
 
-@testitem "RegularizerSchedule" begin
+@testitem "SpreadSchedule" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Algorithms:
-        RegularizerSchedule, ScheduleState, statetype
+    using GaussianSpectralDensities.Algorithms: ScheduleState, SpreadSchedule, statetype
     using GaussianSpectralDensities.Defaults: Defaults
 
     vals64, type = 2.0 .^ (2:-1:-2), :gap
-    alg64 = RegularizerSchedule(vals64, type)
+    alg64 = SpreadSchedule(vals64, type)
 
     # Defaults
-    @test RegularizerSchedule() === RegularizerSchedule(
-        Defaults.regularizer_schedule_vals, Defaults.regularizer_schedule_type
-    )
+    @test SpreadSchedule() ===
+        SpreadSchedule(Defaults.spread_schedule_vals, Defaults.spread_schedule_type)
 
     # Traits
     IndexStyle(typeof(alg64)) == IndexLinear()
 
     @testset "$F" for F in [Float32, Float64]
         valsF = map(F, vals64)  # map preserves ranges types etc. better than broadcasting
-        algF = RegularizerSchedule(valsF, type)
+        algF = SpreadSchedule(valsF, type)
 
         # Floattype inferring constructor
-        @test algF isa RegularizerSchedule{F}
-        @test statetype(RegularizerSchedule{F}) === ScheduleState{F}
+        @test algF isa SpreadSchedule{F}
+        @test statetype(SpreadSchedule{F}) === ScheduleState{F}
 
         # Floattype enforcing constructor
-        @test RegularizerSchedule{F}(vals64, type) == algF
-        @test RegularizerSchedule{Float64}(valsF, type) == alg64
+        @test SpreadSchedule{F}(vals64, type) == algF
+        @test SpreadSchedule{Float64}(valsF, type) == alg64
 
         # Floattype conversions
-        @test RegularizerSchedule{F}(alg64) == algF
-        @test RegularizerSchedule{Float64}(algF) == alg64
-        @test convert(RegularizerSchedule{F}, alg64) == algF
-        @test convert(RegularizerSchedule{Float64}, algF) == alg64
+        @test SpreadSchedule{F}(alg64) == algF
+        @test SpreadSchedule{Float64}(algF) == alg64
+        @test convert(SpreadSchedule{F}, alg64) == algF
+        @test convert(SpreadSchedule{Float64}, algF) == alg64
         @test adaptrealtype(F, alg64) == algF
         @test adaptrealtype(Float64, algF) == alg64
     end
@@ -583,7 +585,7 @@ end
 end
 
 @testitem "*Schedule errors" begin
-    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, SymmetrySchedule
+    using GaussianSpectralDensities.Algorithms: SpreadSchedule, SymmetrySchedule
 
     # Doesn't start at 0
     @test_throws ArgumentError SymmetrySchedule([0.2, 0.6, 1.0])
@@ -600,17 +602,17 @@ end
     @test_throws "monotonic" SymmetrySchedule([0.0, 0.67, 0.33, 1.0])
     @test_throws ArgumentError SymmetrySchedule(range(1.0, 0.0, 3))
     @test_throws "monotonic" SymmetrySchedule(range(1.0, 0.0, 3))
-    @test_throws ArgumentError RegularizerSchedule([1.0, 0.33, 0.67, 0.0], :shift)
-    @test_throws "monotonic" RegularizerSchedule([1.0, 0.33, 0.67, 0.0], :gap)
-    @test_throws ArgumentError RegularizerSchedule(range(0.0, 1.0, 3), :shift)
-    @test_throws "monotonic" RegularizerSchedule(range(0.0, 1.0, 3), :gap)
+    @test_throws ArgumentError SpreadSchedule([1.0, 0.33, 0.67, 0.0], :shift)
+    @test_throws "monotonic" SpreadSchedule([1.0, 0.33, 0.67, 0.0], :gap)
+    @test_throws ArgumentError SpreadSchedule(range(0.0, 1.0, 3), :shift)
+    @test_throws "monotonic" SpreadSchedule(range(0.0, 1.0, 3), :gap)
 end
 
-@testitem "DirectSolve/Regularizer" begin
+@testitem "DirectSolve/SpreadConstraint" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PointProblem, RegularizerConstraint, ResolventEquation
+        PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -621,7 +623,7 @@ end
     A64data = ComplexF64[1 -1; 1 1]
     D64data = ComplexF64[0.75, 0.25cispi(1//3)]
     z64 = -(2.0 + im) / 4
-    constraint64 = RegularizerConstraint(; shift=0.25, q0=(1.0 - im) / 2)
+    constraint64 = SpreadConstraint(; shift=0.25, q0=(1.0 - im) / 2)
 
     @testset "$label" for (label, A64, D64) in [
         ("Array", A64data, Diagonal(D64data)),
@@ -648,7 +650,7 @@ end
     end
 end
 
-@testitem "DirectSolve/PTrace" begin
+@testitem "DirectSolve/PTraceConstraint" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
@@ -680,14 +682,14 @@ end
     @test isdone(problem64, alg64, state64)
 end
 
-@testitem "RegularizerSchedule/Regularizer" begin
-    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!
+@testitem "SpreadSchedule/SpreadConstraint" begin
+    using GaussianSpectralDensities.Algorithms: SpreadSchedule, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
-        PointProblem, RegularizerConstraint, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
-    using GaussianSpectralDensities.Solutions: issuccess, q, regularizer, solves
+        PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities.Spreads: Spread
+    using GaussianSpectralDensities.Solutions: issuccess, q, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: Diagonal, I
@@ -702,13 +704,12 @@ end
     schedule64 = [4.0, 2.0, 1.0, 0.5]
     target_val64 = 0.25
 
-    @testset "Target regularizer type = $reg_type_target" for reg_type_target in
-                                                              [:shift, :gap]
-        kwargs = (; reg_type_target => target_val64, :q0 => q0_64)
-        constraint64 = RegularizerConstraint(; kwargs...)
+    @testset "Target spread type = $spread_type_target" for spread_type_target in
+                                                            [:shift, :gap]
+        constraint64 = SpreadConstraint(; spread_type_target => target_val64, q0=q0_64)
 
-        @testset "Schedule regularizer type = $reg_type_schedule" for reg_type_schedule in
-                                                                      [:shift, :gap]
+        @testset "Schedule spread type = $spread_type_schedule" for spread_type_schedule in
+                                                                    [:shift, :gap]
             @testset "$label" for (label, A64, D64) in [
                 ("Array", A64data, Diagonal(D64data)),
                 ("SArray", SMatrix{2,2}(A64data), Diagonal(SVector{2}(D64data))),
@@ -719,7 +720,7 @@ end
                     eqF = ResolventEquation(ensembleF)
                     wsF = Workspace(eqF)
                     problemF = PointProblem(eqF, constraint64, z64)
-                    algF = RegularizerSchedule{F}(schedule64, reg_type_schedule)
+                    algF = SpreadSchedule{F}(schedule64, spread_type_schedule)
 
                     # No state no done
                     @test !isdone(problemF, algF, nothing)
@@ -739,7 +740,7 @@ end
                     # step to the target. The exception is (target, schedule) == (:shift,
                     # :gap), in which the solution may be intersected before exhausting the
                     # schedule, triggering an early final step.
-                    if (reg_type_target, reg_type_schedule) != (:shift, :gap)
+                    if (spread_type_target, spread_type_schedule) != (:shift, :gap)
                         @test length(solutions) == length(algF) + 1
                     end
 
@@ -767,11 +768,12 @@ end
                     # Final step initialized by linear *polation from the two previous
                     # solutions
                     problem = states[end].problem
-                    creg, cq0 = problem.constraint.val, problem.constraint.q0
+                    cspread, cq0 = problem.constraint.val, problem.constraint.q0
                     i1, i2 = states[end - 1].index, states[end - 1].previndex
                     sol1, sol2 = solutions[i1], solutions[i2]
-                    reg1, reg2 = regularizer(sol1, creg.type), regularizer(sol2, creg.type)
-                    x, x1, x2 = creg.val, reg1.val, reg2.val
+                    spread1 = spreadfrom(sol1, cspread.type)
+                    spread2 = spreadfrom(sol2, cspread.type)
+                    x, x1, x2 = cspread.val, spread1.val, spread2.val
                     @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
 
                     # Final step solves the actual target problem
@@ -783,13 +785,13 @@ end
     end
 end
 
-@testitem "RegularizerSchedule/PTrace" begin
-    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!
+@testitem "SpreadSchedule/PTraceConstraint" begin
+    using GaussianSpectralDensities.Algorithms: SpreadSchedule, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
-    using GaussianSpectralDensities.Solutions: issuccess, ptrace, q, regularizer, solves
+        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities.Solutions: issuccess, ptrace, q, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -798,18 +800,18 @@ end
     q0_64 = complex(0.1)
 
     schedule64 = [4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625]
-    ptrace64_target = 1.0
+    target_ptrace64 = 1.0
 
-    @testset "Schedule regularizer type = $reg_type" for reg_type in [:shift, :gap]
-        alg64 = RegularizerSchedule(schedule64, reg_type)
-        constraint64 = PTraceConstraint(ptrace64_target; q0=q0_64, reg0=alg64[begin])
+    @testset "Schedule spread type = $spread_type" for spread_type in [:shift, :gap]
+        alg64 = SpreadSchedule(schedule64, spread_type)
+        constraint64 = PTraceConstraint(target_ptrace64; q0=q0_64, spread0=alg64[begin])
 
         @testset "$F" for F in [Float32, Float64]
             ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.5I)
             eqF = ResolventEquation(ensembleF)
             wsF = Workspace(eqF)
             problemF = PointProblem(eqF, constraint64, z64)
-            algF = RegularizerSchedule{F}(alg64)
+            algF = SpreadSchedule{F}(alg64)
 
             # No state no done
             @test !isdone(problemF, algF, nothing)
@@ -849,20 +851,23 @@ end
             end
 
             # Final step initialized by linear *polation from the two previous solutions
-            # Could be either a PTrace problem or a Regularizer problem
+            # Could be either a PTrace or Spread constrained problem
             problem = states[end].problem
             cq0 = problem.constraint.q0
             i1, i2 = states[end - 1].index, states[end - 1].previndex
             sol1, sol2 = solutions[i1], solutions[i2]
             if problem.constraint isa PTraceConstraint
-                creg0 = problem.constraint.reg0
-                reg1, reg2 = regularizer(sol1, creg0.type), regularizer(sol2, creg0.type)
+                cspread0 = problem.constraint.spread0
+                spread1 = spreadfrom(sol1, cspread0.type)
+                spread2 = spreadfrom(sol2, cspread0.type)
+                spread1v, spread2v = spread1.val, spread2.val
                 x, x1, x2 = problem.constraint.val, ptrace(sol1), ptrace(sol2)
-                @test isapproxlinear((x, creg0.val), (x1, reg1.val), (x2, reg2.val))
+                @test isapproxlinear((x, cspread0.val), (x1, spread1v), (x2, spread2v))
             else
-                creg = problem.constraint.val
-                reg1, reg2 = regularizer(sol1, creg.type), regularizer(sol2, creg.type)
-                x, x1, x2 = creg.val, reg1.val, reg2.val
+                cspread = problem.constraint.val
+                spread1 = spreadfrom(sol1, cspread.type)
+                spread2 = spreadfrom(sol2, cspread.type)
+                x, x1, x2 = cspread.val, spread1.val, spread2.val
             end
             @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
 
@@ -873,13 +878,13 @@ end
     end
 end
 
-@testitem "SymmetrySchedule/Regularizer" begin
+@testitem "SymmetrySchedule/SpreadConstraint" begin
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
-        PointProblem, RegularizerConstraint, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+        PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Solutions: issuccess, q, solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -893,8 +898,8 @@ end
 
     nsteps = 3
 
-    @testset "Regularizer type = $reg_type" for reg_type in [:shift, :gap]
-        constraint64 = RegularizerConstraint(Regularizer(0.25, reg_type); q0=complex(1.0))
+    @testset "Spread type = $spread_type" for spread_type in [:shift, :gap]
+        constraint64 = SpreadConstraint(; spread_type => 0.25, q0=complex(1.0))
 
         @testset "$label" for (label, A64, D64) in [
             ("Array", A64data, Diagonal(D64data)),
@@ -955,13 +960,13 @@ end
     end
 end
 
-@testitem "SymmetrySchedule/PTrace" begin
+@testitem "SymmetrySchedule/PTraceConstraint" begin
     using GaussianSpectralDensities.Algorithms: SymmetrySchedule, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Solutions: issuccess, q, regularizer, solves
+    using GaussianSpectralDensities.Solutions: issuccess, q, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -1009,12 +1014,14 @@ end
                 # Each schedule step initialized by linear *polation from the two previous
                 # solutions
                 problem = states[i].problem
-                cq0, creg0 = problem.constraint.q0, problem.constraint.reg0
+                cq0, cspread0 = problem.constraint.q0, problem.constraint.spread0
                 i1, i2 = states[i - 1].index, states[i - 1].previndex
                 sol1, sol2 = solutions[i1], solutions[i2]
-                reg1, reg2 = regularizer(sol1, creg0.type), regularizer(sol2, creg0.type)
+                spread1 = spreadfrom(sol1, cspread0.type)
+                spread2 = spreadfrom(sol2, cspread0.type)
+                spread1v, spread2v = spread1.val, spread2.val
                 x, x1, x2 = scheduleF[i], scheduleF[i1], scheduleF[i2]
-                @test isapproxlinear((x, creg0.val), (x1, reg1.val), (x2, reg2.val))
+                @test isapproxlinear((x, cspread0.val), (x1, spread1v), (x2, spread2v))
                 @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
             end
         end
@@ -1025,12 +1032,12 @@ end
     end
 end
 
-@testitem "RegularizerSchedule shiftmin abort" begin
-    using GaussianSpectralDensities.Algorithms: RegularizerSchedule, isdone, step!
+@testitem "SpreadSchedule shiftmin abort" begin
+    using GaussianSpectralDensities.Algorithms: SpreadSchedule, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: shift
+    using GaussianSpectralDensities.Spreads: shift
     using GaussianSpectralDensities.Solutions: issuccess
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -1042,7 +1049,7 @@ end
     z64 = 1.0 + 1.0im
     q0_64 = complex(0.1)
 
-    alg64 = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625], :gap)
+    alg64 = SpreadSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625], :gap)
     constraint64 = PTraceConstraint(1.0; q0=q0_64, gap0=4.0)
 
     @testset "$F" for F in [Float32, Float64]
@@ -1050,7 +1057,7 @@ end
         eqF = ResolventEquation(ensembleF; shiftmin)
         wsF = Workspace(eqF)
         problemF = PointProblem(eqF, constraint64, z64)
-        algF = RegularizerSchedule{F}(alg64)
+        algF = SpreadSchedule{F}(alg64)
 
         # Collect all solutions and states
         solutions = []
@@ -1078,7 +1085,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: shift
+    using GaussianSpectralDensities.Spreads: shift
     using GaussianSpectralDensities.Solutions: issuccess
     using GaussianSpectralDensities.Workspaces: Workspace
 

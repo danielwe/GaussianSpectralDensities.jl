@@ -6,9 +6,9 @@ using StructArrays: StructArray
 
 using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, statetype
 using ..Problems: AbstractConstraint, PointProblem
-using ..Regularizers: Regularizers, gap, shift
+using ..Spreads: Spreads, gap, shift
 using ..Solutions:
-    PointSolution, ResolventParams, Solutions, greens, issuccess, ptrace, q, regularizer
+    PointSolution, ResolventParams, Solutions, greens, issuccess, ptrace, q, spreadfrom
 using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
@@ -133,53 +133,53 @@ Solutions.issuccess(sol::Solution) = issuccess(sol.pointsolution)
 """
     q(sol::Solution) -> Complex
 
-Return the self-consistency parameter q of the solution.
+Return the self-consistency parameter `q` from the solution.
 """
 Solutions.q(sol::Solution) = q(sol.pointsolution)
 
 """
     ptrace(sol::Solution) -> Real
 
-Return the partial trace parameter ptrace of the solution.
+Return the trace parameter `ptrace` from the solution.
 """
 Solutions.ptrace(sol::Solution) = ptrace(sol.pointsolution)
 
 """
     greens(sol::Solution) -> Complex
 
-Return the Green's function value of the solution.
+Return the value of the Green's function (resolvent trace) from the solution.
 """
 Solutions.greens(sol::Solution) = greens(sol.pointsolution)
 
 """
     shift(sol::Solution) -> Real
 
-Return the shift regularizer value of the solution.
+Return the spectral shift from the solution.
 """
-Regularizers.shift(sol::Solution) = shift(sol.pointsolution)
+Spreads.shift(sol::Solution) = shift(sol.pointsolution)
 
 """
     gap(sol::Solution) -> Real
 
-Return the gap regularizer value of the solution.
+Return the spectral gap from the solution.
 """
-Regularizers.gap(sol::Solution) = gap(sol.pointsolution)
+Spreads.gap(sol::Solution) = gap(sol.pointsolution)
 
 """
-    regularizer(sol::Solution, type::Symbol) -> Regularizer
+    spreadfrom(sol::Solution, type::Symbol) -> Spread
 
-Return the regularizer of type `type` of the solution.
+Create a spread parameter of the given `type` from the solution.
 """
-Solutions.regularizer(sol::Solution, type::Symbol) = regularizer(sol.pointsolution, type)
+Solutions.spreadfrom(sol::Solution, type::Symbol) = spreadfrom(sol.pointsolution, type)
 
 end  # module Solvers
 
 @testitem "Solver construction" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, RegularizerConstraint, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Solvers: Solver
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -188,14 +188,14 @@ end  # module Solvers
     ensemble64 = MatrixEnsemble(I, I, I, I / 2)
     eq64 = ResolventEquation(ensemble64)
     z64 = 0.5 + 0.5im
-    regc64 = RegularizerConstraint(; shift=0.25, q0=complex(0.1))
+    spreadc64 = SpreadConstraint(; shift=0.25, q0=complex(0.1))
     ptracec64 = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
 
     alg_direct = DirectSolve()
-    alg_schedule = RegularizerSchedule([2.0, 1.0, 0.5, 0.25], :gap)
+    alg_schedule = SpreadSchedule([2.0, 1.0, 0.5, 0.25], :gap)
 
     @testset "$F" for F in [Float32, Float64]
-        @testset "$(nameof(typeof(constraint)))" for constraint in [regc64, ptracec64]
+        @testset "$(nameof(typeof(constraint)))" for constraint in [spreadc64, ptracec64]
             problem = PointProblem(eq64, constraint, z64)
             @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_schedule]
                 # Type-inferring constructor
@@ -221,11 +221,11 @@ end  # module Solvers
 end
 
 @testitem "Solver iteration interface" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: Regularizer
+    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, solves
     using GaussianSpectralDensities.Solvers: Solver
 
@@ -266,9 +266,9 @@ end
         @test solves(solver.pointsolution, solver.problem)
     end
 
-    @testset "RegularizerSchedule" begin
+    @testset "SpreadSchedule" begin
         schedule_vals = [4.0, 2.0, 1.0, 0.5, 0.25]
-        alg = RegularizerSchedule(schedule_vals, :gap)
+        alg = SpreadSchedule(schedule_vals, :gap)
         constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
         solver = Solver(problem_sched, alg)
@@ -280,7 +280,7 @@ end
             @test s === solver
         end
 
-        # RegularizerSchedule terminates early once ptrace crosses target,
+        # SpreadSchedule terminates early once ptrace crosses target,
         # so we don't necessarily exhaust the full schedule
         @test step_count > 0
         @test step_count <= length(schedule_vals) + 1
@@ -299,7 +299,7 @@ end
 @testitem "CommonSolve interface" begin
     using CommonSolve: init, solve!, step!
 
-    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -340,7 +340,7 @@ end
         schedule_vals = [4.0, 2.0, 1.0, 0.5]
         constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
-        solver = init(problem_sched, RegularizerSchedule(schedule_vals, :gap))
+        solver = init(problem_sched, SpreadSchedule(schedule_vals, :gap))
 
         solution = solve!(solver)
         @test solution isa Solution{Float64}
@@ -355,7 +355,7 @@ end
 @testitem "Solution construction" begin
     using CommonSolve: init, solve!
 
-    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -409,7 +409,7 @@ end
         schedule_vals = [4.0, 2.0, 1.0, 0.5]
         constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
-        alg = RegularizerSchedule(schedule_vals, :gap)
+        alg = SpreadSchedule(schedule_vals, :gap)
         solver = init(problem_sched, alg)
         solution = solve!(solver)
 
@@ -427,11 +427,11 @@ end
 @testitem "Solver early termination on failure" begin
     using CommonSolve: init, solve!
 
-    using GaussianSpectralDensities.Algorithms: RegularizerSchedule
+    using GaussianSpectralDensities.Algorithms: SpreadSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: shift
+    using GaussianSpectralDensities.Spreads: shift
     using GaussianSpectralDensities.Solutions: issuccess
 
     using LinearAlgebra: I
@@ -443,7 +443,7 @@ end
     constraint = PTraceConstraint(1.0; gap0=4.0, q0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
-    alg = RegularizerSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
+    alg = SpreadSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
     solver = init(problem, alg)
     solution = solve!(solver)
 
@@ -467,8 +467,8 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Regularizers: gap, shift
-    using GaussianSpectralDensities.Solutions: greens, issuccess, ptrace, q, regularizer
+    using GaussianSpectralDensities.Spreads: gap, shift
+    using GaussianSpectralDensities.Solutions: greens, issuccess, ptrace, q, spreadfrom
     using GaussianSpectralDensities.Solvers: Solution
 
     using LinearAlgebra: I
@@ -489,12 +489,12 @@ end
     @test greens(solution) == greens(solution.pointsolution)
     @test shift(solution) == shift(solution.pointsolution)
     @test gap(solution) == gap(solution.pointsolution)
-    @test regularizer(solution, :shift) == regularizer(solution.pointsolution, :shift)
-    @test regularizer(solution, :gap) == regularizer(solution.pointsolution, :gap)
+    @test spreadfrom(solution, :shift) == spreadfrom(solution.pointsolution, :shift)
+    @test spreadfrom(solution, :gap) == spreadfrom(solution.pointsolution, :gap)
 end
 
 @testitem "pointsolve/pointsolve! interface" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve, RegularizerSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -526,9 +526,9 @@ end
         @test Base.isdone(solver)
     end
 
-    @testset "pointsolve with RegularizerSchedule" begin
+    @testset "pointsolve with SpreadSchedule" begin
         schedule_vals = [4.0, 2.0, 1.0, 0.5]
-        alg = RegularizerSchedule(schedule_vals, :gap)
+        alg = SpreadSchedule(schedule_vals, :gap)
         constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
 
