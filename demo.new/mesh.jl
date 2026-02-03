@@ -32,7 +32,7 @@ mesh = simplexify(refine(disc, MaxLengthRefinement(0.4)))
 ensemble = MatrixEnsemble(0I, I, I, 2I/3)
 equation = ResolventEquation(ensemble; shiftmin=-2)
 
-constraint = PTraceConstraint(1; shift0=1, q0=0)
+constraint = PTraceConstraint(1; shift0=1, shape0=0)
 algorithm = SpreadSchedule()
 
 prob = GlobalProblem(equation, constraint, mesh)

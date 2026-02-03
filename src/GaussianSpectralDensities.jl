@@ -36,7 +36,7 @@ using TestItems: @testitem
 module Defaults
 
     public approxequal,
-        q0,
+        shape0,
         spread_schedule_type,
         spread_schedule_vals,
         spread_target_type,
@@ -48,7 +48,7 @@ module Defaults
     const trace_target = 1.0
     const spread_target_val = 0.0
     const spread_target_type = :shift
-    const q0 = ComplexF64(sqrt(eps(Float32)))
+    const shape0 = ComplexF64(sqrt(eps(Float32)))
     const spread_schedule_vals = 2.0 .^ (4:-0.5:-4)
     const spread_schedule_type = :gap
     const symmetry_schedule_vals = 0:0.1:1

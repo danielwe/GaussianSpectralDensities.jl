@@ -6,7 +6,7 @@ using ..Defaults: Defaults
 using ..EquationSolvers: eqsolve!
 using ..Problems: PTraceConstraint, PointProblem, SpreadConstraint, issameproblem, update
 using ..Spreads: Spread, SpreadType
-using ..Solutions: PointSolution, issuccess, ptrace, q, solves, spreadfrom
+using ..Solutions: PointSolution, issuccess, ptrace, shape, solves, spreadfrom
 using ..Workspaces: Workspace
 
 using ..ArrayTools: ArrayTools
@@ -241,7 +241,8 @@ function predictconstraint(
     (x1, solution1)::Tuple{F,PointSolution{F}},
     (x2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
-    return update(constraint; q0=predictlinear(x, (x1, q(solution1)), (x2, q(solution2))))
+    shape1, shape2 = shape(solution1), shape(solution2)
+    return update(constraint; shape0=predictlinear(x, (x1, shape1), (x2, shape2)))
 end
 
 function predictconstraint(
@@ -250,12 +251,12 @@ function predictconstraint(
     (x1, solution1)::Tuple{F,PointSolution{F}},
     (x2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
-    q0 = predictlinear(x, (x1, q(solution1)), (x2, q(solution2)))
+    shape0 = predictlinear(x, (x1, shape(solution1)), (x2, shape(solution2)))
     spread_type = constraint.spread0.type
     spread1 = spreadfrom(solution1, spread_type)
     spread2 = spreadfrom(solution2, spread_type)
     spread0 = Spread(predictlinear(x, (x1, spread1.val), (x2, spread2.val)), spread_type)
-    return update(constraint; q0, spread0)
+    return update(constraint; shape0, spread0)
 end
 
 """
@@ -325,7 +326,7 @@ Base.getindex(alg::SpreadSchedule, i::Int) = Spread(alg.vals[i], alg.type)
 function stepproblem(
     index::Int, problem::PointProblem{F}, alg::SpreadSchedule{F}, ::Nothing
 ) where {F}
-    constraint = SpreadConstraint(alg[index], problem.constraint.q0)
+    constraint = SpreadConstraint(alg[index], problem.constraint.shape0)
     return update(problem; constraint)
 end
 
@@ -623,7 +624,7 @@ end
     A64data = ComplexF64[1 -1; 1 1]
     D64data = ComplexF64[0.75, 0.25cispi(1//3)]
     z64 = -(2.0 + im) / 4
-    constraint64 = SpreadConstraint(; shift=0.25, q0=(1.0 - im) / 2)
+    constraint64 = SpreadConstraint(; shift=0.25, shape0=(1.0 - im) / 2)
 
     @testset "$label" for (label, A64, D64) in [
         ("Array", A64data, Diagonal(D64data)),
@@ -661,7 +662,7 @@ end
     using LinearAlgebra: I
 
     z64 = 0.5 + 0.5im
-    constraint64 = PTraceConstraint(1.0; q0=complex(0.1), shift0=1.0)
+    constraint64 = PTraceConstraint(1.0; shape0=complex(0.1), shift0=1.0)
 
     ensemble64 = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq64 = ResolventEquation(ensemble64)
@@ -689,7 +690,7 @@ end
     using GaussianSpectralDensities.Problems:
         PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Spreads: Spread
-    using GaussianSpectralDensities.Solutions: issuccess, q, solves, spreadfrom
+    using GaussianSpectralDensities.Solutions: issuccess, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: Diagonal, I
@@ -699,14 +700,15 @@ end
     A64data = ComplexF64[1 -1; 1 1]
     D64data = ComplexF64[0.75, 0.25cispi(1//3)]
     z64 = -(2.0 + im) / 4
-    q0_64 = complex(1.0)
+    shape0_64 = complex(1.0)
 
     schedule64 = [4.0, 2.0, 1.0, 0.5]
     target_val64 = 0.25
 
     @testset "Target spread type = $spread_type_target" for spread_type_target in
                                                             [:shift, :gap]
-        constraint64 = SpreadConstraint(; spread_type_target => target_val64, q0=q0_64)
+        spread = Spread(target_val64, spread_type_target)
+        constraint64 = SpreadConstraint(spread; shape0=shape0_64)
 
         @testset "Schedule spread type = $spread_type_schedule" for spread_type_schedule in
                                                                     [:shift, :gap]
@@ -757,24 +759,26 @@ end
                             # Each schedule step initialized by linear *polation from the
                             # two previous solutions
                             problem = states[i].problem
-                            cq0 = problem.constraint.q0
+                            cshape0 = problem.constraint.shape0
                             i1, i2 = states[i - 1].index, states[i - 1].previndex
                             sol1, sol2 = solutions[i1], solutions[i2]
+                            shape1, shape2 = shape(sol1), shape(sol2)
                             x, x1, x2 = scheduleF[i], scheduleF[i1], scheduleF[i2]
-                            @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
+                            @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
                         end
                     end
 
                     # Final step initialized by linear *polation from the two previous
                     # solutions
                     problem = states[end].problem
-                    cspread, cq0 = problem.constraint.val, problem.constraint.q0
+                    cspread, cshape0 = problem.constraint.val, problem.constraint.shape0
                     i1, i2 = states[end - 1].index, states[end - 1].previndex
                     sol1, sol2 = solutions[i1], solutions[i2]
+                    shape1, shape2 = shape(sol1), shape(sol2)
                     spread1 = spreadfrom(sol1, cspread.type)
                     spread2 = spreadfrom(sol2, cspread.type)
                     x, x1, x2 = cspread.val, spread1.val, spread2.val
-                    @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
+                    @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
 
                     # Final step solves the actual target problem
                     @test solves(solutions[end], problemF)
@@ -791,20 +795,21 @@ end
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
-    using GaussianSpectralDensities.Solutions: issuccess, ptrace, q, solves, spreadfrom
+    using GaussianSpectralDensities.Solutions: issuccess, ptrace, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
 
     z64 = 0.5 + 0.5im
-    q0_64 = complex(0.1)
+    shape0_64 = complex(0.1)
 
     schedule64 = [4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625]
     target_ptrace64 = 1.0
 
     @testset "Schedule spread type = $spread_type" for spread_type in [:shift, :gap]
         alg64 = SpreadSchedule(schedule64, spread_type)
-        constraint64 = PTraceConstraint(target_ptrace64; q0=q0_64, spread0=alg64[begin])
+        spread0 = alg64[begin]
+        constraint64 = PTraceConstraint(target_ptrace64; shape0=shape0_64, spread0)
 
         @testset "$F" for F in [Float32, Float64]
             ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.5I)
@@ -842,20 +847,22 @@ end
                     # Each schedule step initialized by linear *polation from the two
                     # previous solutions
                     problem = states[i].problem
-                    cq0 = problem.constraint.q0
+                    cshape0 = problem.constraint.shape0
                     i1, i2 = states[i - 1].index, states[i - 1].previndex
                     sol1, sol2 = solutions[i1], solutions[i2]
+                    shape1, shape2 = shape(sol1), shape(sol2)
                     x, x1, x2 = scheduleF[i], scheduleF[i1], scheduleF[i2]
-                    @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
+                    @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
                 end
             end
 
             # Final step initialized by linear *polation from the two previous solutions
             # Could be either a PTrace or Spread constrained problem
             problem = states[end].problem
-            cq0 = problem.constraint.q0
+            cshape0 = problem.constraint.shape0
             i1, i2 = states[end - 1].index, states[end - 1].previndex
             sol1, sol2 = solutions[i1], solutions[i2]
+            shape1, shape2 = shape(sol1), shape(sol2)
             if problem.constraint isa PTraceConstraint
                 cspread0 = problem.constraint.spread0
                 spread1 = spreadfrom(sol1, cspread0.type)
@@ -869,7 +876,7 @@ end
                 spread2 = spreadfrom(sol2, cspread.type)
                 x, x1, x2 = cspread.val, spread1.val, spread2.val
             end
-            @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
+            @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
 
             # Final step solves the actual P-trace constraint
             @test solves(solutions[end], problemF)
@@ -885,7 +892,7 @@ end
     using GaussianSpectralDensities.Problems:
         PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Spreads: Spread
-    using GaussianSpectralDensities.Solutions: issuccess, q, solves
+    using GaussianSpectralDensities.Solutions: issuccess, shape, solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: Diagonal, I
@@ -899,7 +906,7 @@ end
     nsteps = 3
 
     @testset "Spread type = $spread_type" for spread_type in [:shift, :gap]
-        constraint64 = SpreadConstraint(; spread_type => 0.25, q0=complex(1.0))
+        constraint64 = SpreadConstraint(; spread_type => 0.25, shape0=complex(1.0))
 
         @testset "$label" for (label, A64, D64) in [
             ("Array", A64data, Diagonal(D64data)),
@@ -944,11 +951,12 @@ end
                         # Each schedule step initialized by linear *polation from the two
                         # previous solutions
                         problem = states[i].problem
-                        cq0 = problem.constraint.q0
+                        cshape0 = problem.constraint.shape0
                         i1, i2 = states[i - 1].index, states[i - 1].previndex
                         sol1, sol2 = solutions[i1], solutions[i2]
+                        shape1, shape2 = shape(sol1), shape(sol2)
                         x, x1, x2 = scheduleF[i], scheduleF[i1], scheduleF[i2]
-                        @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
+                        @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
                     end
                 end
 
@@ -966,13 +974,13 @@ end
     using GaussianSpectralDensities.MathTools: isapproxlinear
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Solutions: issuccess, q, solves, spreadfrom
+    using GaussianSpectralDensities.Solutions: issuccess, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
 
     z64 = 0.5 + 0.5im
-    constraint64 = PTraceConstraint(1.0; q0=complex(0.1), shift0=1.0)
+    constraint64 = PTraceConstraint(1.0; shape0=complex(0.1), shift0=1.0)
 
     nsteps = 3
 
@@ -1014,15 +1022,16 @@ end
                 # Each schedule step initialized by linear *polation from the two previous
                 # solutions
                 problem = states[i].problem
-                cq0, cspread0 = problem.constraint.q0, problem.constraint.spread0
+                cshape0, cspread0 = problem.constraint.shape0, problem.constraint.spread0
                 i1, i2 = states[i - 1].index, states[i - 1].previndex
                 sol1, sol2 = solutions[i1], solutions[i2]
+                shape1, shape2 = shape(sol1), shape(sol2)
                 spread1 = spreadfrom(sol1, cspread0.type)
                 spread2 = spreadfrom(sol2, cspread0.type)
                 spread1v, spread2v = spread1.val, spread2.val
                 x, x1, x2 = scheduleF[i], scheduleF[i1], scheduleF[i2]
                 @test isapproxlinear((x, cspread0.val), (x1, spread1v), (x2, spread2v))
-                @test isapproxlinear((x, cq0), (x1, q(sol1)), (x2, q(sol2)))
+                @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
             end
         end
 
@@ -1047,10 +1056,10 @@ end
 
     # z outside Ginibre support => negative shift needed to reach k = 1.0
     z64 = 1.0 + 1.0im
-    q0_64 = complex(0.1)
+    shape0_64 = complex(0.1)
 
     alg64 = SpreadSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625], :gap)
-    constraint64 = PTraceConstraint(1.0; q0=q0_64, gap0=4.0)
+    constraint64 = PTraceConstraint(1.0; shape0=shape0_64, gap0=4.0)
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(0.0I, I, I, 0.0I)
@@ -1095,7 +1104,7 @@ end
 
     # z inside Ginibre but outside Girko support => negative shift needed to reach k = 1.0
     z64 = 0.25 + 0.75im
-    constraint64 = PTraceConstraint(1.0; q0=complex(0.1), shift0=1.0)
+    constraint64 = PTraceConstraint(1.0; shape0=complex(0.1), shift0=1.0)
 
     nsteps = 5
 

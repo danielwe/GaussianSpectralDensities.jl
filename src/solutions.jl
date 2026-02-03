@@ -5,21 +5,21 @@ using AutoHashEquals: @auto_hash_equals
 using ..Defaults: approxequal
 using ..Problems: PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
 using ..Spreads: Spread, Spreads
-using ..Workspaces: Workspace, gap!, greens!, ptrace!, qFP!, shift!
+using ..Workspaces: Workspace, gap!, greens!, ptrace!, shapeFP!, shift!
 
 using ..ArrayTools: ArrayTools
 
-public PointSolution, ResolventParams, greens, issuccess, ptrace, q, solves, spreadfrom
+public PointSolution, ResolventParams, greens, issuccess, ptrace, shape, solves, spreadfrom
 
 """
-    ResolventParams(q, shift, gap, ptrace, greens)
-    ResolventParams{F}(q, shift, gap, ptrace, greens) where {F}
+    ResolventParams(shape, shift, gap, ptrace, greens)
+    ResolventParams{F}(shape, shift, gap, ptrace, greens) where {F}
     ResolventParams{F}(params::ResolventParams) where {F}
 
 Parameter values for a self-consistent resolvent solution.
 """
 @auto_hash_equals struct ResolventParams{F<:AbstractFloat}
-    q::Complex{F}
+    shape::Complex{F}
     shift::F
     gap::F
     ptrace::F
@@ -27,7 +27,7 @@ Parameter values for a self-consistent resolvent solution.
 end
 
 function ResolventParams{F}(p::ResolventParams) where {F}
-    return ResolventParams{F}(p.q, p.shift, p.gap, p.ptrace, p.greens)
+    return ResolventParams{F}(p.shape, p.shift, p.gap, p.ptrace, p.greens)
 end
 
 ## Accessors
@@ -62,8 +62,8 @@ function satisfies(params::ResolventParams, constraint::PTraceConstraint)
 end
 
 """
-    PointSolution(equation, z, q, spread; workspace=Workspace(equation))
-    PointSolution{F}(equation, z, q, spread, workspace) where {F}
+    PointSolution(equation, z, shape, spread; workspace=Workspace(equation))
+    PointSolution{F}(equation, z, shape, spread, workspace) where {F}
     PointSolution{F}(s::PointSolution) where {F}
 
 Represent a self-consistent solution of an averaged resolvent equation at a point.
@@ -72,7 +72,7 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
 
   - `equation`: resolvent equation defining the shared context
   - `z`: point in the complex plane
-  - `params`: derived parameter values (q, shift, gap, ptrace, greens)
+  - `params`: derived parameter values (shape, shift, gap, ptrace, greens)
   - `success`: whether the derived parameters are finite, self-consistent, and satisfy shiftmin
 """
 @auto_hash_equals typearg=true struct PointSolution{F,E<:ResolventEquation{F}}
@@ -89,17 +89,17 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
         return new{F,E}(equation, z, params, success)
     end
 
-    function PointSolution{F}(equation, z, q, spread, workspace) where {F}
+    function PointSolution{F}(equation, z, shape, spread, workspace) where {F}
         eqF = convert(ResolventEquation{F}, equation)
-        shiftF = shift!(workspace, eqF, z, q, spread)
-        gapF = gap!(workspace, eqF, z, q, spread)
-        ptraceF = ptrace!(workspace, eqF, z, q, spread)
-        greensF = greens!(workspace, eqF, z, q, spread)
-        paramsF = ResolventParams{F}(q, shiftF, gapF, ptraceF, greensF)
+        shiftF = shift!(workspace, eqF, z, shape, spread)
+        gapF = gap!(workspace, eqF, z, shape, spread)
+        ptraceF = ptrace!(workspace, eqF, z, shape, spread)
+        greensF = greens!(workspace, eqF, z, shape, spread)
+        paramsF = ResolventParams{F}(shape, shiftF, gapF, ptraceF, greensF)
         # FIXME: we should distinguish between failure by shiftmin (where the parameters are
         # still consistent, it's more of a "you may come this far, but no farther" signpost)
-        # and failure by q != qFP, where the parameters are not self-consistent. Should we
-        # just manually set them to NaN in the latter case?
+        # and failure by shape != shapeFP, where the parameters are not self-consistent.
+        # Should we just manually set them to NaN in the latter case?
         #
         # Or should we move shiftmin out of the equation spec and let
         # success == self-consistent? Setting a shiftmin and declaring "you shall not pass"
@@ -109,7 +109,7 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
         success =
             all(isfinite, (shiftF, gapF, ptraceF, greensF)) &&
             (shiftF >= eqF.shiftmin) &&
-            approxequal(qFP!(workspace, eqF, z, q, spread), q)
+            approxequal(shapeFP!(workspace, eqF, z, shape, spread), shape)
         return new{F,typeof(eqF)}(eqF, z, paramsF, success)
     end
 
@@ -124,9 +124,9 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
 end
 
 function PointSolution(
-    equation::ResolventEquation{F}, z, q, spread; workspace=Workspace(equation)
+    equation::ResolventEquation{F}, z, shape, spread; workspace=Workspace(equation)
 ) where {F}
-    return PointSolution{F}(equation, z, q, spread, workspace)
+    return PointSolution{F}(equation, z, shape, spread, workspace)
 end
 
 ## Conversions
@@ -157,11 +157,11 @@ Return whether the solution is finite, self-consistent, and satisfies shiftmin.
 issuccess(sol::PointSolution) = sol.success
 
 """
-    q(sol::PointSolution{F}) -> Complex{F}
+    shape(sol::PointSolution{F}) -> Complex{F}
 
-Return the self-consistency parameter `q` from the solution.
+Return the self-consistent shape parameter from the solution.
 """
-q(sol::PointSolution) = sol.params.q
+shape(sol::PointSolution) = sol.params.shape
 
 """
     ptrace(sol::PointSolution{F}) -> F
@@ -204,16 +204,16 @@ end  # module Solutions
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Solutions: ResolventParams
 
-    q = complex(0.25, -0.125)
+    shape = complex(0.25, -0.125)
     shift = 0.25
     gap = 0.5
     ptrace = 1.0
     greens = -0.5 + 2.0im
 
-    params64 = ResolventParams(q, shift, gap, ptrace, greens)
+    params64 = ResolventParams(shape, shift, gap, ptrace, greens)
 
     @testset "$F" for F in [Float32, Float64]
-        paramsF = ResolventParams{F}(q, shift, gap, ptrace, greens)
+        paramsF = ResolventParams{F}(shape, shift, gap, ptrace, greens)
 
         # Comparison, courtesy of @auto_hash_equals
         @test paramsF == params64
@@ -236,9 +236,9 @@ end
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint, update
     using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, greens, issuccess, ptrace, q, solves, spreadfrom
+        PointSolution, greens, issuccess, ptrace, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces:
-        Workspace, gap!, greens!, ptrace!, qFP!, shift!
+        Workspace, gap!, greens!, ptrace!, shapeFP!, shift!
 
     using LinearAlgebra: I
 
@@ -255,48 +255,53 @@ end
     # We're relying on some very particular parameter tuning here to create a solution we
     # know a priori to be consistent and to survive roundtrip floattype conversion
     z64 = 0.25 + 0.25im
-    q64 = -0.5 - 0.5im
+    shape64 = -0.5 - 0.5im
 
-    solution64 = PointSolution(eq64, z64, q64, spread64; workspace=ws64)
+    solution64 = PointSolution(eq64, z64, shape64, spread64; workspace=ws64)
 
     @testset "$F" for F in [Float32, Float64]
         ensembleF = MatrixEnsemble{F}(ensemble64)
         eqF = ResolventEquation(ensembleF)
         wsF = Workspace(eqF)
 
-        solutionF = PointSolution(eqF, z64, q64, spread64; workspace=wsF)
+        solutionF = PointSolution(eqF, z64, shape64, spread64; workspace=wsF)
 
         # Type and traits
         @test solutionF isa PointSolution{F}
         @test issuccess(solutionF)
-        solF_q, solF_spread = q(solutionF), spreadfrom(solutionF, spread_type)
-        @test solF_q == q64
+        solF_shape, solF_spread = shape(solutionF), spreadfrom(solutionF, spread_type)
+        @test solF_shape == shape64
         @test solF_spread == spread64
 
-        @test shift(solutionF) == shift!(wsF, eqF, solutionF.z, solF_q, solF_spread)
-        @test gap(solutionF) == gap!(wsF, eqF, solutionF.z, solF_q, solF_spread)
-        @test ptrace(solutionF) == ptrace!(wsF, eqF, solutionF.z, solF_q, solF_spread)
-        @test greens(solutionF) == greens!(wsF, eqF, solutionF.z, solF_q, solF_spread)
+        @test shift(solutionF) == shift!(wsF, eqF, solutionF.z, solF_shape, solF_spread)
+        @test gap(solutionF) == gap!(wsF, eqF, solutionF.z, solF_shape, solF_spread)
+        @test ptrace(solutionF) == ptrace!(wsF, eqF, solutionF.z, solF_shape, solF_spread)
+        @test greens(solutionF) == greens!(wsF, eqF, solutionF.z, solF_shape, solF_spread)
 
-        @test approxequal(solF_q, qFP!(wsF, eqF, solutionF.z, solF_q, solF_spread))
+        solF_shapeFP = shapeFP!(wsF, eqF, solutionF.z, solF_shape, solF_spread)
+        @test approxequal(solF_shape, solF_shapeFP)
 
         # Actually solves the problems we expect it to
-        problem_spreadF = PointProblem(eqF, SpreadConstraint(spread64, q64), z64)
-        problem_ptraceF = PointProblem(eqF, PTraceConstraint(ptrace64, q64, spread64), z64)
+        spreadc = SpreadConstraint(spread64, shape64)
+        ptracec = PTraceConstraint(ptrace64, shape64, spread64)
+        problem_spreadF = PointProblem(eqF, spreadc, z64)
+        problem_ptraceF = PointProblem(eqF, ptracec, z64)
         @test solves(solutionF, problem_spreadF)
         @test solves(solutionF, problem_ptraceF)
 
         # Failure due to inconsistent parameters
-        solutionF_inconsistent = PointSolution(eqF, z64, zero(q64), spread64; workspace=wsF)
+        zshape64 = zero(shape64)
+        solutionF_inconsistent = PointSolution(eqF, z64, zshape64, spread64; workspace=wsF)
         @test !issuccess(solutionF_inconsistent)
 
         # Failure due to NaN
-        solutionF_nan = PointSolution(eqF, z64, oftype(q64, NaN), spread64; workspace=wsF)
+        nanshape64 = oftype(shape64, NaN)
+        solutionF_nan = PointSolution(eqF, z64, nanshape64, spread64; workspace=wsF)
         @test !issuccess(solutionF_nan)
 
         # Failure due to shiftmin (with the given params we know that shift = 0)
         eqF_impossible = update(eqF; shiftmin=1.0)
-        solutionF_impossible = PointSolution(eqF_impossible, z64, q64, spread64)
+        solutionF_impossible = PointSolution(eqF_impossible, z64, shape64, spread64)
         @test !issuccess(solutionF_impossible)
 
         # Floattype conversions
@@ -315,7 +320,7 @@ end
         PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, greens, issuccess, ptrace, q, spreadfrom
+        PointSolution, greens, issuccess, ptrace, shape, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -327,13 +332,13 @@ end
     spread_type = :gap
     spread = Spread(0.5, spread_type)
     z = 0.25 + 0.25im
-    q_val = -0.5 - 0.5im
+    shape_val = -0.5 - 0.5im
 
-    solution = PointSolution(eq, z, q_val, spread; workspace=ws)
+    solution = PointSolution(eq, z, shape_val, spread; workspace=ws)
 
     # Test accessors
     @test issuccess(solution) == solution.success
-    @test q(solution) == solution.params.q
+    @test shape(solution) == solution.params.shape
     @test ptrace(solution) == solution.params.ptrace
     @test greens(solution) == solution.params.greens
     @test shift(solution) == solution.params.shift

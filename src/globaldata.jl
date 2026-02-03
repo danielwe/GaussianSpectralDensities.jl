@@ -136,7 +136,7 @@ Compute element-wise gradients of a ResolventParams field over the solution mesh
 Uses linear FEM basis functions, so gradient is constant over each triangular element
 and evaluated at the centroid.
 
-`field` must be one of: `:q`, `:shift`, `:gap`, `:ptrace`, `:greens`.
+`field` must be one of: `:shape`, `:shift`, `:gap`, `:ptrace`, `:greens`.
 """
 function element_gradients(sol::GlobalSolution, field::Symbol)
     mesh = sol.mesh
@@ -175,11 +175,11 @@ Return whether the solution is finite, self-consistent, and satisfies shiftmin.
 Solutions.issuccess(sol::GlobalSolution) = sol.success
 
 """
-    q(sol::GlobalSolution{F}) -> Vector{Complex{F}}
+    shape(sol::GlobalSolution{F}) -> Vector{Complex{F}}
 
-Return the self-consistency parameter `q of the solution.
+Return the self-consistent shape parameter from the solution.
 """
-Solutions.q(sol::GlobalSolution) = sol.params.q
+Solutions.shape(sol::GlobalSolution) = sol.params.shape
 
 """
     ptrace(sol::GlobalSolution{F}) -> Vector{F}
@@ -245,7 +245,7 @@ end
     disc = discretize(Box(Point(0.0, 0.0), Point(1.0, 1.0)), RegularDiscretization(2, 2))
     mesh = simplexify(disc)
     eq = ResolventEquation(MatrixEnsemble(I, I, I, I / 2))
-    constraint = SpreadConstraint(; gap=0.5, q0=complex(0.25))
+    constraint = SpreadConstraint(; gap=0.5, shape0=complex(0.25))
 
     prob = GlobalProblem(eq, constraint, mesh)
 
@@ -266,7 +266,7 @@ end
     using GaussianSpectralDensities.Problems: ResolventEquation
     using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, ResolventParams, greens, issuccess, ptrace, q, spreadfrom
+        PointSolution, ResolventParams, greens, issuccess, ptrace, shape, spreadfrom
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
@@ -307,12 +307,12 @@ end
     @test_throws ArgumentError sol[1] = ps_wrongB
 
     # accessors
-    sol.params.q .= ComplexF64[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
+    sol.params.shape .= ComplexF64[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
     sol.params.ptrace .= [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     sol.params.greens .= ComplexF64[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
     sol.params.shift .= [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     sol.params.gap .= [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
-    @test q(sol) == sol.params.q
+    @test shape(sol) == sol.params.shape
     @test ptrace(sol) == sol.params.ptrace
     @test greens(sol) == sol.params.greens
     @test shift(sol) == sol.params.shift

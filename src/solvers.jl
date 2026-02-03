@@ -8,7 +8,7 @@ using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, state
 using ..Problems: AbstractConstraint, PointProblem
 using ..Spreads: Spreads, gap, shift
 using ..Solutions:
-    PointSolution, ResolventParams, Solutions, greens, issuccess, ptrace, q, spreadfrom
+    PointSolution, ResolventParams, Solutions, greens, issuccess, ptrace, shape, spreadfrom
 using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
@@ -131,11 +131,11 @@ Return whether the solution is finite, self-consistent, and satisfies shiftmin.
 Solutions.issuccess(sol::Solution) = issuccess(sol.pointsolution)
 
 """
-    q(sol::Solution) -> Complex
+    shape(sol::Solution) -> Complex
 
-Return the self-consistency parameter `q` from the solution.
+Return the self-consistent shape parameter from the solution.
 """
-Solutions.q(sol::Solution) = q(sol.pointsolution)
+Solutions.shape(sol::Solution) = shape(sol.pointsolution)
 
 """
     ptrace(sol::Solution) -> Real
@@ -188,8 +188,8 @@ end  # module Solvers
     ensemble64 = MatrixEnsemble(I, I, I, I / 2)
     eq64 = ResolventEquation(ensemble64)
     z64 = 0.5 + 0.5im
-    spreadc64 = SpreadConstraint(; shift=0.25, q0=complex(0.1))
-    ptracec64 = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    spreadc64 = SpreadConstraint(; shift=0.25, shape0=complex(0.1))
+    ptracec64 = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
 
     alg_direct = DirectSolve()
     alg_schedule = SpreadSchedule([2.0, 1.0, 0.5, 0.25], :gap)
@@ -234,7 +234,7 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
     @testset "DirectSolve" begin
@@ -269,7 +269,7 @@ end
     @testset "SpreadSchedule" begin
         schedule_vals = [4.0, 2.0, 1.0, 0.5, 0.25]
         alg = SpreadSchedule(schedule_vals, :gap)
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
         solver = Solver(problem_sched, alg)
 
@@ -310,7 +310,7 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
     @testset "init" begin
@@ -338,7 +338,7 @@ end
 
     @testset "solve!" begin
         schedule_vals = [4.0, 2.0, 1.0, 0.5]
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
         solver = init(problem_sched, SpreadSchedule(schedule_vals, :gap))
 
@@ -367,7 +367,7 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
     @testset "Solution from completed solver" begin
@@ -407,7 +407,7 @@ end
 
     @testset "Solution properties" begin
         schedule_vals = [4.0, 2.0, 1.0, 0.5]
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
         alg = SpreadSchedule(schedule_vals, :gap)
         solver = init(problem_sched, alg)
@@ -440,7 +440,7 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.0I)
     eq = ResolventEquation(ensemble; shiftmin=0.0)
     z = 1.0 + 1.0im
-    constraint = PTraceConstraint(1.0; gap0=4.0, q0=complex(0.1))
+    constraint = PTraceConstraint(1.0; gap0=4.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
     alg = SpreadSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
@@ -468,7 +468,7 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Spreads: gap, shift
-    using GaussianSpectralDensities.Solutions: greens, issuccess, ptrace, q, spreadfrom
+    using GaussianSpectralDensities.Solutions: greens, issuccess, ptrace, shape, spreadfrom
     using GaussianSpectralDensities.Solvers: Solution
 
     using LinearAlgebra: I
@@ -476,7 +476,7 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
     solver = init(problem, DirectSolve())
@@ -484,7 +484,7 @@ end
 
     # Test accessors forward to pointsolution
     @test issuccess(solution) == issuccess(solution.pointsolution)
-    @test q(solution) == q(solution.pointsolution)
+    @test shape(solution) == shape(solution.pointsolution)
     @test ptrace(solution) == ptrace(solution.pointsolution)
     @test greens(solution) == greens(solution.pointsolution)
     @test shift(solution) == shift(solution.pointsolution)
@@ -506,7 +506,7 @@ end
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     z = 0.5 + 0.5im
-    constraint = PTraceConstraint(1.0; gap0=1.0, q0=complex(0.1))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
     @testset "pointsolve(problem, alg)" begin
@@ -529,7 +529,7 @@ end
     @testset "pointsolve with SpreadSchedule" begin
         schedule_vals = [4.0, 2.0, 1.0, 0.5]
         alg = SpreadSchedule(schedule_vals, :gap)
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], q0=complex(0.1))
+        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
         problem_sched = PointProblem(eq, constraint_sched, z)
 
         ps = pointsolve(problem_sched, alg)

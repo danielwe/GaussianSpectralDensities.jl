@@ -4,7 +4,7 @@
 
 Computes spectral densities of non-Hermitian random matrices using the method of hermitization. Handles matrices of the form `M + L·J·R` where `J` is drawn from a **Girko S-ensembles**, which is our term for a generalized Girko distribution with diagonal symmetry parameter `S`. The well-known elliptic Girko ensemble with scalar symmetry parameter `τ` is recovered by setting `S = √(τ) I`.
 
-The core task is solving self-consistent nonlinear equations for the averaged doubled-up resolvent, from which spectral density is derived. Compared to previous work where `J` was drawn from the Ginibre ensemble, the nonzero symmetry parameter introduces an additional self-consistency equation for the off-diagonal blocks of the doubled-up self-energy, which we parametrize by a complex variable we call `q`.
+The core task is solving self-consistent nonlinear equations for the averaged doubled-up resolvent, from which spectral density is derived. Compared to previous work where `J` was drawn from the Ginibre ensemble, the nonzero symmetry parameter introduces an additional self-consistency equation for the off-diagonal blocks of the doubled-up self-energy.
 
 ## Commands
 
@@ -69,7 +69,7 @@ Code supports `Array`, `SArray` (StaticArrays), and `SparseMatrixCSC`. The `Arra
 
 ### Workspace pattern
 
-`Workspace` is a mutable cache for intermediate matrices, constructed from a `ResolventEquation`. It tracks what's "valid" via the `Valid` enum to avoid redundant computation. Functions like `P!`, `Q!`, `ptrace!` update and return cached values. These functions take `(ws, eq, z, q, spread)` where `z` is the point in the complex plane.
+`Workspace` is a mutable cache for intermediate matrices, constructed from a `ResolventEquation`. It tracks what's "valid" via the `Valid` enum to avoid redundant computation. Functions like `P!`, `Q!`, `ptrace!` update and return cached values. These functions take `(ws, eq, z, shape, spread)` where `z` is the point in the complex plane.
 
 ### Algorithm/State pattern
 
@@ -97,7 +97,7 @@ Functions ending in `!` mutate their first argument (Julia convention). Function
 | `MatrixEnsemble{F}`    | Ensemble `M + L·J·R` with symmetry `S`                |
 | `ResolventEquation{F}` | Shared context for resolvent equations                |
 | `PointProblem{F}`      | Bundles equation, constraint, `z`, and init           |
-| `ResolventParams{F}`   | Data bundle: `q, shift, gap, ptrace, greens`          |
+| `ResolventParams{F}`   | Data bundle: `shape, shift, gap, ptrace, greens`      |
 | `PointSolution{F}`     | Solution at a point with success flag                 |
 | `Workspace{F}`         | Cached intermediate computations                      |
 | `Spread{F}`            | Value + type (`:shift` or `:gap`)                     |
