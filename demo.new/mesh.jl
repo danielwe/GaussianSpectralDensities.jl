@@ -42,11 +42,10 @@ for i in eachindex(prob, sol)
     sol[i] = pointsolve(prob[i], algorithm)
 end
 
-# FIXME: for failed vertices, inject NaN/nothing/missing in setindex!(::GlobalSolution, ...)
-prunedshift_vals = map(shift(sol), issuccess(sol)) do s, success
+maskedshift = map(shift(sol), issuccess(sol)) do s, success
     return success ? s : oftype(s, NaN)
 end
-shiftvertices = map(mesh.vertices, prunedshift_vals) do v, s
+shiftvertices = map(mesh.vertices, maskedshift) do v, s
     c = coords(v)
     return Point(c.x.val, c.y.val, s)
 end
@@ -57,8 +56,8 @@ ax = Axis3(fig[1, 1]; xlabel="Re(z)", ylabel="Im(z)", zlabel="shift")
 viz!(
     ax,
     shiftmesh;
-    color=prunedshift_vals,
-    colorrange=(0.0, maximum(prunedshift_vals[isfinite.(prunedshift_vals)])),
+    color=maskedshift,
+    colorrange=(0.0, maximum(maskedshift[isfinite.(maskedshift)])),
 )
 display(fig)
 

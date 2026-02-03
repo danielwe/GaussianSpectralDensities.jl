@@ -67,15 +67,17 @@ function eqsolve_inner!(
 end
 
 function eqsolve_common!(f, v0)
-    # NOTE: niters is unused at the moment, but will be used for logging, so don't remove
     v, niters = try
         newton(f, v0)
     catch e
         (e isa ConvergenceException) || rethrow()
         oftype.(v0, NaN), -1
     end
-    # FIXME: use logging instead
-    # print_niters(niters, verbosity)
+    if niters < 0
+        @warn "eqsolve! did not converge" v0=v0
+    else
+        @debug "eqsolve! converged" niters=niters v0=v0 v=v
+    end
     return v
 end
 
@@ -155,7 +157,7 @@ end
 
     @testset "$(nameof(typeof(constraint)))" for constraint in [spreadc, ptracec]
         problem = PointProblem(eq, constraint, z)
-        sol = eqsolve!(ws, problem)
+        sol = @test_logs (:warn, "eqsolve! did not converge") eqsolve!(ws, problem)
 
         @test sol.equation == eq
         @test sol.z == z

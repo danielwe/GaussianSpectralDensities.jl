@@ -16,8 +16,8 @@ public AbstractConstraint,
     update
 
 """
-    ResolventEquation(ensemble::MatrixEnsemble; shiftmin=-Inf, normalizeQ=false, sscale=1)
-    ResolventEquation{F}(ensemble, shiftmin, normalizeQ, sscale) where {F}
+    ResolventEquation(ensemble::MatrixEnsemble; shiftmin=-Inf, sscale=1, normalizeQ=false)
+    ResolventEquation{F}(ensemble, shiftmin, sscale, normalizeQ) where {F}
     ResolventEquation{F}(eq::ResolventEquation) where {F}
 
 Specify the shared context for an averaged resolvent equation over an ensemble
@@ -29,9 +29,9 @@ Specify the shared context for an averaged resolvent equation over an ensemble
     `shift < shiftmin` are marked as failed. Strictly speaking, the averaged resolvent
     equations are derived assuming ``γ² ≥ 0``, suggesting `shiftmin = 0`, but in practice it
     is useful to allow analytic continuation to negative values such that the averaged
-    resolvent can be interpolated between grid points in regions where ``γ²`` vanishes
-    rapidly. However, it's best to abort before reaching too large negative values, as the
-    annealing may encounter a bifurcation that annihilates the solution branch.
+    resolvent can be interpolated between points in regions where ``γ²`` vanishes rapidly.
+    However, it's best to abort before reaching excessively large negative values, as the
+    conditioning of the equations deteriorates when the spectral gap shrinks.
   - `sscale=1`: overall scaling factor for the symmetry parameter `ensemble.S`. Inserted by
     hand into the equations to facilitate a solution strategy where the symmetry is annealed
     from zero to the target value.

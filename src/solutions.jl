@@ -96,16 +96,6 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
         ptraceF = ptrace!(workspace, eqF, z, shape, spread)
         greensF = greens!(workspace, eqF, z, shape, spread)
         paramsF = ResolventParams{F}(shape, shiftF, gapF, ptraceF, greensF)
-        # FIXME: we should distinguish between failure by shiftmin (where the parameters are
-        # still consistent, it's more of a "you may come this far, but no farther" signpost)
-        # and failure by shape != shapeFP, where the parameters are not self-consistent.
-        # Should we just manually set them to NaN in the latter case?
-        #
-        # Or should we move shiftmin out of the equation spec and let
-        # success == self-consistent? Setting a shiftmin and declaring "you shall not pass"
-        # would then be the purview of the algorithm, not the problem or solution. This
-        # makes sense because, as I'm discovering (see FIXME in algorithms.jl), shiftmin is
-        # only actually relevant for SpreadAnnealing, not even SymmetryAnnealing.
         success =
             all(isfinite, (shiftF, gapF, ptraceF, greensF)) &&
             (shiftF >= eqF.shiftmin) &&

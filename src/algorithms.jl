@@ -131,7 +131,6 @@ statetype(::Type{DirectSolve}) = DirectSolveState
 ## - nextindex(::AbstractAnnealing{F}, ::AnnealingState{F})::Int
 ## - newstate(::Int, PointProblem{F}, ::PointSolution{F}, ::AbstractAnnealing{F}, ::Nothing)::AnnealingState{F}
 ## - newstate(::Int, PointProblem{F}, ::PointSolution{F}, ::AbstractAnnealing{F}, ::AnnealingState{F})::AnnealingState{F}
-## - isdone(::PointProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
 ## - statetype(::Type{<:AbstractAnnealing{F}})::Type{AnnealingState{F}}
 ##
 ## Provided non-interface functions:
@@ -144,7 +143,7 @@ statetype(::Type{DirectSolve}) = DirectSolveState
 ## - Base.convert(::Type{SomeAnnealing{F}}, alg::SomeAnnealing)::SomeAnnealing{F}
 ## - ArrayTools.adaptrealtype(::Type{F}, ::SomeAnnealing)::SomeAnnealing{F}
 ## - stepproblem(::Int, ::PointProblem{F}, ::SomeAnnealing{F}, ::Nothing)::PointProblem{F}
-## - iscomplete(::PointProblem{F}, ::SomeAnnealing{F}, ::AnnealingState{F})::Bool
+## - isdone(::PointProblem, ::AbstractAlgorithm, ::AbstractAlgorithmState)::Bool
 ##
 ## Required properties:
 ## - :schedule: indexable collection of the numerical values of the annealing schedule.
@@ -161,11 +160,6 @@ statetype(::Type{DirectSolve}) = DirectSolveState
 ## implementation of stepproblem just forwards to stepproblem_predict. The stateless method
 ## _must_ be implemented for each subtype, and the stateful method _may_ be implemented if
 ## stepproblem_predict is insufficient or appropriate.
-##
-## NOTE: iscomplete's only concern should be whether the algorithm has stepped all the way
-## to the end. Other termination criteria, including whether the most recent intermediate
-## step happened upon a successful solution of the final problem, are handled by the
-## provided isdone method.
 abstract type AbstractAnnealing{F<:AbstractFloat,T} <: AbstractAlgorithm{T} end
 
 Base.size(alg::AbstractAnnealing) = (length(alg.schedule),)
@@ -182,7 +176,6 @@ Base.getindex(alg::AbstractAnnealing, i::Int) = alg.schedule[i]
 end
 
 function stepproblem end
-function iscomplete end
 
 nextindex(alg::AbstractAnnealing, ::Nothing) = firstindex(alg)
 nextindex(::AbstractAnnealing{F}, state::AnnealingState{F}) where {F} = (state.index + 1)
@@ -232,12 +225,6 @@ function newstate(
     return AnnealingState(problem, solution, index, state.solution, state.index)
 end
 
-function isdone(
-    problem::PointProblem{F}, alg::AbstractAnnealing{F}, state::AnnealingState{F}
-) where {F}
-    return (!issuccess(state.solution)) || iscomplete(problem, alg, state)
-end
-
 statetype(::Type{<:AbstractAnnealing{F}}) where {F} = AnnealingState{F}
 
 # Prediction based on arbitrary knots, e.g., schedule values
@@ -247,8 +234,9 @@ function predictconstraint(
     (x1, solution1)::Tuple{F,PointSolution{F}},
     (x2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
-    shape1, shape2 = shape(solution1), shape(solution2)
-    return update(constraint; shape0=predictlinear(x, (x1, shape1), (x2, shape2)))
+    shape0 = predictlinear(x, (x1, shape(solution1)), (x2, shape(solution2)))
+    isfinite(shape0) || return constraint  # Fallback
+    return update(constraint; shape0)
 end
 
 function predictconstraint(
@@ -258,10 +246,12 @@ function predictconstraint(
     (x2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
     shape0 = predictlinear(x, (x1, shape(solution1)), (x2, shape(solution2)))
+    isfinite(shape0) || return constraint  # Fallback
     spread_type = constraint.spread0.type
     spread1 = spreadfrom(solution1, spread_type)
     spread2 = spreadfrom(solution2, spread_type)
     spread0 = Spread(predictlinear(x, (x1, spread1.val), (x2, spread2.val)), spread_type)
+    isfinite(spread0.val) || return constraint  # Fallback
     return update(constraint; shape0, spread0)
 end
 
@@ -351,9 +341,10 @@ function stepproblem(
     return stepproblem_predict(index, problem, alg, state)
 end
 
-function iscomplete(
+function isdone(
     problem::PointProblem{F}, ::SpreadAnnealing{F}, state::AnnealingState{F}
 ) where {F}
+    issuccess(state.solution) || return true  # Dead end
     return issameproblem(state.problem, problem) || solves(state.solution, problem)
 end
 
@@ -408,13 +399,21 @@ problem first and then track the solution branch while gradually turning on the 
 The caveat is that a given ``z`` may be inside the spectral support at ``μ = 0`` and outside
 at ``μ = 1`` or vice versa, in which case the solutions are not analytically connected
 (there will be a bifurcation in the solution branches). Granted, we often use analytic
-continuation to extend the functional form of the averaged resolvent within the support out
-to some margin beyond the boundary such that we can precisely interpolate the boundary
-location. This works well for any ``z`` that's inside the support+margin at ``μ = 0``: the
-solution branch either survives to ``μ = 1``, or drops beyond the margin (in practical
-terms: below shiftmin) and turns into a `success = false` solution as it should. The more
-problematic case is if ``z`` is outside the support+margin at ``μ = 0``, such that we fail
-to obtain an initial solution, but nevertheless should be inside at ``μ = 1``.
+continuation to extend the functional form of the interior resolvent to a region outside the
+spectral boundary where the shift will be such that we can precisely interpolate the
+boundary location. This works well for any ``z`` that's within a reasonable margin of the
+support throughout the whole annealing, but is problematic for ``z`` that are abandoned by
+the support and left with parameters for which the equations struggle to converge, and
+especially problematic for ``z`` that are far outside already at ``μ = 0``, such that we
+fail to obtain an initial solution.
+
+The possibility of these dynamics means we can't abort the annealing if intermediate solves
+fail---the spectral shift may go to arbitrarily large negative values or even cease to
+exist, but return to a positive value before the end. If an intermediate solution fails, we
+fall back to the initial guess specified in the problem for initializing the next step.
+
+For these reasons, `SpreadAnnealing` is usually the preferred annealing algorithm, but we
+still include this algorithm for anyone interested in experimenting.
 
 The schedule can be specified as an integer `steps`, which will set the schedule to
 `range(0, 1, steps)`. Alternatively, a custom schedule can be provided directly in the form
@@ -427,14 +426,6 @@ The default value is
 SymmetryAnnealing(Defaults.symmetry_annealing_schedule)
 ```
 """
-# FIXME: Change abort heuristics. As described in the docstring above, we shouldn't abort
-# just because success = false at μ = 0. In fact, since the supports may have complex shapes
-# and topologies, we probably shouldn't ever abort: a point can go in and out of the
-# support+margin multiple times. If a failed step did converge to finite parameters (which
-# is often the case; the point of declaring failure based on shiftmin is to halt a spread
-# schedule _before_ it reaches a point where the solver fails to converge, not after), we
-# should use them to initialize the next step; if we got NaN, we should revert to the
-# initial guesses in the constraint.
 @auto_hash_equals typearg=true struct SymmetryAnnealing{F,U<:AbstractVector{F}} <:
                                       AbstractAnnealing{F,F}
     schedule::U
@@ -476,10 +467,11 @@ function stepproblem(
     return update(problem; equation=update(problem.equation; sscale=alg[index]))
 end
 
-function iscomplete(
+function isdone(
     ::PointProblem{F}, alg::SymmetryAnnealing{F}, state::AnnealingState{F}
 ) where {F}
-    return (state.index == lastindex(alg))
+    # SymmetryAnnealing always keeps trucking to the end, intermediate success or not.
+    return state.index == lastindex(alg)
 end
 
 end  # module Algorithms
@@ -1090,7 +1082,7 @@ end
     end
 end
 
-@testitem "SymmetryAnnealing shiftmin abort" begin
+@testitem "SymmetryAnnealing shiftmin no abort" begin
     using GaussianSpectralDensities.Algorithms: SymmetryAnnealing, isdone, step!
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
@@ -1127,10 +1119,10 @@ end
             result = step!(wsF, problemF, algF, state)
         end
 
-        # Stepping should terminate before exhaustion due to failure
-        @test length(solutions) < length(algF)
+        # Stepping should keep going to the end
+        @test length(solutions) == length(algF)
 
-        # Final step failed due to shiftmin violation
+        # Solution failed due to shiftmin violation
         @test !issuccess(solutions[end])
         @test shift(solutions[end]) < eqF.shiftmin
         @test isdone(problemF, algF, states[end])
