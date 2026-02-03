@@ -105,7 +105,7 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
         # success == self-consistent? Setting a shiftmin and declaring "you shall not pass"
         # would then be the purview of the algorithm, not the problem or solution. This
         # makes sense because, as I'm discovering (see FIXME in algorithms.jl), shiftmin is
-        # only actually reveltn for SpreadSchedule, not even SymmetrySchedule.
+        # only actually relevant for SpreadAnnealing, not even SymmetryAnnealing.
         success =
             all(isfinite, (shiftF, gapF, ptraceF, greensF)) &&
             (shiftF >= eqF.shiftmin) &&

@@ -175,7 +175,7 @@ Solutions.spreadfrom(sol::Solution, type::Symbol) = spreadfrom(sol.pointsolution
 end  # module Solvers
 
 @testitem "Solver construction" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
@@ -192,12 +192,12 @@ end  # module Solvers
     ptracec64 = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
 
     alg_direct = DirectSolve()
-    alg_schedule = SpreadSchedule([2.0, 1.0, 0.5, 0.25], :gap)
+    alg_annealing = SpreadAnnealing([2.0, 1.0, 0.5, 0.25], :gap)
 
     @testset "$F" for F in [Float32, Float64]
         @testset "$(nameof(typeof(constraint)))" for constraint in [spreadc64, ptracec64]
             problem = PointProblem(eq64, constraint, z64)
-            @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_schedule]
+            @testset "$(nameof(typeof(alg)))" for alg in [alg_direct, alg_annealing]
                 # Type-inferring constructor
                 solver = Solver(problem, alg)
                 @test solver isa Solver{Float64}
@@ -221,7 +221,7 @@ end  # module Solvers
 end
 
 @testitem "Solver iteration interface" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -266,12 +266,10 @@ end
         @test solves(solver.pointsolution, solver.problem)
     end
 
-    @testset "SpreadSchedule" begin
-        schedule_vals = [4.0, 2.0, 1.0, 0.5, 0.25]
-        alg = SpreadSchedule(schedule_vals, :gap)
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
-        problem_sched = PointProblem(eq, constraint_sched, z)
-        solver = Solver(problem_sched, alg)
+    @testset "SpreadAnnealing" begin
+        schedule = [4.0, 2.0, 1.0, 0.5, 0.25]
+        alg = SpreadAnnealing(schedule, :gap)
+        solver = Solver(problem, alg)
 
         # Step through via for-loop
         step_count = 0
@@ -280,10 +278,10 @@ end
             @test s === solver
         end
 
-        # SpreadSchedule terminates early once ptrace crosses target,
+        # SpreadAnnealing terminates early once ptrace crosses target,
         # so we don't necessarily exhaust the full schedule
         @test step_count > 0
-        @test step_count <= length(schedule_vals) + 1
+        @test step_count <= length(schedule) + 1
         @test length(solver.trace) == step_count
         @test Base.isdone(solver)
 
@@ -299,7 +297,7 @@ end
 @testitem "CommonSolve interface" begin
     using CommonSolve: init, solve!, step!
 
-    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -337,10 +335,8 @@ end
     end
 
     @testset "solve!" begin
-        schedule_vals = [4.0, 2.0, 1.0, 0.5]
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
-        problem_sched = PointProblem(eq, constraint_sched, z)
-        solver = init(problem_sched, SpreadSchedule(schedule_vals, :gap))
+        schedule = [4.0, 2.0, 1.0, 0.5]
+        solver = init(problem, SpreadAnnealing(schedule, :gap))
 
         solution = solve!(solver)
         @test solution isa Solution{Float64}
@@ -355,7 +351,7 @@ end
 @testitem "Solution construction" begin
     using CommonSolve: init, solve!
 
-    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -406,16 +402,14 @@ end
     end
 
     @testset "Solution properties" begin
-        schedule_vals = [4.0, 2.0, 1.0, 0.5]
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
-        problem_sched = PointProblem(eq, constraint_sched, z)
-        alg = SpreadSchedule(schedule_vals, :gap)
-        solver = init(problem_sched, alg)
+        schedule = [4.0, 2.0, 1.0, 0.5]
+        alg = SpreadAnnealing(schedule, :gap)
+        solver = init(problem, alg)
         solution = solve!(solver)
 
         # Final solution matches target
         @test issuccess(solution)
-        @test solves(solution.pointsolution, problem_sched)
+        @test solves(solution.pointsolution, problem)
 
         # Trace captures history (may terminate early when ptrace crosses target)
         @test length(solution.trace) > 0
@@ -427,7 +421,7 @@ end
 @testitem "Solver early termination on failure" begin
     using CommonSolve: init, solve!
 
-    using GaussianSpectralDensities.Algorithms: SpreadSchedule
+    using GaussianSpectralDensities.Algorithms: SpreadAnnealing
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -443,7 +437,7 @@ end
     constraint = PTraceConstraint(1.0; gap0=4.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
-    alg = SpreadSchedule([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
+    alg = SpreadAnnealing([4.0, 2.0, 1.0, 0.5, 0.25, 0.125], :gap)
     solver = init(problem, alg)
     solution = solve!(solver)
 
@@ -494,7 +488,7 @@ end
 end
 
 @testitem "pointsolve/pointsolve! interface" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadSchedule
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
@@ -526,16 +520,14 @@ end
         @test Base.isdone(solver)
     end
 
-    @testset "pointsolve with SpreadSchedule" begin
-        schedule_vals = [4.0, 2.0, 1.0, 0.5]
-        alg = SpreadSchedule(schedule_vals, :gap)
-        constraint_sched = PTraceConstraint(1.0; gap0=schedule_vals[1], shape0=complex(0.1))
-        problem_sched = PointProblem(eq, constraint_sched, z)
+    @testset "pointsolve with SpreadAnnealing" begin
+        schedule = [4.0, 2.0, 1.0, 0.5]
+        alg = SpreadAnnealing(schedule, :gap)
 
-        ps = pointsolve(problem_sched, alg)
+        ps = pointsolve(problem, alg)
         @test ps isa PointSolution{Float64}
         @test issuccess(ps)
-        @test solves(ps, problem_sched)
+        @test solves(ps, problem)
     end
 
     @testset "pointsolve returns failure when unsolvable" begin

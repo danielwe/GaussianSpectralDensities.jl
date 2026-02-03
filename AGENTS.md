@@ -42,7 +42,7 @@ Active modules (in dependency order):
 1. `Solutions` — `ResolventParams` (data bundle) and `PointSolution` (result at a point)
 1. `Newton` — Generic Newton solver with finite-difference Jacobian
 1. `EquationSolvers` — `eqsolve!` implementations for problem types
-1. `Algorithms` — Solution strategies: `DirectSolve`, `SpreadSchedule`, `SymmetrySchedule`
+1. `Algorithms` — Solution strategies: `DirectSolve`, `SpreadAnnealing`, `SymmetryAnnealing`
 1. `Solvers` — User-facing `Solver` and `Solution` types with CommonSolve.jl interface
 
 ## Architecture Patterns

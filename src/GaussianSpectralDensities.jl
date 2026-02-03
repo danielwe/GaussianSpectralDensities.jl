@@ -37,21 +37,21 @@ module Defaults
 
     public approxequal,
         shape0,
-        spread_schedule_type,
-        spread_schedule_vals,
+        spread_annealing_schedule,
+        spread_annealing_type,
         spread_target_type,
         spread_target_val,
-        symmetry_schedule_vals,
+        symmetry_annealing_schedule,
         tol,
         trace_target
 
     const trace_target = 1.0
-    const spread_target_val = 0.0
     const spread_target_type = :shift
+    const spread_target_val = 0.0
     const shape0 = ComplexF64(sqrt(eps(Float32)))
-    const spread_schedule_vals = 2.0 .^ (4:-0.5:-4)
-    const spread_schedule_type = :gap
-    const symmetry_schedule_vals = 0:0.1:1
+    const spread_annealing_type = :gap
+    const spread_annealing_schedule = 2.0 .^ (4:-0.5:-4)
+    const symmetry_annealing_schedule = 0:0.1:1
 
     # NOTE: tol set by type of first argument
     approxequal(x::T, y) where {T} = isapprox(x, y; atol=tol(T), rtol=tol(T))

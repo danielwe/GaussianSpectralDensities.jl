@@ -1,7 +1,7 @@
 using CairoMakie: Axis, Axis3, DataAspect, Figure, axislegend, lines!, scatter!
 # using GLMakie: Axis, Axis3, DataAspect, Figure, axislegend, lines!, scatter!
 
-using GaussianSpectralDensities.Algorithms: SpreadSchedule
+using GaussianSpectralDensities.Algorithms: SpreadAnnealing
 using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 using GaussianSpectralDensities.GlobalData: GlobalProblem, GlobalSolution  #, zvals
 using GaussianSpectralDensities.Problems: PTraceConstraint, PointProblem, ResolventEquation
@@ -33,7 +33,7 @@ ensemble = MatrixEnsemble(0I, I, I, 2I/3)
 equation = ResolventEquation(ensemble; shiftmin=-2)
 
 constraint = PTraceConstraint(1; shift0=1, shape0=0)
-algorithm = SpreadSchedule()
+algorithm = SpreadAnnealing()
 
 prob = GlobalProblem(equation, constraint, mesh)
 sol = GlobalSolution(equation, mesh)
@@ -181,7 +181,7 @@ function adaptive_contour_sampling(
     z_init::Vector{ComplexF64},
     s_init::Vector{Float64},
     prob::GlobalProblem,
-    algorithm::SpreadSchedule;
+    algorithm::SpreadAnnealing;
     n_adaptive::Int=30,
     candidate_budget::Int=200,  # XXX: this variable is not used in the function body
     kernel_config::KernelConfig=KernelConfig(),
@@ -360,7 +360,7 @@ end
 function trace_contour(
     seed::ComplexF64,
     prob::GlobalProblem,
-    algorithm::SpreadSchedule,
+    algorithm::SpreadAnnealing,
     gp_post;  # XXX: this variable is not used in the function body
     step_size::Float64=0.05,
     max_steps::Int=500,

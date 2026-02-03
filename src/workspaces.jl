@@ -96,8 +96,8 @@ mutable struct Workspace{
         (; ensemble) = eq
         z = zero(Complex{F})
         shape_scaled = eq.sscale * Complex{F}(Defaults.shape0)
-        spread_val = first(Defaults.spread_schedule_vals)
-        spread = Spread{F}(spread_val, Defaults.spread_schedule_type)
+        spread_val = first(Defaults.spread_annealing_schedule)
+        spread = Spread{F}(spread_val, Defaults.spread_annealing_type)
         G0i = muladd(z, ensemble.Li_Ri, minus(ensemble.Li_M_Ri))
         Q = muladd(-shape_scaled, ensemble.S, G0i)
         QQh = herk(Q)
