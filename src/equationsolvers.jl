@@ -39,12 +39,6 @@ function eqsolve_inner!(
     shapev0 = SVector(real(constraint.shape0), imag(constraint.shape0))
     shapev = eqsolve_common!(fshape, shapev0)
     shape = complex(shapev...)
-    # FIXME: if the solution didn't converge (niters < 0) we need to make sure the solution
-    # has success = false. This is supposed to happen automatically due to the consistency
-    # check in the PointSolution constructor, but maybe we should let this function enforce
-    # it in case we're right on the tolerance margin and the stars somehow aligned such that
-    # newton declared failure but the result is good enough for PointSolution. Or is it
-    # actually more consistent to let the constructor be the sole arbiter of success? Think.
     return PointSolution(eq, z, shape, spread; workspace=ws)
 end
 
@@ -69,7 +63,6 @@ function eqsolve_inner!(
     shapespreadv = eqsolve_common!(fshapespread, shapespreadv0)
     shape = complex(shapespreadv[1], shapespreadv[2])
     spread = Spread(shapespreadv[3], spread0.type)
-    # FIXME: see above.
     return PointSolution(eq, z, shape, spread; workspace=ws)
 end
 
