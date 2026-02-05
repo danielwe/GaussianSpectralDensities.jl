@@ -166,7 +166,7 @@ end
 
 Return ``λA + B``
 
-This is intended as an out-of-place equivalent of the in-place ``_muladd_diag!!``
+This is intended as an out-of-place equivalent of the in-place ``muladd_diagonal!!``
 implementation. This only makes sense when ``C`` and ``B`` only differ on the diagonal,
 which is the case of interest in this package.
 """
