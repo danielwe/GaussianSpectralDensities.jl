@@ -1,7 +1,7 @@
 module ArrayTools
 
 using Adapt: WrappedArray
-using LinearAlgebra: Diagonal, Hermitian, UniformScaling
+using LinearAlgebra: Diagonal, UniformScaling
 using StaticArrays: @SVector, SArray, SVector
 
 public AbstractMatrixOrUniform,
@@ -31,11 +31,7 @@ const DiagonalOrUniform{T} = Union{Diagonal{T},UniformScaling{T}}
 
 Union of plain and wrapped `SArray`s
 """
-const AnySArray{T,N} = Union{
-    <:SArray{<:Any,T,N},
-    <:WrappedArray{T,N,<:SArray,<:SArray},  # Last parameter should be SArray{<:Any,T,N} after Adapt.jl#51
-    <:Hermitian{T,<:SArray{<:Any,T,N}},  # Adapt.jl#51
-}
+const AnySArray{T,N} = Union{SArray{<:Any,T,N},WrappedArray{T,N,<:SArray,<:SArray{<:Any,T}}}
 const AnySMatrix{T} = AnySArray{T,2}
 
 ## Array copy helper
@@ -118,6 +114,7 @@ end  # ArrayTools
         @test Diagonal{Float64} <: DiagonalOrUniform{Float64}
         @test SMatrix{2,2,Float64} <: AnySMatrix{Float64}
         @test Hermitian{Float64,SMatrix{2,2,Float64,4}} <: AnySMatrix{Float64}
+        @test Diagonal{Float64,SVector{2,Float64}} <: AnySMatrix{Float64}
     end
 
     @testset "copy!!" begin

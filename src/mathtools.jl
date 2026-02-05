@@ -520,7 +520,7 @@ function eigmin!!(F, A::Hermitian)
 end
 
 eigmin!!(_, A::Diagonal{<:Real}) = minimum(parent(A))
-eigmin!!(_, A::Diagonal{<:Real,<:SArray}) = minimum(parent(A))  # Ambiguity resolution
+eigmin!!(_, A::Diagonal{T,<:SArray{<:Any,T}}) where {T<:Real} = minimum(parent(A))  # Ambiguity resolution
 eigmin!!(_, A::AnySMatrix) = eigmin(A)
 
 function inverse_as_map(F::Cholesky{T}, A::Hermitian{T,<:StridedMatrix}) where {T}
