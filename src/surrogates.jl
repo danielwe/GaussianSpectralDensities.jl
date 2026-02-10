@@ -109,13 +109,7 @@ function evaluate(model::SurrogateModel{F}, z) where {F}
     solution = PointSolution(
         model.equation, zF, shape_val, spread_val; workspace=model.workspace
     )
-    if issuccess(solution)
-        if !haspoint(model.rbf, zvec)
-            y_new = pack(solution, model.constraint)
-            push!(model.rbf, zvec, y_new)
-        end
-        return solution
-    end
+    issuccess(solution) && return solution
 
     constraint_guess = unpack_constraint(y, model.constraint)
     problem = PointProblem(model.equation, constraint_guess, zF)
@@ -322,36 +316,68 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess
-    using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate
+    using GaussianSpectralDensities.Surrogates:
+        SurrogateModel, evaluate, interpolate, unpack_args
 
-    using LinearAlgebra: I
+    using LinearAlgebra: Diagonal, I
+    using StaticArrays: @SVector
 
-    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    ensemble = MatrixEnsemble(Diagonal(@SVector[0.5, -0.5]), I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     alg = DirectSolve()
 
     @testset "SpreadConstraint" begin
         constraint = SpreadConstraint(; gap=0.5, shape0=complex(0.25))
-        zs = ComplexF64[0.1 + 0.1im, 0.9 + 0.1im, 0.1 + 0.9im]
-        model = SurrogateModel(eq, constraint, alg, zs)
-        n_before = length(model.rbf.x)
+        zs = ComplexF64[0.1 + 0.1im, 0.2 + 0.1im, 0.1 + 0.2im]
+        candidates = ComplexF64[0.6 + 0.6im, 0.7 + 0.2im, 0.2 + 0.7im]
 
-        ps = evaluate(model, 0.5 + 0.5im)
-        @test ps isa PointSolution{Float64}
-        @test issuccess(ps)
-        @test length(model.rbf.x) == n_before + 1
+        found = false
+        for z_new in candidates
+            model = SurrogateModel(eq, constraint, alg, zs)
+            y_guess = interpolate(model, z_new)
+            shape_val, spread_val = unpack_args(y_guess, constraint)
+            ps_guess = PointSolution(
+                eq, z_new, shape_val, spread_val; workspace=model.workspace
+            )
+            if !issuccess(ps_guess)
+                n_before = length(model.rbf.x)
+                ps = evaluate(model, z_new)
+                @test ps isa PointSolution{Float64}
+                @test issuccess(ps)
+                @test length(model.rbf.x) == n_before + 1
+                found = true
+                break
+            end
+        end
+
+        @test found
     end
 
     @testset "PTraceConstraint" begin
         constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
-        zs = ComplexF64[0.1 + 0.1im, 0.9 + 0.1im, 0.1 + 0.9im]
-        model = SurrogateModel(eq, constraint, alg, zs)
-        n_before = length(model.rbf.x)
+        zs = ComplexF64[0.1 + 0.1im, 0.2 + 0.1im, 0.1 + 0.2im]
+        candidates = ComplexF64[0.6 + 0.6im, 0.7 + 0.2im, 0.2 + 0.7im]
 
-        ps = evaluate(model, 0.5 + 0.5im)
-        @test ps isa PointSolution{Float64}
-        @test issuccess(ps)
-        @test length(model.rbf.x) == n_before + 1
+        found = false
+        for z_new in candidates
+            model = SurrogateModel(eq, constraint, alg, zs)
+            y_guess = interpolate(model, z_new)
+            shape_val, spread_val = unpack_args(y_guess, constraint)
+            ps_guess = PointSolution(
+                eq, z_new, shape_val, spread_val; workspace=model.workspace
+            )
+            if !issuccess(ps_guess)
+                n_before = length(model.rbf.x)
+                ps = evaluate(model, z_new)
+                @test ps isa PointSolution{Float64}
+                @test issuccess(ps)
+                @test length(model.rbf.x) == n_before + 1
+                found = true
+                break
+            end
+        end
+
+        @test found
     end
 end
 
