@@ -85,11 +85,24 @@ Tests use TestItems.jl. Each `@testitem` block is independent with no access to 
 
 **Test style:** wrap `for` loops in `@testset "value = $v"` to include loop values in failure output (not needed for setup-only loops). Test the API directly—don't define functions inside `@testitem` blocks. Prefer bare comparisons (`@test x < y`, not `@test foo(x, y)`) for clearer failure messages. Use exact equality with roundoff-resistant values when possible (powers of 2 are the most robust); define test-specific `isapprox` for internal types only when necessary.
 
+**Imports in test blocks:** Each `@testitem` block is independent and must declare all imports it uses. Do not rely on imports in the module-level code or other test blocks. Include necessary imports like `using LinearAlgebra: UniformScaling` within the test block.
+
 ### Running tests
 
 **After making changes, do not immediately run tests.** Unless explicitly requested, stop and notify the user that the code is ready for testing.
 
 **When running tests, work incrementally:** Run affected testitems/files (following the inclusion order in src/GaussianSpectralDensities.jl), then test/qa.jl, then the full suite. Every test in one file should pass before moving onto the next.
+
+### Test Failures and Debugging
+
+**Stop and Discuss Rule:** If a test failure appears to be caused by an issue **within the test itself** (missing import, typo, incorrect assumption, unsuitable tolerance), **stop immediately and report it to the user.** Do not attempt workarounds.
+
+**Prohibition of Workarounds:** Never attempt to:
+- Fix test issues by monkey-patching or modifying production code
+- Use `eval` or `Base.@eval` to inject code into core modules
+- Alter unrelated production code to bypass a test flaw
+
+**Threshold for Halting:** After one failed attempt to pass a test that indicates a missing dependency or structural flaw in the test suite, halt the implementation process and request test correction.
 
 ## Commented Code
 
