@@ -1,5 +1,135 @@
 module Surrogates
 
+using ..Algorithms: AbstractAlgorithm
+using ..Problems:
+    AbstractConstraint,
+    PTraceConstraint,
+    PointProblem,
+    ResolventEquation,
+    SpreadConstraint,
+    update
+using ..RBFInterpolants: RBFInterpolant, ThinPlateSpline, push!
+using ..Solutions: PointSolution, issuccess, shape, spreadfrom
+using ..Solvers: pointsolve
+using ..Spreads: Spread
+using ..Workspaces: Workspace
+
+using StaticArrays: SVector
+
+public SurrogateModel, evaluate, interpolate, pack, unpack_args, unpack_constraint
+
+struct SurrogateModel{
+    F,
+    E<:ResolventEquation{F},
+    C<:AbstractConstraint{F},
+    A<:AbstractAlgorithm,
+    R<:RBFInterpolant{F},
+    W<:Workspace{F},
+}
+    equation::E
+    constraint::C
+    algorithm::A
+    rbf::R
+    workspace::W
+end
+
+function pack(ps::PointSolution{F}, ::SpreadConstraint{F}) where {F}
+    shape_val = shape(ps)
+    return SVector{2,F}(real(shape_val), imag(shape_val))
+end
+
+function pack(ps::PointSolution{F}, constraint::PTraceConstraint{F}) where {F}
+    shape_val = shape(ps)
+    spread_val = spreadfrom(ps, constraint.spread0.type).val
+    return SVector{3,F}(real(shape_val), imag(shape_val), spread_val)
+end
+
+function unpack_args(y::SVector{2,F}, constraint::SpreadConstraint{F}) where {F}
+    shape_val = complex(y[1], y[2])
+    return shape_val, constraint.val
+end
+
+function unpack_args(y::SVector{3,F}, constraint::PTraceConstraint{F}) where {F}
+    shape_val = complex(y[1], y[2])
+    spread_val = Spread(y[3], constraint.spread0.type)
+    return shape_val, spread_val
+end
+
+function unpack_constraint(y::SVector{2,F}, constraint::SpreadConstraint{F}) where {F}
+    return update(constraint; shape0=complex(y[1], y[2]))
+end
+
+function unpack_constraint(y::SVector{3,F}, constraint::PTraceConstraint{F}) where {F}
+    shape_val = complex(y[1], y[2])
+    spread_val = Spread(y[3], constraint.spread0.type)
+    return update(constraint; shape0=shape_val, spread0=spread_val)
+end
+
+outputdim(::SpreadConstraint) = 2
+outputdim(::PTraceConstraint) = 3
+
+zpoint(z, ::Type{F}) where {F} = SVector{2,F}(F(real(z)), F(imag(z)))
+
+haspoint(rbf::RBFInterpolant{F}, z::SVector{2,F}) where {F} = any(xi -> xi == z, rbf.x)
+
+function SurrogateModel(
+    equation::ResolventEquation{F},
+    constraint::AbstractConstraint{F},
+    algorithm::AbstractAlgorithm,
+    zs::AbstractVector{<:Complex},
+) where {F}
+    workspace = Workspace(equation)
+    xs = SVector{2,F}[]
+    ys = SVector{outputdim(constraint),F}[]
+
+    constraint_guess = constraint
+    for z in zs
+        zF = Complex{F}(z)
+        problem = PointProblem(equation, constraint_guess, zF)
+        solution = pointsolve(problem, algorithm)
+        if issuccess(solution)
+            y = pack(solution, constraint)
+            Base.push!(xs, zpoint(zF, F))
+            Base.push!(ys, y)
+            constraint_guess = unpack_constraint(y, constraint)
+        end
+    end
+
+    rbf = RBFInterpolant(ThinPlateSpline(), xs, ys)
+    return SurrogateModel(equation, constraint, algorithm, rbf, workspace)
+end
+
+interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(zpoint(z, F))
+
+function evaluate(model::SurrogateModel{F}, z) where {F}
+    zvec = zpoint(z, F)
+    y = model.rbf(zvec)
+    shape_val, spread_val = unpack_args(y, model.constraint)
+    zF = Complex{F}(z)
+    solution = PointSolution(
+        model.equation, zF, shape_val, spread_val; workspace=model.workspace
+    )
+    if issuccess(solution)
+        if !haspoint(model.rbf, zvec)
+            y_new = pack(solution, model.constraint)
+            push!(model.rbf, zvec, y_new)
+        end
+        return solution
+    end
+
+    constraint_guess = unpack_constraint(y, model.constraint)
+    problem = PointProblem(model.equation, constraint_guess, zF)
+    solution = pointsolve(problem, model.algorithm)
+    if issuccess(solution)
+        y_new = pack(solution, model.constraint)
+        z_new = zpoint(zF, F)
+        if !haspoint(model.rbf, z_new)
+            push!(model.rbf, z_new, y_new)
+        end
+    end
+    return solution
+end
+
 end  # module Surrogates
 
 @testitem "pack/unpack round-trip SpreadConstraint" begin
