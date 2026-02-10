@@ -13,8 +13,8 @@ struct NewtonException <: Exception
 end
 
 """
-    newton(f, x; atol=<see text>, maxiters=999)
-    newton(f, jac, x; atol=<see text>, maxiters=999)
+    newton(f, x; atol=<see text>, maxiters=63)
+    newton(f, jac, x; atol=<see text>, maxiters=63)
 
 Find a zero of `f` using Newton's method starting at `x`
 
@@ -39,7 +39,7 @@ function newton(f, x; kwargs...)
     return newton(f, jac, x; kwargs...)
 end
 
-function newton(f, jac, x; atol=Defaults.tol(eltype(x)) / 10, maxiters=999)
+function newton(f, jac, x; atol=Defaults.tol(eltype(x)) / 10, maxiters=63)
     fx = f(x)
     approx_zero(fx, atol) && return (x, 0)
     for i in 1:maxiters
