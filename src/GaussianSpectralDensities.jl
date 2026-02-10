@@ -74,6 +74,7 @@ include("equationsolvers.jl")
 include("algorithms.jl")
 include("solvers.jl")
 include("globaldata.jl")
+include("rbfinterpolants.jl")
 
 # include("solve.jl")
 # include("density.jl")
