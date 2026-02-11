@@ -1,7 +1,7 @@
 module Ensembles
 
 using AutoHashEquals: @auto_hash_equals
-using LinearAlgebra: I
+using LinearAlgebra: Diagonal, I
 
 using ..ArrayTools:
     AbstractMatrixOrUniform,
@@ -82,10 +82,15 @@ All of ``M, L, R`` must be square and of the same size, or `UniformScaling`, and
         if !all_diagonal(inunitdisc, S)
             throw(ArgumentError("all elements of S must lie in the unit disc"))
         end
-        Sp, Rp = map_diagonal(abs, S), map_diagonal(phase, S) * R
-        Li_M_Ri = withsize(generic_rdiv(generic_ldiv(L, M), Rp), Sp)
-        Li_Ri = withsize(generic_ldiv(Rp * L, I), Li_M_Ri)
-        return common(F, M, L, Rp, Sp, Li_Ri, Li_M_Ri)
+        Sabs, Sphase = map_diagonal(abs, S), map_diagonal(phase, S)
+        Rphased = if (Sphase isa Diagonal) && allequal(parent(Sphase))
+            first(parent(Sphase)) * R
+        else
+            Sphase * R
+        end
+        Li_M_Ri = withsize(generic_rdiv(generic_ldiv(L, M), Rphased), Sabs)
+        Li_Ri = withsize(generic_ldiv(Rphased * L, I), Li_M_Ri)
+        return common(F, M, L, Rphased, Sabs, Li_Ri, Li_M_Ri)
     end
 
     function MatrixEnsemble{F}(e::MatrixEnsemble) where {F}
@@ -102,6 +107,7 @@ end
 ## Traits, conversions
 ## ===================
 Base.size(e::MatrixEnsemble) = size(e.Li_M_Ri)
+Base.size(e::MatrixEnsemble, dim::Integer) = size(e)[dim]
 
 function Base.convert(::Type{P}, e::MatrixEnsemble) where {F,P<:MatrixEnsemble{F}}
     return (e isa P) ? e : MatrixEnsemble{F}(e)
