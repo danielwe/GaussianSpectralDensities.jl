@@ -275,9 +275,7 @@ function herk!!(H::Hermitian{<:Any,<:SMatrix}, A, α, β)
     return Hermitian(α * A * A' + β * parent(H), uplo(H))
 end
 
-function herk!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β)
-    return Diagonal(α * map(abs2, parent(A)) + β * parent(H))
-end
+herk!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β) = α * map_diagonal(abs2, A) + β * H
 
 ## Decomposition
 ## =============
