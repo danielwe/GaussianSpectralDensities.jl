@@ -95,7 +95,7 @@ mutable struct Workspace{
     function Workspace(eq::E) where {F,E<:ResolventEquation{F}}
         (; ensemble) = eq
         z = zero(Complex{F})
-        shape_scaled = eq.sscale * Complex{F}(Defaults.shape0)
+        shape_scaled = eq.sscale * zero(Complex{F})
         spread_val = first(Defaults.spread_annealing_schedule)
         spread = Spread{F}(spread_val, Defaults.spread_annealing_type)
         G0i = muladd(z, ensemble.Li_Ri, minus(ensemble.Li_M_Ri))

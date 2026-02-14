@@ -103,7 +103,7 @@ Abstract supertype for constraint specifications in point problems.
 
 Concrete subtypes: [`SpreadConstraint`](@ref), [`PTraceConstraint`](@ref)
 """
-abstract type AbstractConstraint{F<:Real} end
+abstract type AbstractConstraint{F<:AbstractFloat} end
 
 """
     SpreadConstraint(val, shape0)
@@ -130,7 +130,7 @@ Keyword constructors require exactly one of `shift` or `gap`.
     shape0::Complex{F}
 end
 
-SpreadConstraint(val::Spread{F}, shape0) where {F} = SpreadConstraint{F}(val, shape0)
+SpreadConstraint(val::Spread{F}, shape0) where {F} = SpreadConstraint{float(F)}(val, shape0)
 SpreadConstraint(val; shape0) = SpreadConstraint(val, shape0)
 SpreadConstraint{F}(val; shape0) where {F} = SpreadConstraint{F}(val, shape0)
 SpreadConstraint(; shape0, kwargs...) = SpreadConstraint(Spread(; kwargs...), shape0)
@@ -186,7 +186,7 @@ Keyword constructors require exactly one of `shift0`, `gap0`, or `spread0`.
 end
 
 function PTraceConstraint(val::F, shape0, spread0) where {F}
-    return PTraceConstraint{F}(val, shape0, spread0)
+    return PTraceConstraint{float(F)}(val, shape0, spread0)
 end
 
 function PTraceConstraint(val; shape0, shift0=nothing, gap0=nothing, spread0=nothing)
@@ -198,7 +198,7 @@ function PTraceConstraint{F}(
     val; shape0, shift0=nothing, gap0=nothing, spread0=nothing
 ) where {F}
     somespread0 = somespread(; shift=shift0, gap=gap0, spread=spread0)
-    return PTraceConstraint{F}(val, shape0, somespread0)
+    return PTraceConstraint{float(F)}(val, shape0, somespread0)
 end
 
 function PTraceConstraint{F}(c::PTraceConstraint) where {F}

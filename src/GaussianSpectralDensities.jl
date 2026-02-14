@@ -36,7 +36,6 @@ using TestItems: @testitem
 module Defaults
 
     public approxequal,
-        shape0,
         spread_annealing_schedule,
         spread_annealing_type,
         spread_target_type,
@@ -48,10 +47,9 @@ module Defaults
     const trace_target = 1.0
     const spread_target_type = :shift
     const spread_target_val = 0.0
-    const shape0 = ComplexF64(sqrt(eps(Float32)))
     const spread_annealing_type = :gap
-    const spread_annealing_schedule = 2.0 .^ (4:-0.5:-4)
-    const symmetry_annealing_schedule = 0:0.1:1
+    const spread_annealing_schedule = 2.0 .^ (2:-1:-2)
+    const symmetry_annealing_schedule = range(0, 1, 9)
 
     # NOTE: tol set by type of first argument
     approxequal(x::T, y) where {T} = isapprox(x, y; atol=tol(T), rtol=tol(T))

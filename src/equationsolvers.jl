@@ -84,7 +84,6 @@ end
 end  # module EquationSolvers
 
 @testitem "eqsolve!" begin
-    using GaussianSpectralDensities.Defaults: Defaults
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
     using GaussianSpectralDensities.Problems:
@@ -99,7 +98,7 @@ end  # module EquationSolvers
     Adata = [1 0.1im; 0 -1]
     Ddata = [0.75, 0.25cispi(1 // 3)]
     z = complex(0.25)
-    (; shape0) = Defaults
+    shape0 = complex(0.0)
     spread = 0.5
     sscale = 2 // 3
 
