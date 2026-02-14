@@ -1,39 +1,36 @@
 module RBFInterpolants
 
-using LinearAlgebra: Symmetric
+using LinearAlgebra: Symmetric, norm
 using LogExpFunctions: xlogx
 using StaticArrays: SMatrix, SVector
 
-public ThinPlateSpline, RBFInterpolant, push!, append!
+public RBFInterpolant, ThinPlateSpline, append!, push!
 
 struct ThinPlateSpline end
 
-(phi::ThinPlateSpline)(r::T) where {T<:Real} = r * xlogx(r)
+(::ThinPlateSpline)(r::T) where {T<:Real} = r * xlogx(r)
+(phi::ThinPlateSpline)(v::SVector) = phi(norm(v))
 
-mutable struct RBFInterpolant{
-    F<:AbstractFloat,N,Phi,X<:SVector{2,F},Y<:SVector{N,F},P<:SMatrix{3,N,F}
-}
+mutable struct RBFInterpolant{F<:AbstractFloat,N,Phi,P<:SMatrix{N,3,F}}
     phi::Phi
-    x::Vector{X}
-    y::Vector{Y}
-    coeffs::Vector{Y}
+    x::Vector{SVector{2,F}}
+    y::Vector{SVector{N,F}}
+    coeffs::Vector{SVector{N,F}}
     poly::P
 end
 
 function RBFInterpolant(
-    phi::Phi, x::AbstractVector{<:SVector{2,F}}, y::AbstractVector{<:SVector{N,F}}
+    phi::Phi, x::AbstractVector{SVector{2,F}}, y::AbstractVector{SVector{N,F}}
 ) where {F<:AbstractFloat,N,Phi}
-    coeffs, poly = rbf_coefficients(phi, x, y)
-    return RBFInterpolant{F,N,Phi,eltype(x),eltype(y),typeof(poly)}(phi, x, y, coeffs, poly)
+    xv, yv = convert(Vector{SVector{2,F}}, x), convert(Vector{SVector{N,F}}, y)
+    coeffs, poly = rbf_coefficients(phi, xv, yv)
+    return RBFInterpolant{F,N,Phi,typeof(poly)}(phi, xv, yv, coeffs, poly)
 end
 
-function (rbf::RBFInterpolant{F,N})(pt::SVector{2,F}) where {F,N}
-    result = rbf.poly[1, :] + rbf.poly[2, :] * pt[1] + rbf.poly[3, :] * pt[2]
+function (rbf::RBFInterpolant{F})(pt::SVector{2,F}) where {F}
+    result = rbf.poly * SVector(oneunit(F), pt...)
     for (index, xi) in pairs(rbf.x)
-        dx = pt[1] - xi[1]
-        dy = pt[2] - xi[2]
-        r = sqrt(dx * dx + dy * dy)
-        result += rbf.coeffs[index] * rbf.phi(r)
+        result += rbf.coeffs[index] * rbf.phi(pt - xi)
     end
     return result
 end
@@ -50,8 +47,8 @@ end
 
 function append!(
     rbf::RBFInterpolant{F,N},
-    xs_new::AbstractVector{<:SVector{2,F}},
-    ys_new::AbstractVector{<:SVector{N,F}},
+    xs_new::AbstractVector{SVector{2,F}},
+    ys_new::AbstractVector{SVector{N,F}},
 ) where {F,N}
     length(xs_new) == length(ys_new) || throw(ArgumentError("x/y length mismatch"))
 
@@ -70,53 +67,44 @@ function append!(
 end
 
 function rbf_coefficients(
-    phi::Phi, x::AbstractVector{<:SVector{2,F}}, y::AbstractVector{<:SVector{N,F}}
+    phi::Phi, x::Vector{SVector{2,F}}, y::Vector{SVector{N,F}}
 ) where {F<:AbstractFloat,N,Phi}
     n = length(x)
     n == length(y) || throw(ArgumentError("x/y length mismatch"))
 
-    kernel = Matrix{F}(undef, n, n)
-    for i in 1:n
-        xi = x[i]
-        for j in 1:n
-            xj = x[j]
-            dx = xi[1] - xj[1]
-            dy = xi[2] - xj[2]
-            r = sqrt(dx * dx + dy * dy)
-            kernel[i, j] = phi(r)
+    system = Matrix{F}(undef, n + 3, n + 3)
+    for j in 1:n
+        system[j, j] = zero(F)
+        xj = x[j]
+        for i in (j + 1):n
+            xi = x[i]
+            phi_r = phi(xj - xi)
+            system[i, j] = phi_r
+            system[j, i] = phi_r
         end
     end
 
-    poly = Matrix{F}(undef, n, 3)
-    for i in 1:n
-        poly[i, 1] = one(F)
-        poly[i, 2] = x[i][1]
-        poly[i, 3] = x[i][2]
+    for j in 1:n
+        system[(n + 1):end, j] = SVector(one(F), x[j]...)
     end
 
-    system = Matrix{F}(undef, n + 3, n + 3)
-    system[1:n, 1:n] = kernel
-    system[1:n, (n + 1):end] = poly
-    system[(n + 1):end, 1:n] = transpose(poly)
+    system[1:n, (n + 1):end] = system[(n + 1):end, 1:n]'
     system[(n + 1):end, (n + 1):end] .= zero(F)
 
-    rhs = Matrix{F}(undef, n + 3, N)
-    for i in 1:n
-        yi = y[i]
-        for j in 1:N
-            rhs[i, j] = yi[j]
-        end
+    rhs = Matrix{F}(undef, N, n + 3)
+    for j in 1:n
+        rhs[:, j] = y[j]
     end
-    rhs[(n + 1):end, :] .= zero(F)
+    rhs[:, (n + 1):end] .= zero(F)
 
-    solution = Symmetric(system) \ rhs
+    solution = rhs / Symmetric(system)
 
-    coeffs = similar(y, n)
-    for i in 1:n
-        coeffs[i] = solution[i, :]
+    coeffs = similar(y)
+    for j in 1:n
+        coeffs[j] = solution[:, j]
     end
 
-    poly_coeffs = SMatrix{3,N,F}(solution[(n + 1):end, :])
+    poly_coeffs = SMatrix{N,3,F}(solution[:, (n + 1):end])
     return coeffs, poly_coeffs
 end
 
