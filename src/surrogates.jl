@@ -112,14 +112,15 @@ end
 
 interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(zpoint(F, z))
 
-function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}
+function evaluate_one(model::SurrogateModel{F}, z) where {F}
     zF = Complex{F}(z)
     zv = zpoint(F, zF)
     model_y = model.rbf(zv)
     shape, spread = unpack_args(model_y, model.constraint)
     model_sol = PointSolution(model.equation, zF, shape, spread; workspace=model.workspace)
-    issuccess(model_sol) && return model_sol
-    (model_sol.status == SolutionStatus.shift_below_min) && return nan_solution(model, zF)
+    issuccess(model_sol) && return model_sol, false
+    (model_sol.status == SolutionStatus.shift_below_min) &&
+        return nan_solution(model, zF), false
 
     constraint_guess = unpack_constraint(model_y, model.constraint)
     problem = PointProblem(model.equation, constraint_guess, zF)
@@ -128,12 +129,35 @@ function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}
     else
         pointsolve(problem, model.algorithm)
     end
-    issuccess(sol) || return nan_solution(model, zF)
-    if refine && !haspoint(model.rbf, zv)
-        y = pack(sol, model.constraint)
-        RBFInterpolants.push!(model.rbf, zv, y)
+    issuccess(sol) || return nan_solution(model, zF), false
+    return sol, !haspoint(model.rbf, zv)
+end
+
+function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}
+    sol, refine_candidate = evaluate_one(model, z)
+    if refine && refine_candidate
+        RBFInterpolants.push!(model.rbf, zpoint(F, z), pack(sol, model.constraint))
     end
     return sol
+end
+
+function evaluatebatch(model::SurrogateModel{F,N}, zs; refine::Bool=false) where {F,N}
+    refine_xs = SVector{2,F}[]
+    refine_ys = SVector{N,F}[]
+
+    sols = map(zs) do z
+        sol, refine_candidate = evaluate_one(model, z)
+        if refine && refine_candidate
+            push!(refine_xs, zpoint(F, z))
+            push!(refine_ys, pack(sol, model.constraint))
+        end
+        return sol
+    end
+
+    if !isempty(refine_xs)
+        RBFInterpolants.append!(model.rbf, refine_xs, refine_ys)
+    end
+    return sols
 end
 
 function nan_solution(model::SurrogateModel{F,N}, z::Complex{F}) where {F,N}

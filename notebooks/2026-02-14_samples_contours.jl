@@ -29,7 +29,7 @@ begin
 	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
 	using GaussianSpectralDensities.Samples: sample_eigenvalues
 	using GaussianSpectralDensities.Solutions: greens
-	using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate
+	using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluatebatch
 
 	using CairoMakie: Axis, Colorbar, DataAspect, Figure, contour!, contourf!, scatter!, @L_str
 	using LinearAlgebra: I, Diagonal
@@ -38,14 +38,14 @@ end
 # ╔═╡ 0ad3259c-cc1f-4c4a-b697-e73b27a00e3a
 e = MatrixEnsemble(Diagonal([1.0, -1.0]), I, I, 0.5cispi(2//3)I)
 
-# ╔═╡ 6ed5f7f7-5175-4e34-b76b-94a282d652a7
-N = 96
-
 # ╔═╡ d2733d97-69ce-4ecd-9e0a-e2f040912b82
 eq = ResolventEquation(e; shiftmin=-0.5)
 
 # ╔═╡ c076126d-98a9-45aa-a144-1bc4803a87b5
 constraint = PTraceConstraint(1; shape0=0, shift0=1)
+
+# ╔═╡ 6ed5f7f7-5175-4e34-b76b-94a282d652a7
+N = 96
 
 # ╔═╡ d311b9b0-36fb-4446-95b7-fd323edd3853
 model = SurrogateModel(eq, constraint, SpreadAnnealing(), N)
@@ -71,9 +71,7 @@ begin
 end;
 
 # ╔═╡ 015427c7-3a98-4eec-96eb-f9ab72065023
-sols = map(zs) do z
-	evaluate(model, z; refine=false)
-end;
+sols = evaluatebatch(model, zs; refine=false);
 
 # ╔═╡ 12a0c8f5-4254-4a1a-a8be-d904fa7159f3
 begin
@@ -149,14 +147,17 @@ let
 	fig
 end
 
+# ╔═╡ 4f31ee49-9b2d-4ba1-8cd8-1db2a47f60d9
+@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $N);
+
 # ╔═╡ 5162bd6a-df89-4fff-98b3-034100258829
 @btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $eigs);
 
 # ╔═╡ 272863c6-aa6b-435d-914b-f473dd66418e
 let f=let model=model
-		f(z) = evaluate(model, z; refine=false).params.shift
+		f(zs) = evaluatebatch(model, zs; refine=false)
 	end
-	@btime map!($f, $(similar(zs, Float64)), $zs)
+	@btime $f($zs)
 end;
 
 # ╔═╡ Cell order:
@@ -177,5 +178,6 @@ end;
 # ╠═e0077b5b-fed8-4a35-9dfa-d31fe019c98e
 # ╠═0b1d92d5-b09c-45b7-bf5a-f39337d73979
 # ╠═c2fa9dd5-f0f6-4b59-998d-3ed4b017b2fe
+# ╠═4f31ee49-9b2d-4ba1-8cd8-1db2a47f60d9
 # ╠═5162bd6a-df89-4fff-98b3-034100258829
 # ╠═272863c6-aa6b-435d-914b-f473dd66418e
