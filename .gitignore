@@ -4,3 +4,4 @@ Manifest*.toml
 *.cov
 /lcov.info
 /TODO.md
+/old-plans
