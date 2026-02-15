@@ -10,6 +10,7 @@ using ..Problems:
     update,
     spreadtype
 using ..RBFInterpolants: RBFInterpolant, RBFInterpolants, ThinPlateSpline
+using ..Samples: sample_eigenvalues
 using ..Solutions: PointSolution, SolutionStatus, issuccess, shape, spreadfrom
 using ..Solvers: pointsolve
 using ..Spreads: Spread
@@ -97,6 +98,16 @@ function SurrogateModel(
 
     rbf = RBFInterpolant(ThinPlateSpline(), xs, ys)
     return SurrogateModel(equation, constraint, algorithm, rbf, workspace)
+end
+
+function SurrogateModel(
+    equation::ResolventEquation{F},
+    constraint::AbstractConstraint{F},
+    algorithm::AbstractAlgorithm,
+    N::Integer=96,
+) where {F}
+    zs = sample_eigenvalues(equation.ensemble, N)
+    return SurrogateModel(equation, constraint, algorithm, zs)
 end
 
 interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(zpoint(F, z))
@@ -424,6 +435,19 @@ end
     using LinearAlgebra: I
 
     alg = DirectSolve()
+
+    @testset "constructor with eigvals" begin
+        ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+        eq = ResolventEquation(ensemble)
+        constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+
+        model = SurrogateModel(eq, constraint, alg, 16)
+        @test model.equation === eq
+        @test model.constraint === constraint
+        @test model.algorithm === alg
+        @test model.workspace isa Workspace{Float64}
+        @test length(model.rbf.x) == 16
+    end
 
     @testset "all points solvable" begin
         ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)

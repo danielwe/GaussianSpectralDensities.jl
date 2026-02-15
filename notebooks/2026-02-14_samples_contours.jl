@@ -41,8 +41,17 @@ e = MatrixEnsemble(Diagonal([1.0, -1.0]), I, I, 0.5cispi(2//3)I)
 # ╔═╡ 6ed5f7f7-5175-4e34-b76b-94a282d652a7
 N = 96
 
+# ╔═╡ d2733d97-69ce-4ecd-9e0a-e2f040912b82
+eq = ResolventEquation(e; shiftmin=-0.5)
+
+# ╔═╡ c076126d-98a9-45aa-a144-1bc4803a87b5
+constraint = PTraceConstraint(1; shape0=0, shift0=1)
+
+# ╔═╡ d311b9b0-36fb-4446-95b7-fd323edd3853
+model = SurrogateModel(eq, constraint, SpreadAnnealing(), N)
+
 # ╔═╡ f260bf48-a72e-4857-a7d9-e1da13af5d4e
-eigs = sample_eigenvalues(e, N)
+eigs = map(zv -> complex(zv...), model.rbf.x)
 
 # ╔═╡ 3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
 let
@@ -54,15 +63,6 @@ let
 	scatter!(ax, real(eigs), imag(eigs))
 	fig
 end
-
-# ╔═╡ d2733d97-69ce-4ecd-9e0a-e2f040912b82
-eq = ResolventEquation(e; shiftmin=-0.5)
-
-# ╔═╡ c076126d-98a9-45aa-a144-1bc4803a87b5
-constraint = PTraceConstraint(1; shape0=0, shift0=1)
-
-# ╔═╡ d311b9b0-36fb-4446-95b7-fd323edd3853
-model = SurrogateModel(eq, constraint, SpreadAnnealing(), eigs)
 
 # ╔═╡ 8ded32e7-0adf-4d98-9271-3409944f3446
 begin
@@ -163,12 +163,12 @@ end;
 # ╠═c2c3cda0-06ee-11f1-9285-551483cbf55e
 # ╠═07c3373f-fefb-49f3-8384-0f6826ec2a4a
 # ╠═0ad3259c-cc1f-4c4a-b697-e73b27a00e3a
-# ╠═6ed5f7f7-5175-4e34-b76b-94a282d652a7
-# ╠═f260bf48-a72e-4857-a7d9-e1da13af5d4e
-# ╠═3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
 # ╠═d2733d97-69ce-4ecd-9e0a-e2f040912b82
 # ╠═c076126d-98a9-45aa-a144-1bc4803a87b5
+# ╠═6ed5f7f7-5175-4e34-b76b-94a282d652a7
 # ╠═d311b9b0-36fb-4446-95b7-fd323edd3853
+# ╠═f260bf48-a72e-4857-a7d9-e1da13af5d4e
+# ╠═3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
 # ╠═8ded32e7-0adf-4d98-9271-3409944f3446
 # ╠═015427c7-3a98-4eec-96eb-f9ab72065023
 # ╠═12a0c8f5-4254-4a1a-a8be-d904fa7159f3
