@@ -7,9 +7,7 @@ using ..Surrogates: SurrogateModel, evaluate
 public BoundaryResult, BoundaryTrace, extract_boundary
 
 # TODO:
-# - Fix Float64 -> F
 # - Use tolerance from Defaults
-# - Simplify radial probing using model sample points
 # - Derive and implement analytic gradient (implicit differentiation)
 # - Simplify interfaces. Do we need a solver type?
 
@@ -23,11 +21,11 @@ Container for traced boundary points and their shift values.
   - `closed` marks whether the contour loop closed.
   - `seed` stores the (refined) starting point.
 """
-struct BoundaryResult
-    points::Vector{ComplexF64}
-    shift_values::Vector{Float64}
+struct BoundaryResult{F<:AbstractFloat}
+    points::Vector{Complex{F}}
+    shift_values::Vector{F}
     closed::Bool
-    seed::ComplexF64
+    seed::Complex{F}
 end
 
 """
@@ -35,8 +33,8 @@ end
 
 Diagnostic wrapper for a boundary extraction run, including solver counts and failures.
 """
-struct BoundaryTrace
-    result::BoundaryResult
+struct BoundaryTrace{F<:AbstractFloat}
+    result::BoundaryResult{F}
     n_solver_calls::Int
     n_corrector_failures::Int
     n_gradient_failures::Int
@@ -49,13 +47,13 @@ Evaluate the surrogate model at `z` and return the shift value (or `NaN` on fail
 Increments `counter[]` if provided.
 """
 function solve_shift(
-    model::SurrogateModel, z::ComplexF64, counter::Union{Ref{Int},Nothing}=nothing
-)
+    model::SurrogateModel{F}, z::Complex{F}, counter::Union{Ref{Int},Nothing}=nothing
+) where {F}
     if !isnothing(counter)
         counter[] += 1
     end
     sol = evaluate(model, z; refine=false)
-    return issuccess(sol) ? Float64(Spreads.shift(sol)) : NaN
+    return issuccess(sol) ? F(Spreads.shift(sol)) : F(NaN)
 end
 
 """
@@ -64,11 +62,11 @@ end
 Compute the shift gradient at `z` via centered finite differences.
 """
 function compute_gradient(
-    model::SurrogateModel,
-    z::ComplexF64,
-    fd_step::Float64,
+    model::SurrogateModel{F},
+    z::Complex{F},
+    fd_step::F,
     counter::Union{Ref{Int},Nothing}=nothing,
-)
+) where {F}
     shift_xp = solve_shift(model, z + fd_step, counter)
     shift_xm = solve_shift(model, z - fd_step, counter)
     shift_yp = solve_shift(model, z + im * fd_step, counter)
@@ -80,7 +78,7 @@ function compute_gradient(
     ds_dx = (shift_xp - shift_xm) / (2 * fd_step)
     ds_dy = (shift_yp - shift_ym) / (2 * fd_step)
     grad = complex(ds_dx, ds_dy)
-    if abs(grad) < 1e-10
+    if abs(grad) < F(1e-10)
         return nothing
     end
     return grad
@@ -92,14 +90,14 @@ end
 Project `z` onto the shift=0 contour via gradient correction.
 """
 function corrector_step(
-    model::SurrogateModel,
-    z::ComplexF64;
-    tol::Float64=1e-6,
-    fd_step::Float64=0.01,
+    model::SurrogateModel{F},
+    z::Complex{F};
+    tol::F=F(1e-6),
+    fd_step::F=F(0.01),
     max_iters::Int=10,
     counter::Union{Ref{Int},Nothing}=nothing,
-)
-    z_current = ComplexF64(z)
+) where {F}
+    z_current = Complex{F}(z)
     for _ in 1:max_iters
         shift_val = solve_shift(model, z_current, counter)
         isfinite(shift_val) || return nothing
@@ -120,12 +118,12 @@ Find a boundary seed by locating the surrogate sample point whose shift is close
 and refining it with a corrector step.
 """
 function find_seed(
-    model::SurrogateModel;
-    tol::Float64=1e-6,
-    fd_step::Float64=0.01,
+    model::SurrogateModel{F};
+    tol::F=F(1e-6),
+    fd_step::F=F(0.01),
     max_corrector_iters::Int=10,
     counter::Union{Ref{Int},Nothing}=nothing,
-)
+) where {F}
     xs = model.rbf.x
     isempty(xs) && return nothing
 
@@ -159,7 +157,7 @@ end
 
 Return the counter-clockwise tangent direction inferred from the shift gradient.
 """
-function tangent_from_gradient(grad::ComplexF64, z::ComplexF64)
+function tangent_from_gradient(grad::Complex{F}, z::Complex{F}) where {F}
     direction = cis(angle(grad) + pi / 2)
     if imag(conj(z) * direction) < 0
         direction = -direction
@@ -175,17 +173,20 @@ end
 Trace the shift=0 contour using a predictor-corrector loop and return diagnostics.
 """
 function extract_boundary(
-    model::SurrogateModel;
-    seed::Union{ComplexF64,Nothing}=nothing,
-    step_size::Float64=0.05,
+    model::SurrogateModel{F};
+    seed::Union{Complex,Nothing}=nothing,
+    step_size::Real=F(0.05),
     max_steps::Int=500,
-    tol::Float64=1e-6,
-    fd_step::Float64=0.01,
+    tol::Real=F(1e-6),
+    fd_step::Real=F(0.01),
     max_corrector_iters::Int=10,
     max_corrector_failures::Int=5,
     max_gradient_failures::Int=10,
     min_steps_before_close::Int=20,
-)
+) where {F}
+    step_size = F(step_size)
+    tol = F(tol)
+    fd_step = F(fd_step)
     if step_size <= 0
         throw(ArgumentError("step_size must be positive"))
     end
@@ -213,12 +214,12 @@ function extract_boundary(
             counter=counter,
         )
     else
-        ComplexF64(seed)
+        Complex{F}(seed)
     end
 
     if isnothing(seed_z)
         return BoundaryTrace(
-            BoundaryResult(ComplexF64[], Float64[], false, complex(0.0)),
+            BoundaryResult(Complex{F}[], F[], false, complex(zero(F))),
             counter[],
             n_corrector_failures,
             n_gradient_failures,
@@ -228,7 +229,7 @@ function extract_boundary(
     # Reject seeds that are clearly outside the support.
     seed_shift = solve_shift(model, seed_z, counter)
     isfinite(seed_shift) || return BoundaryTrace(
-        BoundaryResult(ComplexF64[], Float64[], false, ComplexF64(seed_z)),
+        BoundaryResult(Complex{F}[], F[], false, Complex{F}(seed_z)),
         counter[],
         n_corrector_failures,
         n_gradient_failures,
@@ -236,7 +237,7 @@ function extract_boundary(
 
     if (seed_shift < 0) && (abs(seed_shift) > tol)
         return BoundaryTrace(
-            BoundaryResult(ComplexF64[], Float64[], false, ComplexF64(seed_z)),
+            BoundaryResult(Complex{F}[], F[], false, Complex{F}(seed_z)),
             counter[],
             n_corrector_failures,
             n_gradient_failures,
@@ -254,7 +255,7 @@ function extract_boundary(
     )
     if isnothing(refined)
         return BoundaryTrace(
-            BoundaryResult(ComplexF64[], Float64[], false, ComplexF64(seed_z)),
+            BoundaryResult(Complex{F}[], F[], false, Complex{F}(seed_z)),
             counter[],
             n_corrector_failures,
             n_gradient_failures,
@@ -262,8 +263,8 @@ function extract_boundary(
     end
 
     seed_z, seed_shift = refined
-    points = ComplexF64[seed_z]
-    shift_values = Float64[seed_shift]
+    points = Complex{F}[seed_z]
+    shift_values = F[seed_shift]
 
     # Compute initial tangent direction from the seed gradient.
     grad = compute_gradient(model, seed_z, fd_step, counter)
