@@ -15,6 +15,7 @@ end
 
     # ExplicitImports.jl chokes on EnumX modules
     const enumx_modules = (
+        GaussianSpectralDensities.Solutions.SolutionStatus,
         GaussianSpectralDensities.Spreads.SpreadType,
         GaussianSpectralDensities.Workspaces.Valid,
     )

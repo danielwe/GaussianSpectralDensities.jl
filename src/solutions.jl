@@ -2,14 +2,25 @@ module Solutions
 
 using AutoHashEquals: @auto_hash_equals
 
-using ..Defaults: approxequal
+using ..Defaults: approxequal, intheballpark
 using ..Problems: PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
 using ..Spreads: Spread, Spreads
 using ..Workspaces: Workspace, gap!, greens!, ptrace!, shapeFP!, shift!
 
 using ..ArrayTools: ArrayTools
 
-public PointSolution, ResolventParams, greens, issuccess, ptrace, shape, solves, spreadfrom
+using EnumX: @enumx
+
+public PointSolution,
+    ResolventParams,
+    SolutionStatus,
+    greens,
+    issuccess,
+    ptrace,
+    shape,
+    solves,
+    spreadfrom,
+    status
 
 """
     ResolventParams(shape, shift, gap, ptrace, greens)
@@ -51,15 +62,17 @@ end
 
 ## Consistency
 ## ===========
-function satisfies(params::ResolventParams, constraint::SpreadConstraint)
+function satisfies(params::ResolventParams{F}, constraint::SpreadConstraint) where {F}
     cspread = constraint.val
     spread = spreadfrom(params, cspread.type)
-    return approxequal(spread.val, cspread.val)
+    return approxequal(F, spread.val, cspread.val)
 end
 
-function satisfies(params::ResolventParams, constraint::PTraceConstraint)
-    return approxequal(params.ptrace, constraint.val)
+function satisfies(params::ResolventParams{F}, constraint::PTraceConstraint) where {F}
+    return approxequal(F, params.ptrace, constraint.val)
 end
+
+@enumx SolutionStatus::UInt8 success shift_below_min not_consistent not_intheballpark not_finite
 
 """
     PointSolution(equation, z, shape, spread; workspace=Workspace(equation))
@@ -79,14 +92,14 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
     equation::E
     z::Complex{F}
     params::ResolventParams{F}
-    success::Bool
+    status::SolutionStatus.T
 
     # Secret constructor that doesn't assert invariants, mainly to support GlobalSolution
     # getindex
     function PointSolution{F,E}(
-        equation::E, z, params, success
+        equation::E, z, params, status
     ) where {F,E<:ResolventEquation{F}}
-        return new{F,E}(equation, z, params, success)
+        return new{F,E}(equation, z, params, status)
     end
 
     function PointSolution{F}(equation, z, shape, spread, workspace) where {F}
@@ -96,11 +109,21 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
         ptraceF = ptrace!(workspace, eqF, z, shape, spread)
         greensF = greens!(workspace, eqF, z, shape, spread)
         paramsF = ResolventParams{F}(shape, shiftF, gapF, ptraceF, greensF)
-        success =
-            all(isfinite, (shiftF, gapF, ptraceF, greensF)) &&
-            (shiftF >= eqF.shiftmin) &&
-            approxequal(shapeFP!(workspace, eqF, z, shape, spread), shape)
-        return new{F,typeof(eqF)}(eqF, z, paramsF, success)
+        status = if !all(isfinite, (shiftF, gapF, ptraceF, greensF))
+            SolutionStatus.not_finite
+        else
+            sFP = shapeFP!(workspace, eqF, z, shape, spread)
+            if !intheballpark(F, sFP, shape)
+                SolutionStatus.not_intheballpark
+            elseif !approxequal(F, sFP, shape)
+                SolutionStatus.not_consistent
+            elseif shiftF < eqF.shiftmin
+                SolutionStatus.shift_below_min
+            else
+                SolutionStatus.success
+            end
+        end
+        return new{F,typeof(eqF)}(eqF, z, paramsF, status)
     end
 
     function PointSolution{F}(s::PointSolution) where {F}
@@ -109,7 +132,7 @@ Represent a self-consistent solution of an averaged resolvent equation at a poin
         # already true for otherwise identical solutions instantiated with spread.type being
         # :shift vs. :gap.
         eqF = convert(ResolventEquation{F}, s.equation)
-        return new{F,typeof(eqF)}(eqF, s.z, s.params, s.success)
+        return new{F,typeof(eqF)}(eqF, s.z, s.params, s.status)
     end
 end
 
@@ -142,9 +165,11 @@ end
 """
     issuccess(sol::PointSolution) -> Bool
 
-Return whether the solution is finite, self-consistent, and satisfies shiftmin.
+Return whether the solution status indicates success
+
+A successful solution is finite, self-consistent, and satisfies shiftmin.
 """
-issuccess(sol::PointSolution) = sol.success
+issuccess(sol::PointSolution) = (status(sol) == SolutionStatus.success)
 
 """
     shape(sol::PointSolution{F}) -> Complex{F}
@@ -166,6 +191,13 @@ ptrace(sol::PointSolution) = sol.params.ptrace
 Return the value of the Green's function (resolvent trace) from the solution.
 """
 greens(sol::PointSolution) = sol.params.greens
+
+"""
+    status(sol::PointSolution{F}) -> SolutionStatus.T
+
+Return the status of the solution.
+"""
+status(sol::PointSolution) = sol.status
 
 """
     shift(sol::PointSolution{F}) -> F
@@ -220,13 +252,21 @@ end
 
 @testitem "PointSolution" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Defaults: approxequal
+    using GaussianSpectralDensities.Defaults: intheballpark
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint, update
     using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, greens, issuccess, ptrace, shape, solves, spreadfrom
+        PointSolution,
+        SolutionStatus,
+        greens,
+        issuccess,
+        ptrace,
+        shape,
+        solves,
+        spreadfrom,
+        status
     using GaussianSpectralDensities.Workspaces:
         Workspace, gap!, greens!, ptrace!, shapeFP!, shift!
 
@@ -269,7 +309,7 @@ end
         @test greens(solutionF) == greens!(wsF, eqF, solutionF.z, solF_shape, solF_spread)
 
         solF_shapeFP = shapeFP!(wsF, eqF, solutionF.z, solF_shape, solF_spread)
-        @test approxequal(solF_shape, solF_shapeFP)
+        @test intheballpark(F, solF_shape, solF_shapeFP)
 
         # Actually solves the problems we expect it to
         spreadc = SpreadConstraint(spread64, shape64)
@@ -283,16 +323,20 @@ end
         zshape64 = zero(shape64)
         solutionF_inconsistent = PointSolution(eqF, z64, zshape64, spread64; workspace=wsF)
         @test !issuccess(solutionF_inconsistent)
+        @test status(solutionF_inconsistent) in
+            (SolutionStatus.not_consistent, SolutionStatus.not_intheballpark)
 
         # Failure due to NaN
         nanshape64 = oftype(shape64, NaN)
         solutionF_nan = PointSolution(eqF, z64, nanshape64, spread64; workspace=wsF)
         @test !issuccess(solutionF_nan)
+        @test status(solutionF_nan) == SolutionStatus.not_finite
 
         # Failure due to shiftmin (with the given params we know that shift = 0)
         eqF_impossible = update(eqF; shiftmin=1.0)
         solutionF_impossible = PointSolution(eqF_impossible, z64, shape64, spread64)
         @test !issuccess(solutionF_impossible)
+        @test status(solutionF_impossible) == SolutionStatus.shift_below_min
 
         # Floattype conversions
         @test PointSolution{F}(solution64) == solutionF
@@ -310,7 +354,7 @@ end
         PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, greens, issuccess, ptrace, shape, spreadfrom
+        PointSolution, SolutionStatus, greens, issuccess, ptrace, shape, spreadfrom, status
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -327,10 +371,11 @@ end
     solution = PointSolution(eq, z, shape_val, spread; workspace=ws)
 
     # Test accessors
-    @test issuccess(solution) == solution.success
+    @test issuccess(solution) == (solution.status == SolutionStatus.success)
     @test shape(solution) == solution.params.shape
     @test ptrace(solution) == solution.params.ptrace
     @test greens(solution) == solution.params.greens
+    @test status(solution) == solution.status
     @test shift(solution) == solution.params.shift
     @test gap(solution) == solution.params.gap
     @test spreadfrom(solution, :shift) == Spread(solution.params.shift, :shift)

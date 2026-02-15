@@ -1040,7 +1040,7 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Spreads: shift
-    using GaussianSpectralDensities.Solutions: issuccess
+    using GaussianSpectralDensities.Solutions: SolutionStatus, issuccess, status
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -1077,7 +1077,7 @@ end
 
         # Final step failed due to shiftmin violation
         @test !issuccess(solutions[end])
-        @test shift(solutions[end]) < eqF.shiftmin
+        @test status(solutions[end]) == SolutionStatus.shift_below_min
         @test isdone(problemF, algF, states[end])
     end
 end
@@ -1088,7 +1088,7 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Spreads: shift
-    using GaussianSpectralDensities.Solutions: issuccess
+    using GaussianSpectralDensities.Solutions: SolutionStatus, issuccess, status
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -1124,7 +1124,7 @@ end
 
         # Solution failed due to shiftmin violation
         @test !issuccess(solutions[end])
-        @test shift(solutions[end]) < eqF.shiftmin
+        @test status(solutions[end]) == SolutionStatus.shift_below_min
         @test isdone(problemF, algF, states[end])
     end
 end

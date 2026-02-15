@@ -8,7 +8,15 @@ using ..Algorithms: AbstractAlgorithm, AbstractAlgorithmState, Algorithms, state
 using ..Problems: AbstractConstraint, PointProblem
 using ..Spreads: Spreads, gap, shift
 using ..Solutions:
-    PointSolution, ResolventParams, Solutions, greens, issuccess, ptrace, shape, spreadfrom
+    PointSolution,
+    ResolventParams,
+    Solutions,
+    greens,
+    issuccess,
+    ptrace,
+    shape,
+    spreadfrom,
+    status
 using ..Workspaces: Workspace
 
 using ..ArrayTools: adaptrealtype
@@ -87,8 +95,8 @@ end
 function CommonSolve.step!(solver::Solver)
     result = iterate(solver)
     isnothing(result) && throw(ArgumentError("cannot step! a finished Solver"))
-    # CommonSolve.step! generally returns a retcode; in our case just success/failure
-    return (!isnothing(solver.pointsolution)) && issuccess(solver.pointsolution)
+    # CommonSolve.step! returns retcode
+    return isnothing(solver.pointsolution) ? nothing : status(solver.pointsolution)
 end
 
 function CommonSolve.solve!(solver::Solver)
@@ -126,7 +134,9 @@ end
 """
     issuccess(sol::Solution) -> Bool
 
-Return whether the solution is finite, self-consistent, and satisfies shiftmin.
+Return whether the solution status indicates success
+
+A successful solution is finite, self-consistent, and satisfies shiftmin.
 """
 Solutions.issuccess(sol::Solution) = issuccess(sol.pointsolution)
 
@@ -150,6 +160,13 @@ Solutions.ptrace(sol::Solution) = ptrace(sol.pointsolution)
 Return the value of the Green's function (resolvent trace) from the solution.
 """
 Solutions.greens(sol::Solution) = greens(sol.pointsolution)
+
+"""
+    status(sol::Solution) -> SolutionStatus.T
+
+Return the status of the solution.
+"""
+Solutions.status(sol::Solution) = status(sol.pointsolution)
 
 """
     shift(sol::Solution) -> Real
@@ -301,6 +318,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Solutions: SolutionStatus
     using GaussianSpectralDensities.Solvers: Solution, Solver
 
     using LinearAlgebra: I
@@ -321,8 +339,9 @@ end
         solver = init(problem, DirectSolve())
 
         # First step succeeds
-        success = step!(solver)
-        @test success isa Bool
+        status = step!(solver)
+        @test status isa SolutionStatus.T
+        @test status == SolutionStatus.success
         @test length(solver.trace) == 1
 
         # DirectSolve is done after one step

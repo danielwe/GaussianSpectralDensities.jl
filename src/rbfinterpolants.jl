@@ -140,7 +140,7 @@ end
 
         # Exact interpolation at sample points
         @testset "point $i" for i in eachindex(x)
-            @test rbf(x[i]) ≈ y[i] atol = Defaults.tol(F)
+            @test rbf(x[i]) ≈ y[i] atol = Defaults.atol(F)
         end
     end
 end
@@ -161,7 +161,7 @@ end
         @test rbf isa RBFInterpolant{F,3,ThinPlateSpline}
 
         @testset "point $i" for i in eachindex(x)
-            @test rbf(x[i]) ≈ y[i] atol = Defaults.tol(F)
+            @test rbf(x[i]) ≈ y[i] atol = Defaults.atol(F)
         end
     end
 end

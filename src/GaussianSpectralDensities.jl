@@ -36,12 +36,15 @@ using TestItems: @testitem
 module Defaults
 
     public approxequal,
+        atol,
+        rtol_ballpark,
+        intheballpark,
+        rtol,
         spread_annealing_schedule,
         spread_annealing_type,
         spread_target_type,
         spread_target_val,
         symmetry_annealing_schedule,
-        tol,
         trace_target
 
     const trace_target = 1.0
@@ -51,11 +54,25 @@ module Defaults
     const spread_annealing_schedule = 2.0 .^ (2:-1:-2)
     const symmetry_annealing_schedule = range(0, 1, 9)
 
-    # NOTE: tol set by type of first argument
-    approxequal(x::T, y) where {T} = isapprox(x, y; atol=tol(T), rtol=tol(T))
+    # isapprox but with option to explicitly pass reference type for tolerances
+    approxequal(x, y) = approxequal(promote(x, y)...)
+    approxequal(x::T, y::T) where {T} = approxequal(real(T), x, y)
 
-    tol(::Type{T}) where {T} = (eps(one(T))^(3 // 4)) * (oneunit(T)^(1 // 4))
-    tol(::Type{Complex{T}}) where {T} = tol(T)
+    function approxequal(::Type{F}, x, y) where {F<:AbstractFloat}
+        return isapprox(x, y; atol=atol(F), rtol=rtol(F))
+    end
+
+    rtol(::Type{T}) where {T} = eps(one(real(T)))^(3 // 4)
+    atol(::Type{T}) where {T} = rtol(T) * oneunit(real(T))
+
+    intheballpark(x, y) = intheballpark(promote(x, y)...)
+    intheballpark(x::T, y::T) where {T} = intheballpark(real(T), x, y)
+
+    function intheballpark(::Type{F}, x, y) where {F<:AbstractFloat}
+        return isapprox(x, y; atol=atol(F), rtol=rtol_ballpark(F))
+    end
+
+    rtol_ballpark(::Type{T}) where {T} = one(real(T)) / 4
 
 end
 

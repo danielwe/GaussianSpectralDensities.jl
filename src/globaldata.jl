@@ -6,7 +6,7 @@ using StructArrays: StructVector
 
 using ..Problems: AbstractConstraint, PointProblem, ResolventEquation
 using ..Spreads: Spread, Spreads
-using ..Solutions: PointSolution, ResolventParams, Solutions
+using ..Solutions: PointSolution, ResolventParams, SolutionStatus, Solutions
 
 using ..ArrayTools: adaptrealtype
 
@@ -71,14 +71,14 @@ end
     equation::E
     mesh::M
     params::P
-    success::BitVector
+    status::Vector{SolutionStatus.T}
 
     function GlobalSolution{F}(equation, mesh::SimpleMesh) where {F}
         eqF = convert(ResolventEquation{F}, equation)
         n = Meshes.nvertices(mesh)
         params = StructVector{ResolventParams{F}}(undef, n)
-        success = falses(n)
-        return new{F,typeof(eqF),typeof(mesh),typeof(params)}(eqF, mesh, params, success)
+        status = fill(SolutionStatus.not_finite, n)
+        return new{F,typeof(eqF),typeof(mesh),typeof(params)}(eqF, mesh, params, status)
     end
 end
 
@@ -87,8 +87,8 @@ function GlobalSolution(equation::ResolventEquation{F}, mesh::SimpleMesh) where 
 end
 
 function Base.getindex(sol::GlobalSolution{F,E}, i::Int) where {F,E}
-    (; equation, mesh, params, success) = sol
-    return PointSolution{F,E}(equation, zval(mesh, i), params[i], success[i])
+    (; equation, mesh, params, status) = sol
+    return PointSolution{F,E}(equation, zval(mesh, i), params[i], status[i])
 end
 
 function Base.setindex!(sol::GlobalSolution, ps::PointSolution, i::Int)
@@ -102,7 +102,7 @@ function Base.setindex!(sol::GlobalSolution, ps::PointSolution, i::Int)
         throw(ArgumentError(msg))
     end
     sol.params[i] = ps.params
-    sol.success[i] = ps.success
+    sol.status[i] = ps.status
     return sol
 end
 
@@ -168,11 +168,15 @@ end
 ## implementations, or subtyping AbstractArray to get full-featured iteration and indexing
 ## (complete with axes, eachindex, et cetera) for free. We chose the latter.
 """
-    issuccess(sol::GlobalSolution) -> BitVector
+    issuccess(sol::GlobalSolution) -> Vector{Bool}
 
-Return whether the solution is finite, self-consistent, and satisfies shiftmin.
+Return whether the solution status indicates success
+
+A successful solution is finite, self-consistent, and satisfies shiftmin.
 """
-Solutions.issuccess(sol::GlobalSolution) = sol.success
+function Solutions.issuccess(sol::GlobalSolution)
+    return map(==(SolutionStatus.success), Solutions.status(sol))
+end
 
 """
     shape(sol::GlobalSolution{F}) -> Vector{Complex{F}}
@@ -194,6 +198,13 @@ Solutions.ptrace(sol::GlobalSolution) = sol.params.ptrace
 Return the value of the Green's function (resolvent trace) from the solution.
 """
 Solutions.greens(sol::GlobalSolution) = sol.params.greens
+
+"""
+    status(sol::GlobalSolution{F}) -> Vector{SolutionStatus.T}
+
+Return the status of the solution.
+"""
+Solutions.status(sol::GlobalSolution) = sol.status
 
 """
     shift(sol::GlobalSolution{F}) -> Vector{F}
@@ -266,7 +277,14 @@ end
     using GaussianSpectralDensities.Problems: ResolventEquation
     using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
-        PointSolution, ResolventParams, greens, issuccess, ptrace, shape, spreadfrom
+        PointSolution,
+        ResolventParams,
+        SolutionStatus,
+        greens,
+        issuccess,
+        ptrace,
+        shape,
+        spreadfrom
     using LinearAlgebra: I
     using Meshes: Box, Point, RegularDiscretization, discretize, nvertices, simplexify
 
@@ -283,7 +301,7 @@ end
 
     params = ResolventParams(0.5 + 0.5im, 0.25, 0.5, 1.0, -0.5 + 2.0im)
     sol.params[1] = params
-    sol.success[1] = true
+    sol.status[1] = SolutionStatus.success
 
     @test sol.params[1] == params
     @test issuccess(sol)[1]
@@ -293,7 +311,7 @@ end
     ps = PointSolution(eq, z1, 1.0, Spread(; shift=1.0))
     sol[1] = ps
     @test sol.params[1] == ps.params
-    @test sol.success[1] == ps.success
+    @test sol.status[1] == ps.status
 
     # getindex
     @test sol[1] == ps

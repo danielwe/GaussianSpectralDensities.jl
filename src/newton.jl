@@ -39,7 +39,7 @@ function newton(f, x; kwargs...)
     return newton(f, jac, x; kwargs...)
 end
 
-function newton(f, jac, x; atol=Defaults.tol(eltype(x)) / 10, maxiters=63)
+function newton(f, jac, x; atol=Defaults.atol(eltype(x)) / 10, maxiters=63)
     fx = f(x)
     approx_zero(fx, atol) && return (x, 0)
     for i in 1:maxiters
