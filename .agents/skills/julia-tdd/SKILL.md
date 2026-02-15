@@ -122,6 +122,7 @@ This workflow ensures tests are independent of implementation details and catche
    - After implementing each type or group of functions, run affected tests
    - Fix implementation to pass tests; do not modify tests
    - **Stop and Discuss Rule:** If a test failure appears to be caused by an issue **within the test itself** (missing import, typo, incorrect assumption, unsuitable tolerance), **stop immediately and report it to the user**. Do not attempt workarounds.
+   - **Hard Stop Rule (No Exceptions):** On the first occurrence of a suspected test issue, halt all further command execution and code changes. Respond with: "Test appears flawed: <reason>. Halting per workflow." Do not retry tests or continue debugging until the user confirms how to proceed.
    - **Prohibition of Workarounds:** Never attempt to fix test issues by monkey-patching, using `eval` to inject code, or modifying unrelated production code to bypass a test flaw.
    - **Threshold for Halting:** After one failed attempt to pass a test that indicates a missing dependency or structural flaw in the test suite, halt and request test correction.
 6. Stop when all tests pass
