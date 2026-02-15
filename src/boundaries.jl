@@ -1,5 +1,6 @@
 module Boundaries
 
+using ..Defaults: Defaults
 using ..Solutions: issuccess
 using ..Spreads: Spreads
 using ..Surrogates: SurrogateModel, evaluate
@@ -7,7 +8,6 @@ using ..Surrogates: SurrogateModel, evaluate
 public BoundaryResult, BoundaryTrace, extract_boundary
 
 # TODO:
-# - Use tolerance from Defaults
 # - Derive and implement analytic gradient (implicit differentiation)
 # - Simplify interfaces. Do we need a solver type?
 
@@ -78,7 +78,7 @@ function compute_gradient(
     ds_dx = (shift_xp - shift_xm) / (2 * fd_step)
     ds_dy = (shift_yp - shift_ym) / (2 * fd_step)
     grad = complex(ds_dx, ds_dy)
-    if abs(grad) < F(1e-10)
+    if abs(grad) < Defaults.atol(F)
         return nothing
     end
     return grad
@@ -92,7 +92,7 @@ Project `z` onto the shift=0 contour via gradient correction.
 function corrector_step(
     model::SurrogateModel{F},
     z::Complex{F};
-    tol::F=F(1e-6),
+    tol::F=Defaults.atol(F),
     fd_step::F=F(0.01),
     max_iters::Int=10,
     counter::Union{Ref{Int},Nothing}=nothing,
@@ -119,7 +119,7 @@ and refining it with a corrector step.
 """
 function find_seed(
     model::SurrogateModel{F};
-    tol::F=F(1e-6),
+    tol::F=Defaults.atol(F),
     fd_step::F=F(0.01),
     max_corrector_iters::Int=10,
     counter::Union{Ref{Int},Nothing}=nothing,
@@ -177,7 +177,7 @@ function extract_boundary(
     seed::Union{Complex,Nothing}=nothing,
     step_size::Real=F(0.05),
     max_steps::Int=500,
-    tol::Real=F(1e-6),
+    tol::Real=Defaults.atol(F),
     fd_step::Real=F(0.01),
     max_corrector_iters::Int=10,
     max_corrector_failures::Int=5,
@@ -571,7 +571,7 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # Start near the boundary (slightly inside at real axis, boundary at 1.25)
-    result = corrector_step(model, complex(1.2); tol=1e-6, fd_step=0.01)
+    result = corrector_step(model, complex(1.2); fd_step=0.01)
     @test !isnothing(result)
     z_corrected, s_corrected = result
     @test abs(s_corrected) < 1e-6
@@ -579,7 +579,7 @@ end
     @test abs(real(z_corrected)) > 1.0  # still near the right side
 
     # Start near the boundary (slightly outside)
-    result = corrector_step(model, complex(1.3); tol=1e-6, fd_step=0.01)
+    result = corrector_step(model, complex(1.3); fd_step=0.01)
     @test !isnothing(result)
     z_corrected, s_corrected = result
     @test abs(s_corrected) < 1e-6
