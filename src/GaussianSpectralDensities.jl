@@ -92,6 +92,7 @@ include("solvers.jl")
 include("globaldata.jl")  # XXX: possibly superseded by surrogates.jl
 include("rbfinterpolants.jl")
 include("surrogates.jl")
+include("boundaries.jl")
 
 # include("solve.jl")
 # include("density.jl")
