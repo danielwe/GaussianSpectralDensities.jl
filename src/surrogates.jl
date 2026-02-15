@@ -18,6 +18,9 @@ using ..Workspaces: Workspace
 
 using StaticArrays: @SVector, SVector
 
+public SurrogateModel,
+    evaluate, evaluatebatch, interpolate, pack, unpack_args, unpack_constraint
+
 struct SurrogateModel{
     F,
     N,
