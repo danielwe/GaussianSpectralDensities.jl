@@ -145,6 +145,7 @@ function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}
 end
 
 function evaluatebatch(model::SurrogateModel{F,N}, zs; refine::Bool=false) where {F,N}
+    # TODO: consider returning StructArray like in GlobalData
     refine_xs = SVector{2,F}[]
     refine_ys = SVector{N,F}[]
 

@@ -6,6 +6,13 @@ using ..Surrogates: SurrogateModel, evaluate
 
 public BoundaryResult, BoundaryTrace, extract_boundary
 
+# TODO:
+# - Fix Float64 -> F
+# - Use tolerance from Defaults
+# - Simplify radial probing using model sample points
+# - Derive and implement analytic gradient (implicit differentiation)
+# - Simplify interfaces. Do we need a solver type?
+
 """
     BoundaryResult(points, shift_values, closed, seed)
 
