@@ -13,7 +13,8 @@ public AbstractConstraint,
     ResolventEquation,
     SpreadConstraint,
     issameproblem,
-    update
+    update,
+    spreadtype
 
 """
     ResolventEquation(ensemble::MatrixEnsemble; shiftmin=-Inf, sscale=1, normalizeQ=false)
@@ -232,6 +233,9 @@ function somespread(; shift=nothing, gap=nothing, spread=nothing)
     return isnothing(spread) ? Spread(; shift, gap) : spread
 end
 
+spreadtype(constraint::SpreadConstraint) = constraint.val.type
+spreadtype(constraint::PTraceConstraint) = constraint.spread0.type
+
 ## Problem type
 ## ============
 """
@@ -351,7 +355,7 @@ end
 @testitem "Constraint types" begin
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Problems:
-        AbstractConstraint, PTraceConstraint, SpreadConstraint
+        AbstractConstraint, PTraceConstraint, SpreadConstraint, spreadtype
     using GaussianSpectralDensities.Spreads: Spread
 
     shape0_64 = complex(0.25)
@@ -363,6 +367,8 @@ end
     # Traits
     @test spreadc64 isa AbstractConstraint{Float64}
     @test ptracec64 isa AbstractConstraint{Float64}
+    @test spreadtype(spreadc64) == spread64.type
+    @test spreadtype(ptracec64) == spread64.type
 
     @testset "$F" for F in [Float32, Float64]
         shape0_F = Complex{F}(shape0_64)

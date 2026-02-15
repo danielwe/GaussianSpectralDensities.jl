@@ -4,7 +4,8 @@ using AutoHashEquals: @auto_hash_equals
 
 using ..Defaults: Defaults
 using ..EquationSolvers: eqsolve!
-using ..Problems: PTraceConstraint, PointProblem, SpreadConstraint, issameproblem, update
+using ..Problems:
+    PTraceConstraint, PointProblem, SpreadConstraint, issameproblem, spreadtype, update
 using ..Spreads: Spread, SpreadType
 using ..Solutions: PointSolution, issuccess, ptrace, shape, solves, spreadfrom
 using ..Workspaces: Workspace
@@ -247,7 +248,7 @@ function predictconstraint(
 ) where {F}
     shape0 = predictlinear(x, (x1, shape(solution1)), (x2, shape(solution2)))
     isfinite(shape0) || return constraint  # Fallback
-    spread_type = constraint.spread0.type
+    spread_type = spreadtype(constraint)
     spread1 = spreadfrom(solution1, spread_type)
     spread2 = spreadfrom(solution2, spread_type)
     spread0 = Spread(predictlinear(x, (x1, spread1.val), (x2, spread2.val)), spread_type)

@@ -1,29 +1,29 @@
 module Surrogates
 
-using ..Algorithms: AbstractAlgorithm
+using ..Algorithms: AbstractAlgorithm, DirectSolve
 using ..Problems:
     AbstractConstraint,
     PTraceConstraint,
     PointProblem,
     ResolventEquation,
     SpreadConstraint,
-    update
-using ..RBFInterpolants: RBFInterpolant, ThinPlateSpline, push!
-using ..Solutions: PointSolution, issuccess, shape, spreadfrom
+    update,
+    spreadtype
+using ..RBFInterpolants: RBFInterpolant, RBFInterpolants, ThinPlateSpline
+using ..Solutions: PointSolution, SolutionStatus, issuccess, shape, spreadfrom
 using ..Solvers: pointsolve
 using ..Spreads: Spread
 using ..Workspaces: Workspace
 
-using StaticArrays: SVector
-
-public SurrogateModel, evaluate, interpolate, pack, unpack_args, unpack_constraint
+using StaticArrays: @SVector, SVector
 
 struct SurrogateModel{
     F,
+    N,
     E<:ResolventEquation{F},
     C<:AbstractConstraint{F},
     A<:AbstractAlgorithm,
-    R<:RBFInterpolant{F},
+    R<:RBFInterpolant{F,N},
     W<:Workspace{F},
 }
     equation::E
@@ -40,7 +40,7 @@ end
 
 function pack(ps::PointSolution{F}, constraint::PTraceConstraint{F}) where {F}
     shape_val = shape(ps)
-    spread_val = spreadfrom(ps, constraint.spread0.type).val
+    spread_val = spreadfrom(ps, spreadtype(constraint)).val
     return SVector{3,F}(real(shape_val), imag(shape_val), spread_val)
 end
 
@@ -51,7 +51,7 @@ end
 
 function unpack_args(y::SVector{3,F}, constraint::PTraceConstraint{F}) where {F}
     shape_val = complex(y[1], y[2])
-    spread_val = Spread(y[3], constraint.spread0.type)
+    spread_val = Spread(y[3], spreadtype(constraint))
     return shape_val, spread_val
 end
 
@@ -61,14 +61,14 @@ end
 
 function unpack_constraint(y::SVector{3,F}, constraint::PTraceConstraint{F}) where {F}
     shape_val = complex(y[1], y[2])
-    spread_val = Spread(y[3], constraint.spread0.type)
+    spread_val = Spread(y[3], spreadtype(constraint))
     return update(constraint; shape0=shape_val, spread0=spread_val)
 end
 
 outputdim(::SpreadConstraint) = 2
 outputdim(::PTraceConstraint) = 3
 
-zpoint(z, ::Type{F}) where {F} = SVector{2,F}(F(real(z)), F(imag(z)))
+zpoint(::Type{F}, z) where {F<:Real} = SVector{2,F}(real(z), imag(z))
 
 haspoint(rbf::RBFInterpolant{F}, z::SVector{2,F}) where {F} = any(xi -> xi == z, rbf.x)
 
@@ -89,8 +89,8 @@ function SurrogateModel(
         solution = pointsolve(problem, algorithm)
         if issuccess(solution)
             y = pack(solution, constraint)
-            Base.push!(xs, zpoint(zF, F))
-            Base.push!(ys, y)
+            push!(xs, zpoint(F, zF))
+            push!(ys, y)
             constraint_guess = unpack_constraint(y, constraint)
         end
     end
@@ -99,29 +99,37 @@ function SurrogateModel(
     return SurrogateModel(equation, constraint, algorithm, rbf, workspace)
 end
 
-interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(zpoint(z, F))
+interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(zpoint(F, z))
 
-function evaluate(model::SurrogateModel{F}, z) where {F}
-    zvec = zpoint(z, F)
-    y = model.rbf(zvec)
-    shape_val, spread_val = unpack_args(y, model.constraint)
+function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}
     zF = Complex{F}(z)
-    solution = PointSolution(
-        model.equation, zF, shape_val, spread_val; workspace=model.workspace
-    )
-    issuccess(solution) && return solution
+    zv = zpoint(F, zF)
+    model_y = model.rbf(zv)
+    shape, spread = unpack_args(model_y, model.constraint)
+    model_sol = PointSolution(model.equation, zF, shape, spread; workspace=model.workspace)
+    issuccess(model_sol) && return model_sol
+    (model_sol.status == SolutionStatus.shift_below_min) && return nan_solution(model, zF)
 
-    constraint_guess = unpack_constraint(y, model.constraint)
+    constraint_guess = unpack_constraint(model_y, model.constraint)
     problem = PointProblem(model.equation, constraint_guess, zF)
-    solution = pointsolve(problem, model.algorithm)
-    if issuccess(solution)
-        y_new = pack(solution, model.constraint)
-        z_new = zpoint(zF, F)
-        if !haspoint(model.rbf, z_new)
-            push!(model.rbf, z_new, y_new)
-        end
+    sol = if model_sol.status < SolutionStatus.not_intheballpark
+        pointsolve(problem, DirectSolve())
+    else
+        pointsolve(problem, model.algorithm)
     end
-    return solution
+    issuccess(sol) || return nan_solution(model, zF)
+    if refine && !haspoint(model.rbf, zv)
+        y = pack(sol, model.constraint)
+        RBFInterpolants.push!(model.rbf, zv, y)
+    end
+    return sol
+end
+
+function nan_solution(model::SurrogateModel{F,N}, z::Complex{F}) where {F,N}
+    nan_y = @SVector fill(F(NaN), N)
+    nan_shape, nan_spread = unpack_args(nan_y, model.constraint)
+    sol = PointSolution(model.equation, z, nan_shape, nan_spread; workspace=model.workspace)
+    return sol
 end
 
 end  # module Surrogates
@@ -179,9 +187,10 @@ end
     using GaussianSpectralDensities.Algorithms: DirectSolve
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation
+        PTraceConstraint, PointProblem, ResolventEquation, spreadtype
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, shape, spreadfrom
     using GaussianSpectralDensities.Solvers: pointsolve
+    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Surrogates: pack, unpack_args, unpack_constraint
 
     using LinearAlgebra: I
@@ -203,20 +212,18 @@ end
         @test y isa SVector{3,F}
         @test y[1] == real(shape(psF))
         @test y[2] == imag(shape(psF))
-        spread_val = spreadfrom(psF, constraintF.spread0.type).val
+        spread_val = spreadfrom(psF, spreadtype(constraintF)).val
         @test y[3] == spread_val
 
         shape_rt, spread_rt = unpack_args(y, constraintF)
         @test shape_rt == shape(psF)
-        @test spread_rt.val == spread_val
-        @test spread_rt.type == constraintF.spread0.type
+        @test spread_rt == Spread(spread_val, spreadtype(constraintF))
 
         constraint_rt = unpack_constraint(y, constraintF)
         @test constraint_rt isa PTraceConstraint{F}
         @test constraint_rt.val == constraintF.val
         @test constraint_rt.shape0 == shape_rt
-        @test constraint_rt.spread0.val == spread_val
-        @test constraint_rt.spread0.type == constraintF.spread0.type
+        @test constraint_rt.spread0 == Spread(spread_val, spreadtype(constraintF))
     end
 end
 
@@ -281,7 +288,7 @@ end
         model = SurrogateModel(eq, constraint, alg, zs)
         n_before = length(model.rbf.x)
 
-        ps = evaluate(model, 0.3 + 0.3im)
+        ps = evaluate(model, 0.3 + 0.3im; refine=true)
         @test ps isa PointSolution{Float64}
         @test issuccess(ps)
         @test length(model.rbf.x) == n_before
@@ -303,7 +310,7 @@ end
         model = SurrogateModel(eq, constraint, alg, zs)
         n_before = length(model.rbf.x)
 
-        ps = evaluate(model, 0.3 + 0.3im)
+        ps = evaluate(model, 0.3 + 0.3im; refine=true)
         @test ps isa PointSolution{Float64}
         @test issuccess(ps)
         @test length(model.rbf.x) == n_before
@@ -322,7 +329,7 @@ end
     using LinearAlgebra: Diagonal, I
     using StaticArrays: @SVector
 
-    ensemble = MatrixEnsemble(Diagonal(@SVector[0.5, -0.5]), I, I, 0.5I)
+    ensemble = MatrixEnsemble(Diagonal(@SVector[0.75, -0.75]), I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     alg = DirectSolve()
 
@@ -341,7 +348,7 @@ end
             )
             if !issuccess(ps_guess)
                 n_before = length(model.rbf.x)
-                ps = evaluate(model, z_new)
+                ps = evaluate(model, z_new; refine=true)
                 @test ps isa PointSolution{Float64}
                 @test issuccess(ps)
                 @test length(model.rbf.x) == n_before + 1
@@ -368,7 +375,7 @@ end
             )
             if !issuccess(ps_guess)
                 n_before = length(model.rbf.x)
-                ps = evaluate(model, z_new)
+                ps = evaluate(model, z_new; refine=true)
                 @test ps isa PointSolution{Float64}
                 @test issuccess(ps)
                 @test length(model.rbf.x) == n_before + 1
@@ -401,7 +408,7 @@ end
     n_before = length(model.rbf.x)
 
     z_far = 5.0 + 5.0im
-    ps = evaluate(model, z_far)
+    ps = evaluate(model, z_far; refine=true)
     @test !issuccess(ps)
     @test length(model.rbf.x) == n_before
 end
