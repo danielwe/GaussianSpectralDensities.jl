@@ -275,7 +275,7 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess
-    using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate
+    using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate, evaluatebatch
 
     using LinearAlgebra: I
 
@@ -283,19 +283,20 @@ end
     eq = ResolventEquation(ensemble)
     alg = DirectSolve()
 
+    zs = ComplexF64[
+        0.2 + 0.2im,
+        0.4 + 0.2im,
+        0.2 + 0.4im,
+        0.4 + 0.4im,
+        0.3 + 0.3im,
+        0.3 + 0.2im,
+        0.2 + 0.3im,
+        0.4 + 0.3im,
+        0.3 + 0.4im,
+    ]
+
     @testset "SpreadConstraint" begin
         constraint = SpreadConstraint(; gap=0.5, shape0=complex(0.25))
-        zs = ComplexF64[
-            0.2 + 0.2im,
-            0.4 + 0.2im,
-            0.2 + 0.4im,
-            0.4 + 0.4im,
-            0.3 + 0.3im,
-            0.3 + 0.2im,
-            0.2 + 0.3im,
-            0.4 + 0.3im,
-            0.3 + 0.4im,
-        ]
         model = SurrogateModel(eq, constraint, alg, zs)
         n_before = length(model.rbf.x)
 
@@ -303,27 +304,34 @@ end
         @test ps isa PointSolution{Float64}
         @test issuccess(ps)
         @test length(model.rbf.x) == n_before
+
+        sols = evaluatebatch(model, [0.3 + 0.3im, 0.35 + 0.35im]; refine=true)
+        @test all(issuccess, sols)
+        @test length(model.rbf.x) == n_before
     end
 
     @testset "PTraceConstraint" begin
         constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
-        zs = ComplexF64[
-            0.2 + 0.2im,
-            0.4 + 0.2im,
-            0.2 + 0.4im,
-            0.4 + 0.4im,
-            0.3 + 0.3im,
-            0.3 + 0.2im,
-            0.2 + 0.3im,
-            0.4 + 0.3im,
-            0.3 + 0.4im,
-        ]
         model = SurrogateModel(eq, constraint, alg, zs)
         n_before = length(model.rbf.x)
 
         ps = evaluate(model, 0.3 + 0.3im; refine=true)
         @test ps isa PointSolution{Float64}
         @test issuccess(ps)
+        @test length(model.rbf.x) == n_before
+
+        sols = evaluatebatch(model, [0.3 + 0.3im, 0.35 + 0.35im]; refine=true)
+        @test all(issuccess, sols)
+        @test length(model.rbf.x) == n_before
+    end
+
+    @testset "empty input" begin
+        constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+        model = SurrogateModel(eq, constraint, alg, zs)
+        n_before = length(model.rbf.x)
+
+        sols = evaluatebatch(model, ComplexF64[]; refine=true)
+        @test isempty(sols)
         @test length(model.rbf.x) == n_before
     end
 end
@@ -333,9 +341,9 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
-    using GaussianSpectralDensities.Solutions: PointSolution, issuccess
+    using GaussianSpectralDensities.Solutions: PointSolution, issuccess, shape
     using GaussianSpectralDensities.Surrogates:
-        SurrogateModel, evaluate, interpolate, unpack_args
+        SurrogateModel, evaluate, evaluatebatch, interpolate, unpack_args
 
     using LinearAlgebra: Diagonal, I
     using StaticArrays: @SVector
@@ -343,11 +351,11 @@ end
     ensemble = MatrixEnsemble(Diagonal(@SVector[0.75, -0.75]), I, I, 0.5I)
     eq = ResolventEquation(ensemble)
     alg = DirectSolve()
+    zs = ComplexF64[0.1 + 0.1im, 0.2 + 0.1im, 0.1 + 0.2im]
+    candidates = ComplexF64[0.6 + 0.6im, 0.7 + 0.2im, 0.2 + 0.7im]
 
     @testset "SpreadConstraint" begin
         constraint = SpreadConstraint(; gap=0.5, shape0=complex(0.25))
-        zs = ComplexF64[0.1 + 0.1im, 0.2 + 0.1im, 0.1 + 0.2im]
-        candidates = ComplexF64[0.6 + 0.6im, 0.7 + 0.2im, 0.2 + 0.7im]
 
         found = false
         for z_new in candidates
@@ -373,8 +381,6 @@ end
 
     @testset "PTraceConstraint" begin
         constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
-        zs = ComplexF64[0.1 + 0.1im, 0.2 + 0.1im, 0.1 + 0.2im]
-        candidates = ComplexF64[0.6 + 0.6im, 0.7 + 0.2im, 0.2 + 0.7im]
 
         found = false
         for z_new in candidates
@@ -397,6 +403,35 @@ end
 
         @test found
     end
+
+    @testset "evaluatebatch" begin
+        constraint = SpreadConstraint(; gap=0.5, shape0=complex(0.25))
+
+        model_single = SurrogateModel(eq, constraint, alg, zs)
+        sols_single = [evaluate(model_single, z) for z in candidates]
+
+        model_batch = SurrogateModel(eq, constraint, alg, zs)
+        sols_batch = evaluatebatch(model_batch, candidates)
+
+        @test length(sols_batch) == length(candidates)
+        for (s1, s2) in zip(sols_single, sols_batch)
+            @test s1.status == s2.status
+            if issuccess(s1) && issuccess(s2)
+                @test shape(s1) == shape(s2)
+            end
+        end
+    end
+
+    @testset "evaluatebatch refinement" begin
+        constraint = SpreadConstraint(; gap=0.5, shape0=complex(0.25))
+
+        model = SurrogateModel(eq, constraint, alg, zs)
+        n_before = length(model.rbf.x)
+        sols = evaluatebatch(model, candidates; refine=true)
+        n_refined = count(issuccess, sols)
+        @test n_refined > 1
+        @test length(model.rbf.x) == n_before + n_refined
+    end
 end
 
 @testitem "no poisoning" begin
@@ -405,7 +440,7 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Solutions: issuccess
-    using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate
+    using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate, evaluatebatch
 
     using LinearAlgebra: I
 
@@ -415,13 +450,26 @@ end
 
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     zs = ComplexF64[0.1 + 0.1im, 0.3 + 0.1im, 0.1 + 0.3im]
-    model = SurrogateModel(eq, constraint, alg, zs)
-    n_before = length(model.rbf.x)
 
-    z_far = 5.0 + 5.0im
-    ps = evaluate(model, z_far; refine=true)
-    @test !issuccess(ps)
-    @test length(model.rbf.x) == n_before
+    @testset "evaluate" begin
+        model = SurrogateModel(eq, constraint, alg, zs)
+        n_before = length(model.rbf.x)
+
+        z_far = 5.0 + 5.0im
+        ps = evaluate(model, z_far; refine=true)
+        @test !issuccess(ps)
+        @test length(model.rbf.x) == n_before
+    end
+
+    @testset "evaluatebatch" begin
+        model = SurrogateModel(eq, constraint, alg, zs)
+        n_before = length(model.rbf.x)
+
+        zs_far = ComplexF64[5.0 + 5.0im, 6.0 + 6.0im]
+        sols = evaluatebatch(model, zs_far; refine=true)
+        @test all(!issuccess(s) for s in sols)
+        @test length(model.rbf.x) == n_before
+    end
 end
 
 @testitem "SurrogateModel constructor" begin
