@@ -17,14 +17,15 @@ mutable struct RBFInterpolant{F<:AbstractFloat,N,Phi,P<:SMatrix{N,3,F}}
     y::Vector{SVector{N,F}}
     coeffs::Vector{SVector{N,F}}
     poly::P
+    nn_dists::Vector{F}
 end
 
 function RBFInterpolant(
     phi::Phi, x::AbstractVector{SVector{2,F}}, y::AbstractVector{SVector{N,F}}
 ) where {F<:AbstractFloat,N,Phi}
     xv, yv = convert(Vector{SVector{2,F}}, x), convert(Vector{SVector{N,F}}, y)
-    coeffs, poly = rbf_coefficients(phi, xv, yv)
-    return RBFInterpolant{F,N,Phi,typeof(poly)}(phi, xv, yv, coeffs, poly)
+    coeffs, poly, nn_dists = rbf_coefficients(phi, xv, yv)
+    return RBFInterpolant{F,N,Phi,typeof(poly)}(phi, xv, yv, coeffs, poly, nn_dists)
 end
 
 function (rbf::RBFInterpolant{F})(pt::SVector{2,F}) where {F}
@@ -41,7 +42,7 @@ function push!(
     any(xi -> xi == x_new, rbf.x) && throw(ArgumentError("collision with existing point"))
     Base.push!(rbf.x, x_new)
     Base.push!(rbf.y, y_new)
-    rbf.coeffs, rbf.poly = rbf_coefficients(rbf.phi, rbf.x, rbf.y)
+    rbf.coeffs, rbf.poly, rbf.nn_dists = rbf_coefficients(rbf.phi, rbf.x, rbf.y)
     return rbf
 end
 
@@ -62,7 +63,7 @@ function append!(
 
     Base.append!(rbf.x, xs_new)
     Base.append!(rbf.y, ys_new)
-    rbf.coeffs, rbf.poly = rbf_coefficients(rbf.phi, rbf.x, rbf.y)
+    rbf.coeffs, rbf.poly, rbf.nn_dists = rbf_coefficients(rbf.phi, rbf.x, rbf.y)
     return rbf
 end
 
@@ -73,14 +74,16 @@ function rbf_coefficients(
     n == length(y) || throw(ArgumentError("x/y length mismatch"))
 
     system = Matrix{F}(undef, n + 3, n + 3)
+    nn_dists = fill(F(Inf), n)
     for j in 1:n
         system[j, j] = zero(F)
         xj = x[j]
         for i in (j + 1):n
-            xi = x[i]
-            phi_r = phi(xj - xi)
-            system[i, j] = phi_r
-            system[j, i] = phi_r
+            d = norm(xj - x[i])
+            nn_dists[i] = min(nn_dists[i], d)
+            nn_dists[j] = min(nn_dists[j], d)
+            system[i, j] = phi(d)
+            system[j, i] = system[i, j]
         end
     end
 
@@ -105,7 +108,7 @@ function rbf_coefficients(
     end
 
     poly_coeffs = SMatrix{N,3,F}(solution[:, (n + 1):end])
-    return coeffs, poly_coeffs
+    return coeffs, poly_coeffs, nn_dists
 end
 
 end  # module RBFInterpolants
@@ -192,6 +195,7 @@ end
         # Coefficients should match
         @test rbf_push.coeffs ≈ rbf_full.coeffs
         @test rbf_push.poly ≈ rbf_full.poly
+        @test rbf_push.nn_dists ≈ rbf_full.nn_dists
 
         # Evaluation should match at a test point
         pt = SVector{2,F}(F(0.25), F(0.75))
@@ -225,6 +229,7 @@ end
 
         @test rbf_append.coeffs ≈ rbf_full.coeffs
         @test rbf_append.poly ≈ rbf_full.poly
+        @test rbf_append.nn_dists ≈ rbf_full.nn_dists
 
         pt = SVector{2,F}(F(0.25), F(0.75))
         @test rbf_append(pt) ≈ rbf_full(pt)
