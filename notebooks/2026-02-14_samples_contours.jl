@@ -179,6 +179,24 @@ let
 	fig
 end
 
+# ╔═╡ 67e7082c-9747-4fc3-bbc6-9842dce52bf6
+eigs_big = sample_eigenvalues(e, 1536);
+
+# ╔═╡ 192115b0-68a8-430a-bdc8-cafd3aaf227d
+let
+	fig = Figure()
+	ax = ax = Axis(
+		fig[1, 1];
+		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
+	)
+	scatter!(ax, real(eigs_big), imag(eigs_big))
+	for b in boundaries
+		pts = b.result.points
+		lines!(ax, real(pts), imag(pts); color=:red, linewidth=2)
+	end
+	fig
+end
+
 # ╔═╡ Cell order:
 # ╠═c2c3cda0-06ee-11f1-9285-551483cbf55e
 # ╠═07c3373f-fefb-49f3-8384-0f6826ec2a4a
@@ -200,3 +218,5 @@ end
 # ╠═272863c6-aa6b-435d-914b-f473dd66418e
 # ╠═4f9946e3-feda-404a-8316-2525848c0579
 # ╠═8b17145b-0698-44f6-95cd-95112bc21bf8
+# ╠═67e7082c-9747-4fc3-bbc6-9842dce52bf6
+# ╠═192115b0-68a8-430a-bdc8-cafd3aaf227d
