@@ -138,6 +138,36 @@ function find_seed(
 end
 
 """
+    predictor_corrector_step(model, z, direction, step_size; tol, counter)
+
+Take one step along the shift=0 contour: predict along `direction`, correct onto the
+contour, and update the tangent direction. Returns `(new_z, shift_val, new_direction)` on
+success, `nothing` on failure.
+"""
+function predictor_corrector_step(
+    model::SurrogateModel{F},
+    z::Complex{F},
+    direction::Complex{F},
+    step_size::F;
+    tol::F=Defaults.atol(F),
+    counter::Union{Ref{Int},Nothing}=nothing,
+) where {F}
+    z_pred = z + step_size * direction
+    corrected = corrector_step(model, z_pred; tol, counter)
+    isnothing(corrected) && return nothing
+
+    new_z, shift_val = corrected
+    grad = compute_gradient(model, new_z, counter)
+    isnothing(grad) && return nothing
+
+    new_direction = tangent_from_gradient(grad, new_z)
+    if real(direction * conj(new_direction)) < 0
+        new_direction = -new_direction
+    end
+    return (new_z, shift_val, new_direction)
+end
+
+"""
     tangent_from_gradient(grad, z) -> direction
 
 Return the counter-clockwise tangent direction inferred from the shift gradient.
@@ -204,45 +234,22 @@ function extract_boundary(
     direction = tangent_from_gradient(grad, seed_z)
     initial_direction = direction
 
-    # TODO: consider factoring out the predictor-corrector step into a helper.
     current_z = seed_z
     for step_index in 1:max_steps
-        # Predictor step along the tangent.
-        z_pred = current_z + step_size * direction
-        corrected = corrector_step(model, z_pred; tol=tol, counter=counter)
-        if isnothing(corrected)
+        stepped = predictor_corrector_step(
+            model, current_z, direction, step_size; tol, counter
+        )
+        if isnothing(stepped)
             n_failures += 1
             consecutive_failures += 1
-            if consecutive_failures > max_failures
-                break
-            end
+            (consecutive_failures > max_failures) && break
             continue
         end
 
         consecutive_failures = 0
-        current_z, current_shift = corrected
+        current_z, current_shift, direction = stepped
         push!(points, current_z)
         push!(shift_values, current_shift)
-
-        # Update the tangent using the local gradient.
-        grad = compute_gradient(model, current_z, counter)
-        if isnothing(grad)
-            n_failures += 1
-            consecutive_failures += 1
-            if consecutive_failures > max_failures
-                break
-            end
-            continue
-        end
-
-        consecutive_failures = 0
-        new_direction = tangent_from_gradient(grad, current_z)
-        if real(direction * conj(new_direction)) < 0
-            new_direction = -new_direction
-        end
-        direction = new_direction
-
-        # TODO: consider factoring out the closure check into a helper.
         if step_index > min_steps_before_close
             close_enough = abs(current_z - points[1]) < step_size
             heading_back = real(direction * conj(initial_direction)) > 0
