@@ -763,3 +763,592 @@ end
     result = trace.result
     @test !result.closed
 end
+
+# --- Multi-component boundary extraction tests ---
+
+@testitem "point_in_polygon unit square" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Unit square: (0,0) -> (1,0) -> (1,1) -> (0,1) -> (0,0)
+        square = Complex{F}[0, 1, 1 + im, im, 0]
+
+        # Interior point
+        @test point_in_polygon(Complex{F}(0.5 + 0.5im), square)
+
+        # Exterior points
+        @test !point_in_polygon(Complex{F}(2.0 + 0.5im), square)
+        @test !point_in_polygon(Complex{F}(-1.0 + 0.5im), square)
+        @test !point_in_polygon(Complex{F}(0.5 + 2.0im), square)
+        @test !point_in_polygon(Complex{F}(0.5 - 1.0im), square)
+
+        # Point far away
+        @test !point_in_polygon(Complex{F}(100.0 + 100.0im), square)
+    end
+end
+
+@testitem "point_in_polygon triangle" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Triangle: (0,0), (2,0), (1,2), closed
+        triangle = Complex{F}[0, 2, 1 + 2im, 0]
+
+        # Centroid is inside
+        @test point_in_polygon(Complex{F}(1.0 + 0.5im), triangle)
+
+        # Outside the triangle
+        @test !point_in_polygon(Complex{F}(-1.0 + 0.0im), triangle)
+        @test !point_in_polygon(Complex{F}(3.0 + 0.0im), triangle)
+        @test !point_in_polygon(Complex{F}(1.0 + 3.0im), triangle)
+    end
+end
+
+@testitem "point_in_polygon implicitly closed" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Square without explicit closure (last != first)
+        square_open = Complex{F}[0, 1, 1 + im, im]
+
+        # Interior point should still be detected
+        @test point_in_polygon(Complex{F}(0.5 + 0.5im), square_open)
+
+        # Exterior point
+        @test !point_in_polygon(Complex{F}(2.0 + 0.5im), square_open)
+    end
+end
+
+@testitem "point_in_polygon degenerate cases" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Empty polygon
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[])
+
+        # Single point
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[0])
+
+        # Two points (line segment, < 3 distinct vertices)
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[0, 1])
+
+        # Collinear points (degenerate polygon)
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[0, 1, 2])
+    end
+end
+
+@testitem "point_in_polygon concave polygon" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # L-shaped polygon (concave)
+        # Vertices: (0,0), (2,0), (2,1), (1,1), (1,2), (0,2), (0,0)
+        lshape = Complex{F}[0, 2, 2 + im, 1 + im, 1 + 2im, 2im, 0]
+
+        # Inside the L
+        @test point_in_polygon(Complex{F}(0.5 + 0.5im), lshape)
+        @test point_in_polygon(Complex{F}(0.5 + 1.5im), lshape)
+
+        # In the "notch" of the L (outside)
+        @test !point_in_polygon(Complex{F}(1.5 + 1.5im), lshape)
+
+        # Outside entirely
+        @test !point_in_polygon(Complex{F}(3.0 + 0.5im), lshape)
+    end
+end
+
+@testitem "is_inside_any" begin
+    using GaussianSpectralDensities.Boundaries: BoundaryResult, is_inside_any
+
+    @testset "$F" for F in [Float32, Float64]
+        # Create a closed contour (unit square)
+        square_pts = Complex{F}[0, 1, 1 + im, im, 0]
+        square_shifts = zeros(F, 5)
+        closed_contour = BoundaryResult(square_pts, square_shifts, true, Complex{F}(0.5))
+
+        # Create an open contour
+        open_pts = Complex{F}[3, 4, 4 + im]
+        open_shifts = zeros(F, 3)
+        open_contour = BoundaryResult(open_pts, open_shifts, false, Complex{F}(3.5))
+
+        contours = BoundaryResult{F}[closed_contour, open_contour]
+
+        # Point inside the closed contour
+        @test is_inside_any(Complex{F}(0.5 + 0.5im), contours)
+
+        # Point outside all contours
+        @test !is_inside_any(Complex{F}(2.0 + 0.5im), contours)
+
+        # Empty contours
+        @test !is_inside_any(Complex{F}(0.5 + 0.5im), BoundaryResult{F}[])
+
+        # Only open contours — always false
+        @test !is_inside_any(Complex{F}(3.5 + 0.5im), BoundaryResult{F}[open_contour])
+    end
+end
+
+@testitem "is_near_contour" begin
+    using GaussianSpectralDensities.Boundaries: BoundaryResult, is_near_contour
+
+    @testset "$F" for F in [Float32, Float64]
+        # Contour with a few known points
+        pts = Complex{F}[1, im, -1, -im, 1]
+        shifts = zeros(F, 5)
+        contour = BoundaryResult(pts, shifts, true, Complex{F}(1))
+
+        # Point exactly on a contour point: distance = 0 < any positive threshold
+        @test is_near_contour(Complex{F}(1), contour, F(0.1))
+
+        # Point very close to a contour point
+        @test is_near_contour(Complex{F}(1.05), contour, F(0.1))
+
+        # Point far from all contour points
+        @test !is_near_contour(Complex{F}(5.0 + 5.0im), contour, F(0.1))
+
+        # Large threshold makes everything near
+        @test is_near_contour(Complex{F}(2.0), contour, F(2.0))
+
+        # Empty contour points
+        empty_contour = BoundaryResult(Complex{F}[], F[], true, Complex{F}(0))
+        @test !is_near_contour(Complex{F}(0), empty_contour, F(1.0))
+    end
+end
+
+@testitem "is_near_contour threshold boundary" begin
+    using GaussianSpectralDensities.Boundaries: BoundaryResult, is_near_contour
+
+    @testset "$F" for F in [Float32, Float64]
+        pts = Complex{F}[0]
+        shifts = zeros(F, 1)
+        contour = BoundaryResult(pts, shifts, true, Complex{F}(0))
+
+        # Distance is exactly 0.5; threshold is 1.0 → near
+        @test is_near_contour(Complex{F}(0.5), contour, F(1.0))
+
+        # Distance is 0.5; threshold is 0.25 → not near
+        @test !is_near_contour(Complex{F}(0.5), contour, F(0.25))
+    end
+end
+
+@testitem "is_near_any_contour" begin
+    using GaussianSpectralDensities.Boundaries: BoundaryResult, is_near_any_contour
+
+    @testset "$F" for F in [Float32, Float64]
+        pts1 = Complex{F}[1, im, -1, -im, 1]
+        contour1 = BoundaryResult(pts1, zeros(F, 5), true, Complex{F}(1))
+
+        pts2 = Complex{F}[5, 5 + im, 5 + 2im]
+        contour2 = BoundaryResult(pts2, zeros(F, 3), false, Complex{F}(5))
+
+        pts3 = Complex{F}[10, 10 + im, 10 + 2im, 10]
+        contour3 = BoundaryResult(pts3, zeros(F, 4), true, Complex{F}(10))
+
+        contours = BoundaryResult{F}[contour1, contour2, contour3]
+        threshold = F(0.5)
+
+        # Near contour1
+        @test is_near_any_contour(Complex{F}(1.1), contours, threshold)
+
+        # Near contour3
+        @test is_near_any_contour(Complex{F}(10.1), contours, threshold)
+
+        # Not near any closed contour (contour2 is open, so skipped)
+        @test !is_near_any_contour(Complex{F}(5.1), contours, threshold)
+
+        # Far from everything
+        @test !is_near_any_contour(Complex{F}(50.0), contours, threshold)
+
+        # Empty contours
+        @test !is_near_any_contour(Complex{F}(1.0), BoundaryResult{F}[], threshold)
+    end
+end
+
+@testitem "find_exterior_seed single component" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries:
+        BoundaryResult, extract_boundary, find_exterior_seed, solve_shift
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+    using Statistics: mean
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    zs = ComplexF64[-1.2:0.2:1.2; (-0.7:0.2:0.7)im]
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+
+    step_size = mean(model.rbf.nn_dists) / 2
+
+    # First, extract the single boundary
+    trace = extract_boundary(model)
+    @test trace.result.closed
+
+    contours = BoundaryResult{Float64}[trace.result]
+
+    # All sample points are inside the single component, so find_exterior_seed
+    # should return nothing (no exterior seed exists)
+    seed = find_exterior_seed(model, contours; step_size)
+    @test isnothing(seed)
+end
+
+@testitem "find_exterior_seed no contours" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries:
+        BoundaryResult, find_exterior_seed, solve_shift
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+    using Statistics: mean
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    step_size = mean(model.rbf.nn_dists) / 2
+
+    # With no existing contours, find_exterior_seed should find a seed
+    # (same behavior as find_seed, since nothing is excluded)
+    seed = find_exterior_seed(model, BoundaryResult{Float64}[]; step_size)
+    @test !isnothing(seed)
+    s = solve_shift(model, seed)
+    @test isfinite(s)
+    @test abs(s) < 1e-4
+end
+
+@testitem "find_exterior_seed counter tracking" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: BoundaryResult, find_exterior_seed
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+    using Statistics: mean
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    step_size = mean(model.rbf.nn_dists) / 2
+    counter = Ref(0)
+
+    find_exterior_seed(model, BoundaryResult{Float64}[]; step_size, counter)
+    @test counter[] > 0
+end
+
+@testitem "find_exterior_seed primary pass ordering" begin
+    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries:
+        BoundaryResult, corrector_step, find_exterior_seed, solve_shift
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+    using Statistics: mean
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble; shiftmin=(-Inf))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+
+    zs = ComplexF64[
+        1.2,           # just inside boundary (small positive shift)
+        -0.2 - 0.1im,  # deeper inside boundary (larger positive shift)
+        1.2im,         # outside boundary (negative shift)
+    ]
+
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+    step_size = mean(model.rbf.nn_dists) / 2
+
+    shifts = map(z -> solve_shift(model, z), zs)
+    @test all(isfinite, shifts)
+    @test shifts[1] > 0
+    @test shifts[2] > shifts[1]
+    @test shifts[3] < 0
+
+    refined = map(z -> corrector_step(model, z; tol=Defaults.atol(Float64)), zs)
+    @test !any(isnothing, refined)
+    expected_seed = refined[1][1]
+
+    seed = find_exterior_seed(model, BoundaryResult{Float64}[]; step_size)
+    @test !isnothing(seed)
+    @test solve_shift(model, seed) ≈ 0 atol = Defaults.atol(Float64)
+    @test seed ≈ expected_seed atol = Defaults.atol(Float64)
+end
+
+@testitem "find_exterior_seed fallback pass ordering" begin
+    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries:
+        BoundaryResult, corrector_step, find_exterior_seed, solve_shift
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+    using Statistics: mean
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble; shiftmin=(-Inf))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+
+    zs = ComplexF64[
+        1.3,    # outside boundary, small negative shift (closest to zero)
+        -1.4,   # outside boundary, larger negative shift
+        1.5im,  # outside boundary, most negative shift
+    ]
+
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+    step_size = mean(model.rbf.nn_dists) / 2
+
+    shifts = map(z -> solve_shift(model, z), zs)
+    @test all(isfinite, shifts)
+    @test all(<(0), shifts)
+    @test abs(shifts[1]) < abs(shifts[2])
+    @test abs(shifts[2]) < abs(shifts[3])
+
+    refined = map(z -> corrector_step(model, z; tol=Defaults.atol(Float64)), zs)
+    @test !any(isnothing, refined)
+    expected_seed = refined[1][1]
+
+    seed = find_exterior_seed(model, BoundaryResult{Float64}[]; step_size)
+    @test !isnothing(seed)
+    @test solve_shift(model, seed) ≈ 0 atol = Defaults.atol(Float64)
+    @test seed ≈ expected_seed atol = Defaults.atol(Float64)
+end
+
+@testitem "find_exterior_seed pre-correction inside filtering" begin
+    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries:
+        BoundaryResult,
+        corrector_step,
+        extract_boundary,
+        find_exterior_seed,
+        is_inside_any,
+        point_in_polygon
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: Diagonal, I
+    using Statistics: mean
+
+    ensemble = MatrixEnsemble(Diagonal([1.1im, -1.1im]), I, I, 0.5I)
+    eq = ResolventEquation(ensemble; shiftmin=(-Inf))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+
+    zs = ComplexF64[
+        1.5im,         # well inside boundary (positive shift, should seed the first contour and then be filtered by is_inside_any)
+        -1.1im,        # outside all existing contours (positive shift, should be kept)
+        0.15 + 1.0im,  # third point to avoid singular interpolant (far from contours to avoid interfering with initial seeding)
+    ]
+
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+    step_size = mean(model.rbf.nn_dists) / 2
+
+    trace = extract_boundary(model)
+    @test trace.result.closed
+    contours = BoundaryResult{Float64}[trace.result]
+
+    @test is_inside_any(zs[1], contours)
+    @test !is_inside_any(zs[2], contours)
+
+    refined = corrector_step(model, zs[2]; tol=Defaults.atol(Float64))
+    @test !isnothing(refined)
+    expected_seed = refined[1]
+
+    seed = find_exterior_seed(model, contours; step_size)
+    @test !isnothing(seed)
+    @test seed ≈ expected_seed atol = Defaults.atol(Float64)
+end
+
+@testitem "find_exterior_seed post-correction near filtering" begin
+    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries:
+        BoundaryResult,
+        corrector_step,
+        extract_boundary,
+        find_exterior_seed,
+        is_near_any_contour
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: Diagonal, I
+    using Statistics: mean
+
+    ensemble = MatrixEnsemble(Diagonal([1.1im, -1.1im]), I, I, 0.5I)
+    eq = ResolventEquation(ensemble; shiftmin=(-Inf))
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+
+    zs = ComplexF64[
+        1.7im,         # candidate that corrects near existing contour (should seed the first contour and then be rejected)
+        -1.8im,        # candidate that corrects far from existing contour (should be accepted)
+        0.15 + 1.0im,  # third point to avoid singular interpolant (far from contours to avoid interfering with seeding; inside first contour to avoid interfering with exterior seed finding)
+    ]
+
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+    step_size = mean(model.rbf.nn_dists) / 2
+
+    trace = extract_boundary(model)
+    @test trace.result.closed
+    contours = BoundaryResult{Float64}[trace.result]
+
+    refined_near = corrector_step(model, zs[1]; tol=Defaults.atol(Float64))
+    refined_far = corrector_step(model, zs[2]; tol=Defaults.atol(Float64))
+    @test !isnothing(refined_near)
+    @test !isnothing(refined_far)
+    @test is_near_any_contour(refined_near[1], contours, step_size)
+    @test !is_near_any_contour(refined_far[1], contours, step_size)
+
+    seed = find_exterior_seed(model, contours; step_size)
+    @test !isnothing(seed)
+    @test !is_near_any_contour(seed, contours, step_size)
+    @test seed ≈ refined_far[1] atol = Defaults.atol(Float64)
+end
+
+@testitem "extract_boundaries single component" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: BoundaryTrace, extract_boundaries
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    traces = extract_boundaries(model)
+    @test traces isa Vector{BoundaryTrace{Float64}}
+    @test length(traces) == 1
+
+    result = traces[1].result
+    @test result.closed
+    @test length(result.points) > 10
+
+    # All shift values should be near zero
+    @test all(s -> abs(s) < 1e-3, result.shift_values)
+
+    # Each boundary point should lie approximately on the ellipse
+    for z in result.points
+        ellipse_val = (real(z) / 1.25)^2 + (imag(z) / 0.75)^2
+        @test abs(ellipse_val - 1.0) < 0.1
+    end
+end
+
+@testitem "extract_boundaries max_components limit" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    traces = extract_boundaries(model; max_components=1)
+    @test length(traces) <= 1
+end
+
+@testitem "extract_boundaries argument validation" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    @test_throws ArgumentError extract_boundaries(model; step_size=0.0)
+    @test_throws ArgumentError extract_boundaries(model; step_size=-0.1)
+    @test_throws ArgumentError extract_boundaries(model; tol=0.0)
+    @test_throws ArgumentError extract_boundaries(model; tol=-1e-6)
+    @test_throws ArgumentError extract_boundaries(model; max_components=0)
+    @test_throws ArgumentError extract_boundaries(model; max_components=-1)
+end
+
+@testitem "extract_boundaries keyword forwarding" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    # max_steps=2 should produce an open contour, which stops the loop
+    traces = extract_boundaries(model; max_steps=2)
+    @test length(traces) == 1
+    @test !traces[1].result.closed
+end
+
+@testitem "extract_boundaries stops on open contour" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    # Force open contour via very few max_steps; loop should stop after first trace
+    traces = extract_boundaries(model; max_steps=3, max_components=10)
+    @test length(traces) == 1
+    @test !traces[1].result.closed
+end
+
+@testitem "extract_boundaries consistent with extract_boundary" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: extract_boundaries, extract_boundary
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
+
+    # For a single-component model, extract_boundaries should give the same
+    # contour shape as extract_boundary
+    traces = extract_boundaries(model)
+    single_trace = extract_boundary(model)
+
+    @test traces[1].result.closed == single_trace.result.closed
+    @test length(traces[1].result.points) > 10
+    @test length(single_trace.result.points) > 10
+end
