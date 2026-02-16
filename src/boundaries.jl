@@ -180,6 +180,29 @@ function tangent_from_gradient(grad::Complex{F}, z::Complex{F}) where {F}
     return direction
 end
 
+function try_close!(
+    points::Vector{Complex{F}},
+    shift_values::Vector{F},
+    model::SurrogateModel{F},
+    current_z::Complex{F},
+    direction::Complex{F},
+    initial_direction::Complex{F},
+    step_size::F;
+    tol::F,
+    counter,
+) where {F}
+    (abs(current_z - points[1]) < step_size) || return false
+    (real(direction * conj(initial_direction)) > 0) || return false
+    refined = corrector_step(model, points[1]; tol, max_iters=5, counter)
+    isnothing(refined) && return false
+    final_z, final_shift = refined
+    points[1] = final_z
+    shift_values[1] = final_shift
+    push!(points, final_z)
+    push!(shift_values, final_shift)
+    return true
+end
+
 """
     extract_boundary(model; seed, step_size, max_steps, tol, max_failures,
         min_steps_before_close) -> BoundaryTrace
@@ -216,7 +239,7 @@ function extract_boundary(
     isfinite(seed_shift) || return trivial_trace(Complex{F}(seed_z), counter, n_failures)
 
     # Refine the seed to land on the contour.
-    refined = corrector_step(model, seed_z; tol=tol, counter=counter)
+    refined = corrector_step(model, seed_z; tol, counter)
     isnothing(refined) && return trivial_trace(Complex{F}(seed_z), counter, n_failures)
 
     seed_z, seed_shift = refined
@@ -250,23 +273,20 @@ function extract_boundary(
         current_z, current_shift, direction = stepped
         push!(points, current_z)
         push!(shift_values, current_shift)
-        if step_index > min_steps_before_close
-            close_enough = abs(current_z - points[1]) < step_size
-            heading_back = real(direction * conj(initial_direction)) > 0
-            if close_enough && heading_back
-                final_refine = corrector_step(
-                    model, points[1]; tol=tol, max_iters=5, counter=counter
-                )
-                if !isnothing(final_refine)
-                    final_z, final_shift = final_refine
-                    points[1] = final_z
-                    shift_values[1] = final_shift
-                    push!(points, final_z)
-                    push!(shift_values, final_shift)
-                    closed = true
-                    break
-                end
-            end
+
+        if (step_index > min_steps_before_close) && try_close!(
+            points,
+            shift_values,
+            model,
+            current_z,
+            direction,
+            initial_direction,
+            step_size;
+            tol,
+            counter,
+        )
+            closed = true
+            break
         end
     end
     return trace(points, shift_values, closed, seed_z, counter, n_failures)
