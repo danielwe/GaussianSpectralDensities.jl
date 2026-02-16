@@ -13,8 +13,8 @@ public AbstractConstraint,
     ResolventEquation,
     SpreadConstraint,
     issameproblem,
-    update,
-    spreadtype
+    spreadtype,
+    update
 
 """
     ResolventEquation(ensemble::MatrixEnsemble; shiftmin=-Inf, sscale=1, normalizeQ=false)

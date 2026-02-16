@@ -7,8 +7,8 @@ using ..Problems:
     PointProblem,
     ResolventEquation,
     SpreadConstraint,
-    update,
-    spreadtype
+    spreadtype,
+    update
 using ..RBFInterpolants: RBFInterpolant, RBFInterpolants, ThinPlateSpline
 using ..Samples: sample_eigenvalues
 using ..Solutions: PointSolution, SolutionStatus, issuccess, shape, spreadfrom

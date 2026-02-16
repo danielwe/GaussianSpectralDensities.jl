@@ -8,7 +8,7 @@ using ..Surrogates: SurrogateModel, evaluate
 
 using Statistics: mean
 
-public BoundaryResult, BoundaryTrace, extract_boundary, extract_boundaries, point_in_polygon
+public BoundaryResult, BoundaryTrace, extract_boundaries, extract_boundary, point_in_polygon
 
 # TODO: Derive and implement analytic gradient (implicit differentiation)
 

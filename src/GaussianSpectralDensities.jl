@@ -37,9 +37,9 @@ module Defaults
 
     public approxequal,
         atol,
-        rtol_ballpark,
         intheballpark,
         rtol,
+        rtol_ballpark,
         spread_annealing_schedule,
         spread_annealing_type,
         spread_target_type,
