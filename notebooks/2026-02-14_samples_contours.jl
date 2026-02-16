@@ -24,7 +24,7 @@ end
 # ╔═╡ 07c3373f-fefb-49f3-8384-0f6826ec2a4a
 begin
 	using GaussianSpectralDensities.Algorithms: SpreadAnnealing
-	using GaussianSpectralDensities.Boundaries: extract_boundary
+	using GaussianSpectralDensities.Boundaries: extract_boundaries
 	using GaussianSpectralDensities.Spreads: shift
 	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
@@ -37,7 +37,7 @@ begin
 end
 
 # ╔═╡ 0ad3259c-cc1f-4c4a-b697-e73b27a00e3a
-e = MatrixEnsemble(Diagonal([0.95, -0.95]), I, I, 0.5cispi(2//3)I)
+e = MatrixEnsemble(Diagonal([1.1, -1.1]), I, I, 0.5cispi(2//3)I)
 
 # ╔═╡ d2733d97-69ce-4ecd-9e0a-e2f040912b82
 eq = ResolventEquation(e; shiftmin=-0.5)
@@ -161,10 +161,10 @@ end;
   ╠═╡ =#
 
 # ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
-boundary = extract_boundary(model).result
+boundaries = extract_boundaries(model)
 
 # ╔═╡ 8b17145b-0698-44f6-95cd-95112bc21bf8
-let pts=boundary.points
+let
 	fig = Figure()
 	ax = ax = Axis(
 		fig[1, 1];
@@ -172,7 +172,10 @@ let pts=boundary.points
 	)
 	co = contourf!(ax, xs, ys, shifts; levels=-0.5:0.125:0.625)
 	Colorbar(fig[1, 2], co)
-	lines!(ax, real(pts), imag(pts); color=:red, linewidth=2)
+	for b in boundaries
+		pts = b.result.points
+		lines!(ax, real(pts), imag(pts); color=:red, linewidth=2)
+	end
 	fig
 end
 

@@ -8,7 +8,7 @@ using ..Surrogates: SurrogateModel, evaluate
 
 using Statistics: mean
 
-public BoundaryResult, BoundaryTrace, extract_boundary
+public BoundaryResult, BoundaryTrace, extract_boundary, extract_boundaries, point_in_polygon
 
 # TODO: Derive and implement analytic gradient (implicit differentiation)
 
@@ -292,6 +292,196 @@ function extract_boundary(
         end
     end
     return trace(points, shift_values, closed, seed_z, counter, n_failures)
+end
+
+"""
+    point_in_polygon(z, polygon) -> Bool
+
+Return `true` if `z` is inside the closed polygon defined by `polygon`.
+"""
+function point_in_polygon(
+    z::Complex{F}, polygon::AbstractVector{Complex{F}}
+) where {F<:AbstractFloat}
+    n = length(polygon)
+    (n < 3) && return false
+
+    vertices = polygon
+    if (n > 1) && (polygon[end] == polygon[begin])
+        vertices = polygon[begin:(end - 1)]
+        n = length(vertices)
+    end
+    (n < 3) && return false
+    length(unique(vertices)) < 3 && return false
+
+    area = zero(F)
+    for i in eachindex(vertices)
+        p1 = vertices[i]
+        p2 = (i == lastindex(vertices)) ? vertices[begin] : vertices[i + 1]
+        area += real(p1) * imag(p2) - real(p2) * imag(p1)
+    end
+    (abs(area) <= Defaults.atol(F)) && return false
+
+    total_angle = zero(F)
+    for i in eachindex(vertices)
+        p1 = vertices[i] - z
+        p2 = ((i == lastindex(vertices)) ? vertices[begin] : vertices[i + 1]) - z
+        dtheta = angle(p2) - angle(p1)
+        dtheta = mod2pi(dtheta + pi) - pi
+        total_angle += dtheta
+    end
+    return abs(total_angle) > pi
+end
+
+"""
+    is_inside_any(z, contours) -> Bool
+
+Return `true` if `z` is inside any closed contour in `contours`.
+"""
+function is_inside_any(
+    z::Complex{F}, contours::AbstractVector{BoundaryResult{F}}
+) where {F<:AbstractFloat}
+    for contour in contours
+        contour.closed || continue
+        point_in_polygon(z, contour.points) && return true
+    end
+    return false
+end
+
+"""
+    is_near_contour(z, contour, threshold) -> Bool
+
+Return `true` if `z` is within `threshold` of any point in `contour`.
+"""
+function is_near_contour(
+    z::Complex{F}, contour::BoundaryResult{F}, threshold::F
+) where {F<:AbstractFloat}
+    isempty(contour.points) && return false
+    for p in contour.points
+        if abs(z - p) < threshold
+            return true
+        end
+    end
+    return false
+end
+
+"""
+    is_near_any_contour(z, contours, threshold) -> Bool
+
+Return `true` if `z` is near any closed contour in `contours`.
+"""
+function is_near_any_contour(
+    z::Complex{F}, contours::AbstractVector{BoundaryResult{F}}, threshold::F
+) where {F<:AbstractFloat}
+    for contour in contours
+        contour.closed || continue
+        is_near_contour(z, contour, threshold) && return true
+    end
+    return false
+end
+
+"""
+    find_exterior_seed(model, contours; step_size, tol, counter) -> seed | nothing
+
+Find a boundary seed outside all existing closed contours.
+"""
+function find_exterior_seed(
+    model::SurrogateModel{F},
+    contours::AbstractVector{BoundaryResult{F}};
+    step_size::F,
+    tol::F=Defaults.atol(F),
+    counter::Union{Ref{Int},Nothing}=nothing,
+) where {F}
+    xs = model.rbf.x
+    isempty(xs) && return nothing
+
+    candidates = Tuple{Complex{F},F}[]
+    for xv in xs
+        z = complex(xv[1], xv[2])
+        is_inside_any(z, contours) && continue
+        shift_val = solve_shift(model, z, counter)
+        isfinite(shift_val) || continue
+        push!(candidates, (z, shift_val))
+    end
+    isempty(candidates) && return nothing
+
+    primary = filter(candidate -> candidate[2] > 0, candidates)
+    sort!(primary; by=last)
+    for (z, _) in primary
+        refined = corrector_step(model, z; tol, counter)
+        isnothing(refined) && continue
+        is_near_any_contour(refined[1], contours, step_size) && continue
+        return refined[1]
+    end
+
+    fallback = filter(candidate -> candidate[2] <= 0, candidates)
+    sort!(fallback; by=candidate -> abs(candidate[2]))
+    for (z, _) in fallback
+        refined = corrector_step(model, z; tol, counter)
+        isnothing(refined) && continue
+        is_near_any_contour(refined[1], contours, step_size) && continue
+        return refined[1]
+    end
+
+    return nothing
+end
+
+"""
+    extract_boundaries(model; kwargs...) -> Vector{BoundaryTrace}
+
+Trace all disconnected boundary components.
+"""
+function extract_boundaries(
+    model::SurrogateModel{F};
+    step_size::Real=mean(model.rbf.nn_dists) / 2,
+    tol::Real=Defaults.atol(F),
+    max_steps::Int=500,
+    max_failures::Int=5,
+    min_steps_before_close::Int=12,
+    max_components::Int=10,
+) where {F}
+    step_size = F(step_size)
+    tol = F(tol)
+    if step_size <= 0
+        throw(ArgumentError("step_size must be positive"))
+    end
+    if tol <= 0
+        throw(ArgumentError("tol must be positive"))
+    end
+    if max_components <= 0
+        throw(ArgumentError("max_components must be positive"))
+    end
+
+    traces = BoundaryTrace{F}[]
+    contours = BoundaryResult{F}[]
+
+    seed = find_seed(model; tol)
+    isnothing(seed) && return traces
+
+    trace = extract_boundary(
+        model; seed, step_size, tol, max_steps, max_failures, min_steps_before_close
+    )
+    push!(traces, trace)
+    if trace.result.closed
+        push!(contours, trace.result)
+    else
+        return traces
+    end
+
+    while length(traces) < max_components
+        seed = find_exterior_seed(model, contours; step_size, tol)
+        isnothing(seed) && break
+        trace = extract_boundary(
+            model; seed, step_size, tol, max_steps, max_failures, min_steps_before_close
+        )
+        push!(traces, trace)
+        if trace.result.closed
+            push!(contours, trace.result)
+        else
+            break
+        end
+    end
+
+    return traces
 end
 
 function trivial_trace(seed_z::Complex{F}, counter, n_failures) where {F}
@@ -731,7 +921,7 @@ end
         for i in 1:(length(pts) - 1)
             dtheta = angle(pts[i + 1]) - angle(pts[i])
             # Wrap to [-π, π]
-            dtheta = mod(dtheta + π, 2π) - π
+            dtheta = mod2pi(dtheta + π) - π
             winding_angle += dtheta
         end
         winding_number = round(Int, winding_angle / (2π))
