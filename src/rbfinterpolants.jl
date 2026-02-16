@@ -9,7 +9,6 @@ public RBFInterpolant, ThinPlateSpline, append!, push!
 struct ThinPlateSpline end
 
 (::ThinPlateSpline)(r::T) where {T<:Real} = r * xlogx(r)
-(phi::ThinPlateSpline)(v::SVector) = phi(norm(v))
 
 mutable struct RBFInterpolant{F<:AbstractFloat,N,Phi,P<:SMatrix{N,3,F}}
     phi::Phi
@@ -29,11 +28,10 @@ function RBFInterpolant(
 end
 
 function (rbf::RBFInterpolant{F})(pt::SVector{2,F}) where {F}
-    result = rbf.poly * SVector(oneunit(F), pt...)
-    for (index, xi) in pairs(rbf.x)
-        result += rbf.coeffs[index] * rbf.phi(pt - xi)
+    intercept = rbf.poly * SVector(oneunit(F), pt...)
+    return intercept + sum(eachindex(rbf.x, rbf.coeffs)) do index
+        return rbf.coeffs[index] * rbf.phi(norm(pt - rbf.x[index]))
     end
-    return result
 end
 
 function push!(
