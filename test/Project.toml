@@ -15,6 +15,5 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 [compat]
 Aqua = "0.8.14"
 ExplicitImports = "1.15"
-Statistics = "1.11.1"
 Test = "1.11"
 TestItemRunner = "1.1"

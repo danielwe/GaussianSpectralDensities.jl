@@ -6,6 +6,8 @@ using ..Solutions: issuccess
 using ..Spreads: Spreads
 using ..Surrogates: SurrogateModel, evaluate
 
+using Statistics: mean
+
 public BoundaryResult, BoundaryTrace, extract_boundary
 
 # TODO: Derive and implement analytic gradient (implicit differentiation)
@@ -212,7 +214,7 @@ Trace the shift=0 contour using a predictor-corrector loop and return diagnostic
 function extract_boundary(
     model::SurrogateModel{F};
     seed::Union{Complex,Nothing}=nothing,
-    step_size::Real=F(0.05),
+    step_size::Real=mean(model.rbf.nn_dists) / 2,
     tol::Real=Defaults.atol(F),
     max_steps::Int=500,
     max_failures::Int=5,
