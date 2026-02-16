@@ -24,6 +24,7 @@ end
 # ╔═╡ 07c3373f-fefb-49f3-8384-0f6826ec2a4a
 begin
 	using GaussianSpectralDensities.Algorithms: SpreadAnnealing
+	using GaussianSpectralDensities.Boundaries: extract_boundary
 	using GaussianSpectralDensities.Spreads: shift
 	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
@@ -31,12 +32,12 @@ begin
 	using GaussianSpectralDensities.Solutions: greens
 	using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluatebatch
 
-	using CairoMakie: Axis, Colorbar, DataAspect, Figure, contour!, contourf!, scatter!, @L_str
+	using CairoMakie: Axis, Colorbar, DataAspect, Figure, contour!, contourf!, lines!, scatter!, @L_str
 	using LinearAlgebra: I, Diagonal
 end
 
 # ╔═╡ 0ad3259c-cc1f-4c4a-b697-e73b27a00e3a
-e = MatrixEnsemble(Diagonal([1.0, -1.0]), I, I, 0.5cispi(2//3)I)
+e = MatrixEnsemble(Diagonal([0.95, -0.95]), I, I, 0.5cispi(2//3)I)
 
 # ╔═╡ d2733d97-69ce-4ecd-9e0a-e2f040912b82
 eq = ResolventEquation(e; shiftmin=-0.5)
@@ -147,18 +148,33 @@ let
 	fig
 end
 
-# ╔═╡ 4f31ee49-9b2d-4ba1-8cd8-1db2a47f60d9
-@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $N);
-
-# ╔═╡ 5162bd6a-df89-4fff-98b3-034100258829
-@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $eigs);
-
 # ╔═╡ 272863c6-aa6b-435d-914b-f473dd66418e
+# ╠═╡ disabled = true
+#=╠═╡
 let f=let model=model
 		f(zs) = evaluatebatch(model, zs; refine=false)
 	end
+	@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $N)
+	@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $eigs)
 	@btime $f($zs)
 end;
+  ╠═╡ =#
+
+# ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
+boundary = extract_boundary(model).result
+
+# ╔═╡ 8b17145b-0698-44f6-95cd-95112bc21bf8
+let pts=boundary.points
+	fig = Figure()
+	ax = ax = Axis(
+		fig[1, 1];
+		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
+	)
+	co = contourf!(ax, xs, ys, shifts; levels=-0.5:0.125:0.625)
+	Colorbar(fig[1, 2], co)
+	lines!(ax, real(pts), imag(pts); color=:red, linewidth=2)
+	fig
+end
 
 # ╔═╡ Cell order:
 # ╠═c2c3cda0-06ee-11f1-9285-551483cbf55e
@@ -178,6 +194,6 @@ end;
 # ╠═e0077b5b-fed8-4a35-9dfa-d31fe019c98e
 # ╠═0b1d92d5-b09c-45b7-bf5a-f39337d73979
 # ╠═c2fa9dd5-f0f6-4b59-998d-3ed4b017b2fe
-# ╠═4f31ee49-9b2d-4ba1-8cd8-1db2a47f60d9
-# ╠═5162bd6a-df89-4fff-98b3-034100258829
 # ╠═272863c6-aa6b-435d-914b-f473dd66418e
+# ╠═4f9946e3-feda-404a-8316-2525848c0579
+# ╠═8b17145b-0698-44f6-95cd-95112bc21bf8
