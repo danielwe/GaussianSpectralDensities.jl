@@ -6,7 +6,7 @@ using ..Defaults: Defaults
 
 # TODO: Try with Enzyme.jl, it might actually be able to diff through the Workspace craze
 
-public NewtonException, finite_difference_jacobian, newton
+public NewtonException, finite_difference_jacobian, increment, newton
 
 struct NewtonException <: Exception
     msg::String

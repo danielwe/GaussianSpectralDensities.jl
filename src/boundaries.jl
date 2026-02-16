@@ -1,15 +1,14 @@
 module Boundaries
 
 using ..Defaults: Defaults
+using ..Newton: increment
 using ..Solutions: issuccess
 using ..Spreads: Spreads
 using ..Surrogates: SurrogateModel, evaluate
 
 public BoundaryResult, BoundaryTrace, extract_boundary
 
-# TODO:
-# - Derive and implement analytic gradient (implicit differentiation)
-# - Simplify interfaces. Do we need a solver type?
+# TODO: Derive and implement analytic gradient (implicit differentiation)
 
 """
     BoundaryResult(points, shift_values, closed, seed)
@@ -29,15 +28,14 @@ struct BoundaryResult{F<:AbstractFloat}
 end
 
 """
-    BoundaryTrace(result, n_solver_calls, n_corrector_failures, n_gradient_failures)
+    BoundaryTrace(result, n_solver_calls, n_failures)
 
 Diagnostic wrapper for a boundary extraction run, including solver counts and failures.
 """
 struct BoundaryTrace{F<:AbstractFloat}
     result::BoundaryResult{F}
     n_solver_calls::Int
-    n_corrector_failures::Int
-    n_gradient_failures::Int
+    n_failures::Int
 end
 
 """
@@ -57,35 +55,32 @@ function solve_shift(
 end
 
 """
-    compute_gradient(model, z, fd_step[, counter]) -> grad | nothing
+    compute_gradient(model, z[, counter]) -> grad | nothing
 
 Compute the shift gradient at `z` via centered finite differences.
 """
 function compute_gradient(
-    model::SurrogateModel{F},
-    z::Complex{F},
-    fd_step::F,
-    counter::Union{Ref{Int},Nothing}=nothing,
+    model::SurrogateModel{F}, z::Complex{F}, counter::Union{Ref{Int},Nothing}=nothing
 ) where {F}
-    shift_xp = solve_shift(model, z + fd_step, counter)
-    shift_xm = solve_shift(model, z - fd_step, counter)
-    shift_yp = solve_shift(model, z + im * fd_step, counter)
-    shift_ym = solve_shift(model, z - im * fd_step, counter)
+    hx = increment(real(z))
+    hy = increment(imag(z))
+    shift_xp = solve_shift(model, z + hx, counter)
+    shift_xm = solve_shift(model, z - hx, counter)
+    shift_yp = solve_shift(model, z + im * hy, counter)
+    shift_ym = solve_shift(model, z - im * hy, counter)
     if !all(isfinite, (shift_xp, shift_xm, shift_yp, shift_ym))
         return nothing
     end
 
-    ds_dx = (shift_xp - shift_xm) / (2 * fd_step)
-    ds_dy = (shift_yp - shift_ym) / (2 * fd_step)
+    ds_dx = (shift_xp - shift_xm) / (2 * hx)
+    ds_dy = (shift_yp - shift_ym) / (2 * hy)
     grad = complex(ds_dx, ds_dy)
-    if abs(grad) < Defaults.atol(F)
-        return nothing
-    end
+    (abs(grad) < Defaults.atol(F)) && return nothing
     return grad
 end
 
 """
-    corrector_step(model, z; tol, fd_step, max_iters, counter)
+    corrector_step(model, z; tol, max_iters, counter)
 
 Project `z` onto the shift=0 contour via gradient correction.
 """
@@ -93,7 +88,6 @@ function corrector_step(
     model::SurrogateModel{F},
     z::Complex{F};
     tol::F=Defaults.atol(F),
-    fd_step::F=F(0.01),
     max_iters::Int=10,
     counter::Union{Ref{Int},Nothing}=nothing,
 ) where {F}
@@ -104,7 +98,7 @@ function corrector_step(
         if abs(shift_val) < tol
             return z_current, shift_val
         end
-        grad = compute_gradient(model, z_current, fd_step, counter)
+        grad = compute_gradient(model, z_current, counter)
         isnothing(grad) && return nothing
         z_current -= shift_val * grad / abs2(grad)
     end
@@ -112,7 +106,7 @@ function corrector_step(
 end
 
 """
-    find_seed(model; tol, fd_step, max_corrector_iters, counter)
+    find_seed(model; tol, counter)
 
 Find a boundary seed by locating the surrogate sample point whose shift is closest to zero
 and refining it with a corrector step.
@@ -120,8 +114,6 @@ and refining it with a corrector step.
 function find_seed(
     model::SurrogateModel{F};
     tol::F=Defaults.atol(F),
-    fd_step::F=F(0.01),
-    max_corrector_iters::Int=10,
     counter::Union{Ref{Int},Nothing}=nothing,
 ) where {F}
     xs = model.rbf.x
@@ -137,14 +129,7 @@ function find_seed(
     sort!(candidates; by=last)
 
     for (z, _) in candidates
-        refined = corrector_step(
-            model,
-            z;
-            tol=tol,
-            fd_step=fd_step,
-            max_iters=max_corrector_iters,
-            counter=counter,
-        )
+        refined = corrector_step(model, z; tol, counter)
         isnothing(refined) && continue
         return refined[1]
     end
@@ -166,8 +151,7 @@ function tangent_from_gradient(grad::Complex{F}, z::Complex{F}) where {F}
 end
 
 """
-    extract_boundary(model; seed, step_size, max_steps, tol, fd_step,
-        max_corrector_iters, max_corrector_failures, max_gradient_failures,
+    extract_boundary(model; seed, step_size, max_steps, tol, max_failures,
         min_steps_before_close) -> BoundaryTrace
 
 Trace the shift=0 contour using a predictor-corrector loop and return diagnostics.
@@ -176,151 +160,82 @@ function extract_boundary(
     model::SurrogateModel{F};
     seed::Union{Complex,Nothing}=nothing,
     step_size::Real=F(0.05),
-    max_steps::Int=500,
     tol::Real=Defaults.atol(F),
-    fd_step::Real=F(0.01),
-    max_corrector_iters::Int=10,
-    max_corrector_failures::Int=5,
-    max_gradient_failures::Int=10,
-    min_steps_before_close::Int=20,
+    max_steps::Int=500,
+    max_failures::Int=5,
+    min_steps_before_close::Int=12,
 ) where {F}
     step_size = F(step_size)
     tol = F(tol)
-    fd_step = F(fd_step)
     if step_size <= 0
         throw(ArgumentError("step_size must be positive"))
     end
     if tol <= 0
         throw(ArgumentError("tol must be positive"))
     end
-    if fd_step <= 0
-        throw(ArgumentError("fd_step must be positive"))
-    end
 
     # Initialize diagnostics and counters.
     counter = Ref(0)
-    n_corrector_failures = 0
-    n_gradient_failures = 0
-    consecutive_corrector_failures = 0
-    consecutive_gradient_failures = 0
+    n_failures = 0
+    consecutive_failures = 0
+    seed_z = isnothing(seed) ? find_seed(model; tol, counter) : Complex{F}(seed)
+    isnothing(seed_z) && return trivial_trace(zero(Complex{F}), counter, n_failures)
 
-    # TODO: consider factoring out the seed resolution and validation block.
-    seed_z = if isnothing(seed)
-        find_seed(
-            model;
-            tol=tol,
-            fd_step=fd_step,
-            max_corrector_iters=max_corrector_iters,
-            counter=counter,
-        )
-    else
-        Complex{F}(seed)
-    end
-
-    if isnothing(seed_z)
-        return BoundaryTrace(
-            BoundaryResult(Complex{F}[], F[], false, complex(zero(F))),
-            counter[],
-            n_corrector_failures,
-            n_gradient_failures,
-        )
-    end
-
-    # Reject seeds that are clearly outside the support.
+    # Reject unsolvable seeds.
     seed_shift = solve_shift(model, seed_z, counter)
-    isfinite(seed_shift) || return BoundaryTrace(
-        BoundaryResult(Complex{F}[], F[], false, Complex{F}(seed_z)),
-        counter[],
-        n_corrector_failures,
-        n_gradient_failures,
-    )
-
-    if (seed_shift < 0) && (abs(seed_shift) > tol)
-        return BoundaryTrace(
-            BoundaryResult(Complex{F}[], F[], false, Complex{F}(seed_z)),
-            counter[],
-            n_corrector_failures,
-            n_gradient_failures,
-        )
-    end
+    isfinite(seed_shift) || return trivial_trace(Complex{F}(seed_z), counter, n_failures)
 
     # Refine the seed to land on the contour.
-    refined = corrector_step(
-        model,
-        seed_z;
-        tol=tol,
-        fd_step=fd_step,
-        max_iters=max_corrector_iters,
-        counter=counter,
-    )
-    if isnothing(refined)
-        return BoundaryTrace(
-            BoundaryResult(Complex{F}[], F[], false, Complex{F}(seed_z)),
-            counter[],
-            n_corrector_failures,
-            n_gradient_failures,
-        )
-    end
+    refined = corrector_step(model, seed_z; tol=tol, counter=counter)
+    isnothing(refined) && return trivial_trace(Complex{F}(seed_z), counter, n_failures)
 
     seed_z, seed_shift = refined
     points = Complex{F}[seed_z]
     shift_values = F[seed_shift]
+    closed = false
 
     # Compute initial tangent direction from the seed gradient.
-    grad = compute_gradient(model, seed_z, fd_step, counter)
+    grad = compute_gradient(model, seed_z, counter)
     if isnothing(grad)
-        n_gradient_failures += 1
-        return BoundaryTrace(
-            BoundaryResult(points, shift_values, false, seed_z),
-            counter[],
-            n_corrector_failures,
-            n_gradient_failures,
-        )
+        n_failures += 1
+        return trace(points, shift_values, closed, seed_z, counter, n_failures)
     end
 
     direction = tangent_from_gradient(grad, seed_z)
     initial_direction = direction
 
     # TODO: consider factoring out the predictor-corrector step into a helper.
-    closed = false
     current_z = seed_z
     for step_index in 1:max_steps
         # Predictor step along the tangent.
         z_pred = current_z + step_size * direction
-        corrected = corrector_step(
-            model,
-            z_pred;
-            tol=tol,
-            fd_step=fd_step,
-            max_iters=max_corrector_iters,
-            counter=counter,
-        )
+        corrected = corrector_step(model, z_pred; tol=tol, counter=counter)
         if isnothing(corrected)
-            n_corrector_failures += 1
-            consecutive_corrector_failures += 1
-            if consecutive_corrector_failures > max_corrector_failures
+            n_failures += 1
+            consecutive_failures += 1
+            if consecutive_failures > max_failures
                 break
             end
             continue
         end
 
-        consecutive_corrector_failures = 0
+        consecutive_failures = 0
         current_z, current_shift = corrected
         push!(points, current_z)
         push!(shift_values, current_shift)
 
         # Update the tangent using the local gradient.
-        grad = compute_gradient(model, current_z, fd_step, counter)
+        grad = compute_gradient(model, current_z, counter)
         if isnothing(grad)
-            n_gradient_failures += 1
-            consecutive_gradient_failures += 1
-            if consecutive_gradient_failures > max_gradient_failures
+            n_failures += 1
+            consecutive_failures += 1
+            if consecutive_failures > max_failures
                 break
             end
             continue
         end
 
-        consecutive_gradient_failures = 0
+        consecutive_failures = 0
         new_direction = tangent_from_gradient(grad, current_z)
         if real(direction * conj(new_direction)) < 0
             new_direction = -new_direction
@@ -333,7 +248,7 @@ function extract_boundary(
             heading_back = real(direction * conj(initial_direction)) > 0
             if close_enough && heading_back
                 final_refine = corrector_step(
-                    model, points[1]; tol=tol, fd_step=fd_step, max_iters=5, counter=counter
+                    model, points[1]; tol=tol, max_iters=5, counter=counter
                 )
                 if !isnothing(final_refine)
                     final_z, final_shift = final_refine
@@ -347,9 +262,16 @@ function extract_boundary(
             end
         end
     end
+    return trace(points, shift_values, closed, seed_z, counter, n_failures)
+end
 
+function trivial_trace(seed_z::Complex{F}, counter, n_failures) where {F}
+    return trace(Complex{F}[], F[], false, seed_z, counter, n_failures)
+end
+
+function trace(points, shift_values, closed, seed_z, counter, n_failures)
     result = BoundaryResult(points, shift_values, closed, seed_z)
-    return BoundaryTrace(result, counter[], n_corrector_failures, n_gradient_failures)
+    return BoundaryTrace(result, counter[], n_failures)
 end
 
 end  # module Boundaries
@@ -401,11 +323,10 @@ end
     seed = 1.0 + 0.0im
     result = BoundaryResult(pts, shifts, true, seed)
 
-    trace = BoundaryTrace(result, 150, 2, 1)
+    trace = BoundaryTrace(result, 150, 2)
     @test trace.result === result
     @test trace.n_solver_calls == 150
-    @test trace.n_corrector_failures == 2
-    @test trace.n_gradient_failures == 1
+    @test trace.n_failures == 2
 end
 
 @testitem "solve_shift inside support" begin
@@ -507,12 +428,12 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # At right endpoint (1.25, 0), gradient should point outward (positive real direction)
-    grad = compute_gradient(model, complex(1.25), 0.01)
+    grad = compute_gradient(model, complex(1.25))
     @test !isnothing(grad)
     @test real(grad) < 0  # shift decreases outward, so gradient points outward (negative)
 
     # At top of ellipse (0, 0.75), gradient should point outward (positive imaginary direction)
-    grad = compute_gradient(model, complex(0.0, 0.75), 0.01)
+    grad = compute_gradient(model, complex(0.0, 0.75))
     @test !isnothing(grad)
     @test imag(grad) < 0  # shift decreases outward, so gradient points in -y direction
 end
@@ -532,7 +453,7 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # Inside the support, gradient should still be computable
-    grad = compute_gradient(model, complex(0.5, 0.3), 0.01)
+    grad = compute_gradient(model, complex(0.5, 0.3))
     @test !isnothing(grad)
     @test abs(grad) > 0
 end
@@ -552,7 +473,7 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # Finite-difference evaluations should fail outside support when shiftmin = 0
-    grad = compute_gradient(model, complex(3.0), 0.01)
+    grad = compute_gradient(model, complex(3.0))
     @test isnothing(grad)
 end
 
@@ -571,7 +492,7 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # Start near the boundary (slightly inside at real axis, boundary at 1.25)
-    result = corrector_step(model, complex(1.2); fd_step=0.01)
+    result = corrector_step(model, complex(1.2))
     @test !isnothing(result)
     z_corrected, s_corrected = result
     @test abs(s_corrected) < 1e-6
@@ -579,7 +500,7 @@ end
     @test abs(real(z_corrected)) > 1.0  # still near the right side
 
     # Start near the boundary (slightly outside)
-    result = corrector_step(model, complex(1.3); fd_step=0.01)
+    result = corrector_step(model, complex(1.3))
     @test !isnothing(result)
     z_corrected, s_corrected = result
     @test abs(s_corrected) < 1e-6
@@ -600,7 +521,7 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # Very far from any zero crossing; one iteration should not converge to tight tolerance
-    result = corrector_step(model, complex(3.0); tol=1e-12, fd_step=0.01, max_iters=1)
+    result = corrector_step(model, complex(3.0); tol=1e-12, max_iters=1)
     @test isnothing(result)
 end
 
@@ -709,8 +630,6 @@ end
     @test_throws ArgumentError extract_boundary(model; step_size=-0.1)
     @test_throws ArgumentError extract_boundary(model; tol=0.0)
     @test_throws ArgumentError extract_boundary(model; tol=-1e-6)
-    @test_throws ArgumentError extract_boundary(model; fd_step=0.0)
-    @test_throws ArgumentError extract_boundary(model; fd_step=-0.01)
 end
 
 @testitem "extract_boundary max steps" begin
@@ -748,8 +667,7 @@ end
     trace = extract_boundary(model)
 
     @test trace.n_solver_calls > 0
-    @test trace.n_corrector_failures >= 0
-    @test trace.n_gradient_failures >= 0
+    @test trace.n_failures >= 0
 end
 
 @testitem "boundary geometry validation" begin
@@ -806,12 +724,12 @@ end
 
     # Use the same ensemble but start seed finding from far outside
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
-    eq = ResolventEquation(ensemble)
+    eq = ResolventEquation(ensemble; shiftmin=-0.5)
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    # Provide a seed far outside the support — corrector refinement should fail
-    # and extract_boundary should return empty result with closed=false
+    # Provide a seed far outside the support — solver should fail with shiftmin violation if
+    # nothing else, and extract_boundary should return empty result with closed=false
     trace = extract_boundary(model; seed=complex(10.0))
     result = trace.result
     @test !result.closed
