@@ -8,7 +8,7 @@ using ..Surrogates: SurrogateModel, evaluate
 
 using Statistics: mean
 
-public BoundaryResult, BoundaryTrace, extract_boundaries, extract_boundary, point_in_polygon
+public BoundaryResult, BoundaryTrace, extract_boundaries
 
 # TODO: Derive and implement analytic gradient (implicit differentiation)
 
@@ -108,38 +108,6 @@ function corrector_step(
 end
 
 """
-    find_seed(model; tol, counter)
-
-Find a boundary seed by locating the surrogate sample point whose shift is closest to zero
-and refining it with a corrector step.
-"""
-function find_seed(
-    model::SurrogateModel{F};
-    tol::F=Defaults.atol(F),
-    counter::Union{Ref{Int},Nothing}=nothing,
-) where {F}
-    xs = model.rbf.x
-    isempty(xs) && return nothing
-
-    candidates = map(xs) do xv
-        z = complex(xv[1], xv[2])
-        s = solve_shift(model, z, counter)
-        return (z, abs(s))
-    end
-    filter!(isfinite ∘ last, candidates)
-    isempty(candidates) && return nothing
-    sort!(candidates; by=last)
-
-    for (z, _) in candidates
-        refined = corrector_step(model, z; tol, counter)
-        isnothing(refined) && continue
-        return refined[1]
-    end
-
-    return nothing
-end
-
-"""
     predictor_corrector_step(model, z, direction, step_size; tol, counter)
 
 Take one step along the shift=0 contour: predict along `direction`, correct onto the
@@ -205,56 +173,56 @@ function try_close!(
     return true
 end
 
-"""
-    extract_boundary(model; seed, step_size, max_steps, tol, max_failures,
-        min_steps_before_close) -> BoundaryTrace
-
-Trace the shift=0 contour using a predictor-corrector loop and return diagnostics.
-"""
 function extract_boundary(
-    model::SurrogateModel{F};
-    seed::Union{Complex,Nothing}=nothing,
-    step_size::Real=mean(model.rbf.nn_dists) / 2,
-    tol::Real=Defaults.atol(F),
+    model::SurrogateModel{F},
+    seed::Complex{F},
+    step_size::F,
+    tol::F;
     max_steps::Int=500,
     max_failures::Int=5,
     min_steps_before_close::Int=12,
 ) where {F}
-    step_size = F(step_size)
-    tol = F(tol)
-    if step_size <= 0
-        throw(ArgumentError("step_size must be positive"))
-    end
-    if tol <= 0
-        throw(ArgumentError("tol must be positive"))
-    end
-
-    # Initialize diagnostics and counters.
     counter = Ref(0)
-    n_failures = 0
-    consecutive_failures = 0
-    seed_z = isnothing(seed) ? find_seed(model; tol, counter) : Complex{F}(seed)
-    isnothing(seed_z) && return trivial_trace(zero(Complex{F}), counter, n_failures)
 
-    # Reject unsolvable seeds.
+    seed_z = seed
     seed_shift = solve_shift(model, seed_z, counter)
-    isfinite(seed_shift) || return trivial_trace(Complex{F}(seed_z), counter, n_failures)
-
-    # Refine the seed to land on the contour.
-    refined = corrector_step(model, seed_z; tol, counter)
-    isnothing(refined) && return trivial_trace(Complex{F}(seed_z), counter, n_failures)
-
-    seed_z, seed_shift = refined
     points = Complex{F}[seed_z]
     shift_values = F[seed_shift]
-    closed = false
 
-    # Compute initial tangent direction from the seed gradient.
+    closed, n_failures = trace_contour!(
+        points,
+        shift_values,
+        model,
+        seed_z,
+        step_size,
+        tol,
+        counter;
+        max_steps,
+        max_failures,
+        min_steps_before_close,
+    )
+
+    result = BoundaryResult(points, shift_values, closed, seed_z)
+    return BoundaryTrace(result, counter[], n_failures)
+end
+
+function trace_contour!(
+    points,
+    shift_values,
+    model,
+    seed_z,
+    step_size,
+    tol,
+    counter;
+    max_steps,
+    max_failures,
+    min_steps_before_close,
+)
     grad = compute_gradient(model, seed_z, counter)
-    if isnothing(grad)
-        n_failures += 1
-        return trace(points, shift_values, closed, seed_z, counter, n_failures)
-    end
+    isnothing(grad) && return false, 1
+
+    n_failures = 0
+    consecutive_failures = 0
 
     direction = tangent_from_gradient(grad, seed_z)
     initial_direction = direction
@@ -267,8 +235,7 @@ function extract_boundary(
         if isnothing(stepped)
             n_failures += 1
             consecutive_failures += 1
-            (consecutive_failures > max_failures) && break
-            continue
+            (consecutive_failures > max_failures) ? break : continue
         end
 
         consecutive_failures = 0
@@ -287,64 +254,10 @@ function extract_boundary(
             tol,
             counter,
         )
-            closed = true
-            break
+            return true, n_failures
         end
     end
-    return trace(points, shift_values, closed, seed_z, counter, n_failures)
-end
-
-"""
-    point_in_polygon(z, polygon) -> Bool
-
-Return `true` if `z` is inside the closed polygon defined by `polygon`.
-"""
-function point_in_polygon(
-    z::Complex{F}, polygon::AbstractVector{Complex{F}}
-) where {F<:AbstractFloat}
-    n = length(polygon)
-    (n < 3) && return false
-
-    vertices = polygon
-    if (n > 1) && (polygon[end] == polygon[begin])
-        vertices = polygon[begin:(end - 1)]
-        n = length(vertices)
-    end
-    (n < 3) && return false
-    length(unique(vertices)) < 3 && return false
-
-    area = zero(F)
-    for i in eachindex(vertices)
-        p1 = vertices[i]
-        p2 = (i == lastindex(vertices)) ? vertices[begin] : vertices[i + 1]
-        area += real(p1) * imag(p2) - real(p2) * imag(p1)
-    end
-    (abs(area) <= Defaults.atol(F)) && return false
-
-    total_angle = zero(F)
-    for i in eachindex(vertices)
-        p1 = vertices[i] - z
-        p2 = ((i == lastindex(vertices)) ? vertices[begin] : vertices[i + 1]) - z
-        dtheta = angle(p2) - angle(p1)
-        dtheta = mod2pi(dtheta + pi) - pi
-        total_angle += dtheta
-    end
-    return abs(total_angle) > pi
-end
-
-"""
-    is_inside_any(z, contours) -> Bool
-
-Return `true` if `z` is inside any closed contour in `contours`.
-"""
-function is_inside_any(
-    z::Complex{F}, contours::AbstractVector{BoundaryResult{F}}
-) where {F<:AbstractFloat}
-    for contour in contours
-        contour.closed || continue
-        point_in_polygon(z, contour.points) && return true
-    end
-    return false
+    return false, n_failures
 end
 
 """
@@ -380,55 +293,10 @@ function is_near_any_contour(
 end
 
 """
-    find_exterior_seed(model, contours; step_size, tol, counter) -> seed | nothing
-
-Find a boundary seed outside all existing closed contours.
-"""
-function find_exterior_seed(
-    model::SurrogateModel{F},
-    contours::AbstractVector{BoundaryResult{F}};
-    step_size::F,
-    tol::F=Defaults.atol(F),
-    counter::Union{Ref{Int},Nothing}=nothing,
-) where {F}
-    xs = model.rbf.x
-    isempty(xs) && return nothing
-
-    candidates = Tuple{Complex{F},F}[]
-    for xv in xs
-        z = complex(xv[1], xv[2])
-        is_inside_any(z, contours) && continue
-        shift_val = solve_shift(model, z, counter)
-        isfinite(shift_val) || continue
-        push!(candidates, (z, shift_val))
-    end
-    isempty(candidates) && return nothing
-
-    primary = filter(candidate -> candidate[2] > 0, candidates)
-    sort!(primary; by=last)
-    for (z, _) in primary
-        refined = corrector_step(model, z; tol, counter)
-        isnothing(refined) && continue
-        is_near_any_contour(refined[1], contours, step_size) && continue
-        return refined[1]
-    end
-
-    fallback = filter(candidate -> candidate[2] <= 0, candidates)
-    sort!(fallback; by=candidate -> abs(candidate[2]))
-    for (z, _) in fallback
-        refined = corrector_step(model, z; tol, counter)
-        isnothing(refined) && continue
-        is_near_any_contour(refined[1], contours, step_size) && continue
-        return refined[1]
-    end
-
-    return nothing
-end
-
-"""
     extract_boundaries(model; kwargs...) -> Vector{BoundaryTrace}
 
-Trace all disconnected boundary components.
+Trace all disconnected boundary components. Sample points are sorted by
+`abs(shift)` and each is tried once as a potential seed for a new contour.
 """
 function extract_boundaries(
     model::SurrogateModel{F};
@@ -437,7 +305,7 @@ function extract_boundaries(
     max_steps::Int=500,
     max_failures::Int=5,
     min_steps_before_close::Int=12,
-    max_components::Int=10,
+    max_components::Union{Nothing,Int}=nothing,
 ) where {F}
     step_size = F(step_size)
     tol = F(tol)
@@ -447,50 +315,42 @@ function extract_boundaries(
     if tol <= 0
         throw(ArgumentError("tol must be positive"))
     end
-    if max_components <= 0
+    if !isnothing(max_components) && (max_components <= 0)
         throw(ArgumentError("max_components must be positive"))
     end
 
     traces = BoundaryTrace{F}[]
     contours = BoundaryResult{F}[]
 
-    seed = find_seed(model; tol)
-    isnothing(seed) && return traces
-
-    trace = extract_boundary(
-        model; seed, step_size, tol, max_steps, max_failures, min_steps_before_close
-    )
-    push!(traces, trace)
-    if trace.result.closed
-        push!(contours, trace.result)
-    else
-        return traces
+    candidates = map(model.rbf.x) do xv
+        z = complex(xv[1], xv[2])
+        s = solve_shift(model, z)
+        return (z, abs(s))
     end
+    filter!(isfinite ∘ last, candidates)
+    sort!(candidates; by=last)
 
-    while length(traces) < max_components
-        seed = find_exterior_seed(model, contours; step_size, tol)
-        isnothing(seed) && break
-        trace = extract_boundary(
-            model; seed, step_size, tol, max_steps, max_failures, min_steps_before_close
+    for (z, _) in candidates
+        refined = corrector_step(model, z; tol)
+        isnothing(refined) && continue
+        is_near_any_contour(refined[1], contours, step_size) && continue
+
+        t = extract_boundary(
+            model,
+            refined[1],
+            step_size,
+            tol;
+            max_steps,
+            max_failures,
+            min_steps_before_close,
         )
-        push!(traces, trace)
-        if trace.result.closed
-            push!(contours, trace.result)
-        else
-            break
-        end
+        push!(traces, t)
+        t.result.closed || break
+        push!(contours, t.result)
+        (!isnothing(max_components) && (length(traces) >= max_components)) && break
     end
 
     return traces
-end
-
-function trivial_trace(seed_z::Complex{F}, counter, n_failures) where {F}
-    return trace(Complex{F}[], F[], false, seed_z, counter, n_failures)
-end
-
-function trace(points, shift_values, closed, seed_z, counter, n_failures)
-    result = BoundaryResult(points, shift_values, closed, seed_z)
-    return BoundaryTrace(result, counter[], n_failures)
 end
 
 end  # module Boundaries
