@@ -78,7 +78,7 @@ sols = evaluatebatch(model, zs; refine=false);
 
 # ╔═╡ 12a0c8f5-4254-4a1a-a8be-d904fa7159f3
 begin
-	shifts, greenss = shift.(sols), greens.(sols)
+	shifts, greenss = shift(sols), greens(sols)
 	@show count(isfinite, shifts)
 	@show maximum(filter(isfinite, shifts))
 	@show maximum(abs ∘ real, filter(isfinite, greenss))

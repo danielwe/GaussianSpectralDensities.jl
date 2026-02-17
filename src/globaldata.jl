@@ -1,3 +1,5 @@
+#=
+
 module GlobalData
 
 using AutoHashEquals: @auto_hash_equals
@@ -373,3 +375,5 @@ end
     @test length(grads_complex) == nelements(mesh)
     @test grads_complex[1] isa ElementGradient{Float64,ComplexF64}
 end
+
+=#

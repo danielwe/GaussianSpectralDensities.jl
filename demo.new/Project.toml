@@ -12,3 +12,4 @@ Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 [compat]
 CairoMakie = "0.15.8"
 GLMakie = "0.13.8"
+Meshes = "0.56.3"

@@ -1,6 +1,7 @@
 module Surrogates
 
 using ..Algorithms: AbstractAlgorithm, DirectSolve
+using ..Batches: BatchSolution
 using ..Problems:
     AbstractConstraint,
     PTraceConstraint,
@@ -145,17 +146,18 @@ function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}
 end
 
 function evaluatebatch(model::SurrogateModel{F,N}, zs; refine::Bool=false) where {F,N}
-    # TODO: consider returning StructArray like in GlobalData
     refine_xs = SVector{2,F}[]
     refine_ys = SVector{N,F}[]
 
-    sols = map(zs) do z
+    sols = BatchSolution{F}(model.equation, zs)
+    for i in eachindex(zs, sols)
+        z = zs[i]
         sol, refine_candidate = evaluate_one(model, z)
+        sols[i] = sol
         if refine && refine_candidate
             push!(refine_xs, zpoint(F, z))
             push!(refine_ys, pack(sol, model.constraint))
         end
-        return sol
     end
 
     if !isempty(refine_xs)
@@ -334,7 +336,7 @@ end
         @test length(model.rbf.x) == n_before
 
         sols = evaluatebatch(model, [0.3 + 0.3im, 0.35 + 0.35im]; refine=true)
-        @test all(issuccess, sols)
+        @test all(issuccess(sols))
         @test length(model.rbf.x) == n_before
     end
 
@@ -349,7 +351,7 @@ end
         @test length(model.rbf.x) == n_before
 
         sols = evaluatebatch(model, [0.3 + 0.3im, 0.35 + 0.35im]; refine=true)
-        @test all(issuccess, sols)
+        @test all(issuccess(sols))
         @test length(model.rbf.x) == n_before
     end
 
@@ -456,7 +458,7 @@ end
         model = SurrogateModel(eq, constraint, alg, zs)
         n_before = length(model.rbf.x)
         sols = evaluatebatch(model, candidates; refine=true)
-        n_refined = count(issuccess, sols)
+        n_refined = count(issuccess(sols))
         @test n_refined > 1
         @test length(model.rbf.x) == n_before + n_refined
     end
@@ -495,7 +497,7 @@ end
 
         zs_far = ComplexF64[5.0 + 5.0im, 6.0 + 6.0im]
         sols = evaluatebatch(model, zs_far; refine=true)
-        @test all(!issuccess(s) for s in sols)
+        @test !any(issuccess(sols))
         @test length(model.rbf.x) == n_before
     end
 end

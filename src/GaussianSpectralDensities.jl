@@ -89,7 +89,8 @@ include("newton.jl")
 include("equationsolvers.jl")
 include("algorithms.jl")
 include("solvers.jl")
-include("globaldata.jl")  # XXX: possibly superseded by surrogates.jl
+# include("globaldata.jl")  # XXX: possibly superseded by batches.jl and surrogates.jl
+include("batches.jl")
 include("rbfinterpolants.jl")
 include("surrogates.jl")
 include("boundaries.jl")
