@@ -385,18 +385,18 @@ Trace all disconnected boundary components. Sample points are sorted by
 `abs(shift)` and each is tried once as a potential seed for a new contour.
 """
 function extract_boundaries(
-    model::SurrogateModel{F};
-    step_size::Real=mean(model.rbf.nn_dists) / 2,
+    model::SurrogateModel{F},
+    step_size_coeff::Real=one(F);
     tol::Real=Defaults.atol(F),
-    max_steps::Int=500,
-    max_failures::Int=5,
+    max_steps::Int=1024,
+    max_failures::Int=6,
     min_steps_before_close::Int=12,
     max_components::Union{Nothing,Int}=nothing,
 ) where {F}
-    step_size = F(step_size)
+    step_size = F(step_size_coeff * mean(model.rbf.nn_dists))
     tol = F(tol)
     if step_size <= 0
-        throw(ArgumentError("step_size must be positive"))
+        throw(ArgumentError("step_size_coeff must be positive"))
     end
     if tol <= 0
         throw(ArgumentError("tol must be positive"))
@@ -992,8 +992,8 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    @test_throws ArgumentError extract_boundaries(model; step_size=0.0)
-    @test_throws ArgumentError extract_boundaries(model; step_size=-0.1)
+    @test_throws ArgumentError extract_boundaries(model, 0.0)
+    @test_throws ArgumentError extract_boundaries(model, -0.1)
     @test_throws ArgumentError extract_boundaries(model; tol=0.0)
     @test_throws ArgumentError extract_boundaries(model; tol=-1e-6)
     @test_throws ArgumentError extract_boundaries(model; max_components=0)

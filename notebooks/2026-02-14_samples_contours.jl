@@ -86,7 +86,7 @@ end;
 # ╔═╡ 765b7e38-71ee-4297-869e-c0191c597e96
 let
 	fig = Figure()
-	ax = ax = Axis(
+	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
@@ -99,7 +99,7 @@ end
 # ╔═╡ 465f7020-60bd-4dda-b2d9-05fc8fd936fa
 let
 	fig = Figure()
-	ax = ax = Axis(
+	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
@@ -112,7 +112,7 @@ end
 # ╔═╡ e0077b5b-fed8-4a35-9dfa-d31fe019c98e
 let
 	fig = Figure()
-	ax = ax = Axis(
+	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
@@ -125,7 +125,7 @@ end
 # ╔═╡ 0b1d92d5-b09c-45b7-bf5a-f39337d73979
 let
 	fig = Figure()
-	ax = ax = Axis(
+	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
@@ -138,7 +138,7 @@ end
 # ╔═╡ c2fa9dd5-f0f6-4b59-998d-3ed4b017b2fe
 let
 	fig = Figure()
-	ax = ax = Axis(
+	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
@@ -166,7 +166,7 @@ boundaries = extract_boundaries(model)
 # ╔═╡ 8b17145b-0698-44f6-95cd-95112bc21bf8
 let
 	fig = Figure()
-	ax = ax = Axis(
+	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
@@ -185,7 +185,7 @@ eigs_big = sample_eigenvalues(e, 1536);
 # ╔═╡ 192115b0-68a8-430a-bdc8-cafd3aaf227d
 let
 	fig = Figure()
-	ax = ax = Axis(
+	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
