@@ -93,6 +93,7 @@ include("solvers.jl")
 include("batches.jl")
 include("rbfinterpolants.jl")
 include("surrogates.jl")
+include("densities.jl")
 include("boundaries.jl")
 
 # include("solve.jl")
