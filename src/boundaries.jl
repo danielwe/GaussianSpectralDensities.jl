@@ -388,6 +388,7 @@ end  # module Boundaries
         @test result.shift_values === shifts
         @test result.closed === true
         @test result.seed === seed
+        @test result.internal === false
     end
 
     @testset "closed = false" begin
@@ -400,6 +401,17 @@ end  # module Boundaries
         @test result.shift_values === shifts
         @test result.closed === false
         @test result.seed === seed
+        @test result.internal === false
+    end
+
+    @testset "internal = true" begin
+        pts = ComplexF64[1.0 + 0.0im, 0.0 + 1.0im, -1.0 + 0.0im, 1.0 + 0.0im]
+        shifts = [0.0, 0.0, 0.0, 0.0]
+        seed = 1.0 + 0.0im
+
+        result = BoundaryResult(pts, shifts, true, seed, true)
+        @test result.closed === true
+        @test result.internal === true
     end
 
     @testset "empty points" begin
@@ -411,6 +423,7 @@ end  # module Boundaries
         @test isempty(result.points)
         @test isempty(result.shift_values)
         @test result.closed === false
+        @test result.internal === false
     end
 end
 
@@ -624,6 +637,97 @@ end
     @test isnothing(result)
 end
 
+@testitem "point_in_polygon unit square" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Unit square: (0,0) -> (1,0) -> (1,1) -> (0,1) -> (0,0)
+        square = Complex{F}[0, 1, 1 + im, im, 0]
+
+        # Interior point
+        @test point_in_polygon(Complex{F}(0.5 + 0.5im), square)
+
+        # Exterior points
+        @test !point_in_polygon(Complex{F}(2.0 + 0.5im), square)
+        @test !point_in_polygon(Complex{F}(-1.0 + 0.5im), square)
+        @test !point_in_polygon(Complex{F}(0.5 + 2.0im), square)
+        @test !point_in_polygon(Complex{F}(0.5 - 1.0im), square)
+
+        # Point far away
+        @test !point_in_polygon(Complex{F}(100.0 + 100.0im), square)
+    end
+end
+
+@testitem "point_in_polygon triangle" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Triangle: (0,0), (2,0), (1,2), closed
+        triangle = Complex{F}[0, 2, 1 + 2im, 0]
+
+        # Centroid is inside
+        @test point_in_polygon(Complex{F}(1.0 + 0.5im), triangle)
+
+        # Outside the triangle
+        @test !point_in_polygon(Complex{F}(-1.0 + 0.0im), triangle)
+        @test !point_in_polygon(Complex{F}(3.0 + 0.0im), triangle)
+        @test !point_in_polygon(Complex{F}(1.0 + 3.0im), triangle)
+    end
+end
+
+@testitem "point_in_polygon implicitly closed" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Square without explicit closure (last != first)
+        square_open = Complex{F}[0, 1, 1 + im, im]
+
+        # Interior point should still be detected
+        @test point_in_polygon(Complex{F}(0.5 + 0.5im), square_open)
+
+        # Exterior point
+        @test !point_in_polygon(Complex{F}(2.0 + 0.5im), square_open)
+    end
+end
+
+@testitem "point_in_polygon degenerate cases" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # Empty polygon
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[])
+
+        # Single point
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[0])
+
+        # Two points (line segment, < 3 distinct vertices)
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[0, 1])
+
+        # Collinear points (degenerate polygon)
+        @test !point_in_polygon(Complex{F}(0.5 + 0.5im), Complex{F}[0, 1, 2])
+    end
+end
+
+@testitem "point_in_polygon concave polygon" begin
+    using GaussianSpectralDensities.Boundaries: point_in_polygon
+
+    @testset "$F" for F in [Float32, Float64]
+        # L-shaped polygon (concave)
+        # Vertices: (0,0), (2,0), (2,1), (1,1), (1,2), (0,2), (0,0)
+        lshape = Complex{F}[0, 2, 2 + im, 1 + im, 1 + 2im, 2im, 0]
+
+        # Inside the L
+        @test point_in_polygon(Complex{F}(0.5 + 0.5im), lshape)
+        @test point_in_polygon(Complex{F}(0.5 + 1.5im), lshape)
+
+        # In the "notch" of the L (outside)
+        @test !point_in_polygon(Complex{F}(1.5 + 1.5im), lshape)
+
+        # Outside entirely
+        @test !point_in_polygon(Complex{F}(3.0 + 0.5im), lshape)
+    end
+end
+
 @testitem "is_near_contour" begin
     using GaussianSpectralDensities.Boundaries: BoundaryResult, is_near_contour
 
@@ -720,6 +824,7 @@ end
 
     result = traces[1].result
     @test result.closed
+    @test !result.internal  # outer boundary of simply connected support
     @test length(result.points) > 10
 
     # All shift values should be near zero
@@ -730,6 +835,63 @@ end
         ellipse_val = (real(z) / 1.25)^2 + (imag(z) / 0.75)^2
         @test abs(ellipse_val - 1.0) < 0.1
     end
+end
+
+@testitem "extract_boundaries annular support" begin
+    using GaussianSpectralDensities.Algorithms: SpreadAnnealing
+    using GaussianSpectralDensities.Boundaries:
+        BoundaryTrace, extract_boundaries, point_in_polygon
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: Diagonal, I
+
+    # Four connected lobes surrounding a hole
+    M = Diagonal([1.05, 1.05im, -1.05, -1.05im])
+    ensemble = MatrixEnsemble(M, I, I, 0.5I)
+    eq = ResolventEquation(ensemble; shiftmin=-0.5)
+    constraint = PTraceConstraint(1.0; shift0=1.0, shape0=complex(0.1))
+    model = SurrogateModel(eq, constraint, SpreadAnnealing(), 96)
+
+    traces = extract_boundaries(model)
+    @test traces isa Vector{BoundaryTrace{Float64}}
+    @test length(traces) == 2
+
+    # Sort by contour size so outer comes first
+    sort!(traces; by=t -> -length(t.result.points))
+
+    outer = traces[1].result
+    inner = traces[2].result
+
+    @test outer.closed
+    @test !outer.internal  # outer boundary
+
+    @test inner.closed
+    @test inner.internal   # inner boundary (hole)
+
+    # All shift values should be near zero on both boundaries
+    @test all(s -> abs(s) < 1e-3, outer.shift_values)
+    @test all(s -> abs(s) < 1e-3, inner.shift_values)
+
+    # A point inside the annular support region (between inner and outer boundaries)
+    z_in_support = complex(0.8)
+    # A point inside the hole (inside the inner boundary)
+    z_in_hole = complex(0.1)
+    # A point outside the outer boundary
+    z_outside = complex(2.0)
+
+    # Inside the outer boundary but outside the inner boundary → in the support
+    @test point_in_polygon(z_in_support, outer.points)
+    @test !point_in_polygon(z_in_support, inner.points)
+
+    # Inside both boundaries → in the hole
+    @test point_in_polygon(z_in_hole, outer.points)
+    @test point_in_polygon(z_in_hole, inner.points)
+
+    # Outside both boundaries → outside the support
+    @test !point_in_polygon(z_outside, outer.points)
+    @test !point_in_polygon(z_outside, inner.points)
 end
 
 @testitem "extract_boundaries max_components limit" begin
