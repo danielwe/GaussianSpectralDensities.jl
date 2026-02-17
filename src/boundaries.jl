@@ -8,12 +8,12 @@ using ..Surrogates: SurrogateModel, evaluate
 
 using Statistics: mean
 
-public BoundaryResult, BoundaryTrace, extract_boundaries
+public BoundaryResult, BoundaryTrace, extract_boundaries, point_in_polygon
 
 # TODO: Derive and implement analytic gradient (implicit differentiation)
 
 """
-    BoundaryResult(points, shift_values, closed, seed)
+    BoundaryResult(points, shift_values, closed, seed, internal=false)
 
 Container for traced boundary points and their shift values.
 
@@ -21,12 +21,19 @@ Container for traced boundary points and their shift values.
   - `shift_values` aligns with `points` and should be near zero.
   - `closed` marks whether the contour loop closed.
   - `seed` stores the (refined) starting point.
+  - `internal` marks whether this is an internal boundary (hole) of an annular support
+    region. `false` for outer boundaries and open contours.
 """
 struct BoundaryResult{F<:AbstractFloat}
     points::Vector{Complex{F}}
     shift_values::Vector{F}
     closed::Bool
     seed::Complex{F}
+    internal::Bool
+end
+
+function BoundaryResult(points, shift_values, closed, seed)
+    return BoundaryResult(points, shift_values, closed, seed, false)
 end
 
 """
@@ -181,6 +188,26 @@ function try_close!(
 end
 
 """
+    classify_interior(model, points, counter) -> Bool
+
+Determine whether a closed contour is an internal boundary (hole). Computes the shift
+gradient at a contour point and offsets a test point in the gradient direction (toward
+shift > 0). If the test point lies inside the polygon, the support is interior → outer
+boundary → `false`. If outside, the support is exterior → hole → `true`.
+"""
+function classify_interior(
+    model::SurrogateModel{F}, points::Vector{Complex{F}}, counter::Ref{Int}
+) where {F}
+    for z in points
+        grad = compute_gradient(model, z, counter)
+        isnothing(grad) && continue
+        test_z = z + increment(abs(z)) * grad / abs(grad)
+        return !point_in_polygon(test_z, points)
+    end
+    return false
+end
+
+"""
     extract_boundary(model, seed, step_size, tol; ...) -> BoundaryTrace
 
 Trace a single shift=0 contour starting from `seed` (assumed already refined onto the
@@ -215,7 +242,8 @@ function extract_boundary(
         min_steps_before_close,
     )
 
-    result = BoundaryResult(points, shift_values, closed, seed_z)
+    internal = closed ? classify_interior(model, points, counter) : false
+    result = BoundaryResult(points, shift_values, closed, seed_z, internal)
     return BoundaryTrace(result, counter[], n_failures)
 end
 
@@ -278,6 +306,44 @@ function trace_contour!(
         end
     end
     return false, n_failures
+end
+
+"""
+    point_in_polygon(z, polygon) -> Bool
+
+Return `true` if `z` is inside the closed polygon defined by `polygon`.
+"""
+function point_in_polygon(
+    z::Complex{F}, polygon::AbstractVector{Complex{F}}
+) where {F<:AbstractFloat}
+    n = length(polygon)
+    (n < 3) && return false
+
+    vertices = polygon
+    if (n > 1) && (polygon[end] == polygon[begin])
+        vertices = polygon[begin:(end - 1)]
+        n = length(vertices)
+    end
+    (n < 3) && return false
+    length(unique(vertices)) < 3 && return false
+
+    area = zero(F)
+    for i in eachindex(vertices)
+        p1 = vertices[i]
+        p2 = (i == lastindex(vertices)) ? vertices[begin] : vertices[i + 1]
+        area += real(p1) * imag(p2) - real(p2) * imag(p1)
+    end
+    (abs(area) <= Defaults.atol(F)) && return false
+
+    total_angle = zero(F)
+    for i in eachindex(vertices)
+        p1 = vertices[i] - z
+        p2 = ((i == lastindex(vertices)) ? vertices[begin] : vertices[i + 1]) - z
+        dtheta = angle(p2) - angle(p1)
+        dtheta = mod2pi(dtheta + pi) - pi
+        total_angle += dtheta
+    end
+    return abs(total_angle) > pi
 end
 
 """
