@@ -150,6 +150,13 @@ function tangent_from_gradient(grad::Complex{F}, z::Complex{F}) where {F}
     return direction
 end
 
+"""
+    try_close!(points, shift_values, model, current_z, direction, initial_direction,
+        step_size; tol, counter) -> Bool
+
+Check whether the contour has looped back to its starting point and, if so, refine the
+closure. Returns `true` if the contour was successfully closed.
+"""
 function try_close!(
     points::Vector{Complex{F}},
     shift_values::Vector{F},
@@ -173,6 +180,12 @@ function try_close!(
     return true
 end
 
+"""
+    extract_boundary(model, seed, step_size, tol; ...) -> BoundaryTrace
+
+Trace a single shift=0 contour starting from `seed` (assumed already refined onto the
+contour). Returns a `BoundaryTrace` with the traced points and diagnostics.
+"""
 function extract_boundary(
     model::SurrogateModel{F},
     seed::Complex{F},
@@ -206,6 +219,13 @@ function extract_boundary(
     return BoundaryTrace(result, counter[], n_failures)
 end
 
+"""
+    trace_contour!(points, shift_values, model, seed_z, step_size, tol, counter;
+        ...) -> closed, n_failures
+
+Run the predictor-corrector loop, appending traced points to `points` and `shift_values`.
+Returns whether the final contour is closed, and the number of failed steps.
+"""
 function trace_contour!(
     points,
     shift_values,
