@@ -36,6 +36,7 @@ begin
 	using GaussianSpectralDensities.Densities:
 		mesh_gradient_per_face, mesh_gradient_per_vertex, signed_face_area
 	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+	using GaussianSpectralDensities.Meshing: Meshing
 	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
 	using GaussianSpectralDensities.Samples: sample_eigenvalues
 	using GaussianSpectralDensities.Solutions: greens, issuccess
@@ -45,7 +46,7 @@ begin
 	using CairoMakie:
 		Axis, Colorbar, DataAspect, Figure, hlines!, lines!, mesh!, plot, scatter!, vlines!, @L_str
 	using DistMesh: distmesh2d
-	using GeometryBasics: GLTriangleFace, Mesh, Point, per_face
+	using GeometryBasics: TriangleFace, Mesh, Point, per_face
 	using LinearAlgebra: I, Diagonal, dot
 	using StaticArrays: SVector
 	using Statistics: mean
@@ -64,17 +65,14 @@ eq = ResolventEquation(e; shiftmin=-0.5)
 # ╔═╡ c076126d-98a9-45aa-a144-1bc4803a87b5
 constraint = PTraceConstraint(1; shape0=0, shift0=1)
 
-# ╔═╡ 6ed5f7f7-5175-4e34-b76b-94a282d652a7
-Npre = 64
-
-# ╔═╡ d311b9b0-36fb-4446-95b7-fd323edd3853
-premodel = SurrogateModel(eq, constraint, SpreadAnnealing(), Npre)
+# ╔═╡ 953d657e-84e4-4923-bcb4-cccdd8f233ad
+coarse = Meshing.mesh(eq, constraint, SpreadAnnealing(), 64; refinement=nothing)
 
 # ╔═╡ f260bf48-a72e-4857-a7d9-e1da13af5d4e
-prepoints = map(splat(complex), premodel.rbf.x)
+coarse_eigvals = map(splat(complex), coarse.model.rbf.x)
 
 # ╔═╡ 86074959-e77b-4b96-ad68-5c12480422b7
-bbox = (minimum.(reim(prepoints)), maximum.(reim(prepoints)))
+bbox = Meshing.bounding_box(coarse.model.rbf.x)
 
 # ╔═╡ 3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
 let
@@ -85,22 +83,18 @@ let
 	)
 	vlines!(ax, collect(first.(bbox)))
 	hlines!(ax, collect(last.(bbox)))
-	scatter!(ax, real(prepoints), imag(prepoints))
+	scatter!(ax, real(coarse_eigvals), imag(coarse_eigvals))
 	fig
 end
-
-# ╔═╡ c14d5c71-57e6-421c-ba7a-1015eb5675d8
-premsh_h = (3 // 2)mean(premodel.rbf.nn_dists)
 
 # ╔═╡ 057a9734-46e7-4ea9-b945-5316a2f97889
 premsh_s_offset = 1 // 6
 
-# ╔═╡ b5e038f2-8004-43fa-98ae-713a796679a2
-premsh = distmesh2d(one ∘ eltype, premsh_h, bbox) do p
-	sol = evaluate(premodel, complex(p...); refine=false)
-	s = shift(sol)
-	return issuccess(sol) ? -(s + premsh_s_offset) : oftype(s, Inf)
-end
+# ╔═╡ 0e2a4852-0b80-4ff3-b5d0-2afe045044c0
+model = SurrogateModel(eq, constraint, SpreadAnnealing(), coarse.vertices)
+
+# ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
+boundaries = extract_boundaries(model, 1 // 4)
 
 # ╔═╡ 0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
 function plot_boundaries!(ax, boundaries)
@@ -114,35 +108,22 @@ function plot_boundaries!(ax, boundaries)
 	return nothing
 end
 
-# ╔═╡ 908325bc-6a3f-4bbc-af04-d7ca73f4d6e1
-model = SurrogateModel(eq, constraint, SpreadAnnealing(), map(splat(complex), premsh.p))
-
-# ╔═╡ 9b71d29d-6b7d-4a3c-a34f-251a9248bbfd
-step_coeff = 1 // 4
-
-# ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
-boundaries = extract_boundaries(model, step_coeff)
-
 # ╔═╡ 4274301c-18c5-4329-a1f4-3f5a69c6574b
-let fig=plot(premsh), ax=fig.current_axis[]
+let fig=plot(Meshing.dmesh(coarse)), ax=fig.current_axis[]
 	vlines!(ax, collect(first.(bbox)))
 	hlines!(ax, collect(last.(bbox)))
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
-# ╔═╡ 3b2ae836-9d7d-416a-844b-ddae1b8cfb4d
-msh_h = step_coeff * mean(model.rbf.nn_dists)
+# ╔═╡ fc6e3681-2386-4a4f-be68-16d71606a7fe
+msh = Meshing.refine(coarse)
 
-# ╔═╡ 70608acf-2495-48d7-9e7d-ff9a85c7fe0a
-msh = distmesh2d(one ∘ eltype, msh_h, bbox) do p
-	sol = evaluate(model, complex(p...); refine=false)
-	s = shift(sol)
-	return issuccess(sol) ? -s : oftype(s, Inf)
-end
+# ╔═╡ 00eca953-6fbf-431a-9be8-417567606ebd
+dmsh = Meshing.dmesh(msh)
 
 # ╔═╡ dd30581a-ab0f-4fcd-a167-38d585717beb
-let fig=plot(msh), ax=fig.current_axis[]
+let fig=plot(dmsh), ax=fig.current_axis[]
 	plot_boundaries!(ax, boundaries)
 	fig
 end
@@ -162,11 +143,8 @@ let
 	fig
 end
 
-# ╔═╡ 652d89b6-218a-4d04-b3f9-b37ef82f792c
-msh_zs = map(splat(complex), msh.p);
-
 # ╔═╡ 3d1a53dc-dd97-4429-b754-dee7a67955f0
-msh_sols = evaluatebatch(model, msh_zs; refine=false);
+msh_sols = evaluatebatch(model, msh.vertices; refine=false);
 
 # ╔═╡ b8080bc0-b92c-4c22-82b0-1d76aff6842d
 msh_shift = shift(msh_sols);
@@ -181,11 +159,11 @@ msh_greens_re, msh_greens_im = reim(msh_greens);
 msh_greens_abs, msh_greens_arg = abs.(msh_greens), angle.(msh_greens);
 
 # ╔═╡ 41e9aa36-6756-4425-89c5-7c03508449e9
-msh_faces = reduce(vcat, transpose.(msh.t));
+msh_faces = reduce(vcat, transpose.(msh.faces));
 
 # ╔═╡ 9d41a80c-8e3f-49a6-98bf-a71a02557e4c
 let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, msh.p, msh_faces; color=msh_shift, colorrange=(0.0, 1.0))
+	co = mesh!(ax, dmsh.p, msh_faces; color=msh_shift, colorrange=(0.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -193,7 +171,7 @@ end
 
 # ╔═╡ e8b72031-5b52-4afe-8ff0-5a3dbc0016e5
 let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, msh.p, msh_faces; color=msh_greens_re, colorrange=(-1.0, 1.0))
+	co = mesh!(ax, dmsh.p, msh_faces; color=msh_greens_re, colorrange=(-1.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -201,7 +179,7 @@ end
 
 # ╔═╡ aa86d73f-554f-499b-a593-490644042b2f
 let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(msh.p, msh_faces; color=msh_greens_im, colorrange=(-1.0, 1.0))
+	co = mesh!(dmsh.p, msh_faces; color=msh_greens_im, colorrange=(-1.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -209,7 +187,7 @@ end
 
 # ╔═╡ 869a8407-9c6e-4a7b-9840-74ea47fc6ca7
 let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, msh.p, msh_faces; color=msh_greens_abs, colorrange=(0.0, 1.0))
+	co = mesh!(ax, dmsh.p, msh_faces; color=msh_greens_abs, colorrange=(0.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -217,14 +195,14 @@ end
 
 # ╔═╡ f6c3584c-8f44-4839-a5e4-45bcbe357768
 let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, msh.p, msh_faces; color=msh_greens_arg, colorrange=(-π, π))
+	co = mesh!(ax, dmsh.p, msh_faces; color=msh_greens_arg, colorrange=(-π, π))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
 # ╔═╡ c9e97073-ec93-487b-89a5-6f51192d11c2
-msh_greens_grad = mesh_gradient_per_vertex(msh_greens, msh_zs, msh.t)
+msh_greens_grad = mesh_gradient_per_vertex(msh_greens, msh.vertices, msh.faces)
 
 # ╔═╡ 6bf63dbb-043c-4350-b82c-5703c226436f
 # NOTE: First vector in dot conjugated, hence the minus sign to get d_dzc
@@ -234,7 +212,7 @@ msh_dgreens_dzc = dot.([SVector(1 // 2, -im // 2)], msh_greens_grad)
 msh_density = abs.(msh_dgreens_dzc) ./ π
 
 # ╔═╡ bca18e3b-67fc-4a7d-803c-1bb18a5c6926
-msh_face_area = map(ti -> abs(signed_face_area(msh_zs, ti)), msh.t)
+msh_face_area = map(ti -> abs(signed_face_area(msh.vertices, ti)), msh.faces)
 
 # ╔═╡ f9d059f4-464f-4f58-85c6-39327eea9b5f
 msh_area = sum(msh_face_area)
@@ -242,7 +220,7 @@ msh_area = sum(msh_face_area)
 # ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
 let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
 	co = mesh!(
-		ax, msh.p, msh_faces; color=msh_density, colorrange=(0.0, 2inv(msh_area))
+		ax, dmsh.p, msh_faces; color=msh_density, colorrange=(0.0, 2inv(msh_area))
 	)
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
@@ -251,7 +229,7 @@ let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
 end
 
 # ╔═╡ cab4874c-365f-4f84-b5c7-0f07291bf2dc
-msh_greens_grad_pf = mesh_gradient_per_face(msh_greens, msh_zs, msh.t)
+msh_greens_grad_pf = mesh_gradient_per_face(msh_greens, msh.vertices, msh.faces)
 
 # ╔═╡ 21d04fd4-b4e7-4c2c-974b-300d5fb4f940
 msh_dgreens_dzc_pf = dot.([SVector(1 // 2, -im // 2)], msh_greens_grad_pf)
@@ -263,7 +241,7 @@ msh_density_pf = abs.(msh_dgreens_dzc_pf) ./ π
 dot(msh_face_area, msh_density_pf)  # density integral, should be == 1
 
 # ╔═╡ 7f75e1ec-301e-4001-9bbf-571fab308b96
-gmsh_points, gmsh_faces = Point.(msh.p), GLTriangleFace.(msh.t)
+gmsh_points, gmsh_faces = Point.(dmsh.p), TriangleFace.(msh.faces)
 
 # ╔═╡ 975a513d-b38f-452f-9849-208923a3c412
 gmsh_density = Mesh(
@@ -285,25 +263,20 @@ end
 # ╠═8266b399-d711-473e-9a55-ed837e65db0d
 # ╠═d2733d97-69ce-4ecd-9e0a-e2f040912b82
 # ╠═c076126d-98a9-45aa-a144-1bc4803a87b5
-# ╠═6ed5f7f7-5175-4e34-b76b-94a282d652a7
-# ╠═d311b9b0-36fb-4446-95b7-fd323edd3853
+# ╠═953d657e-84e4-4923-bcb4-cccdd8f233ad
 # ╠═f260bf48-a72e-4857-a7d9-e1da13af5d4e
 # ╠═86074959-e77b-4b96-ad68-5c12480422b7
 # ╠═3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
-# ╠═c14d5c71-57e6-421c-ba7a-1015eb5675d8
 # ╠═057a9734-46e7-4ea9-b945-5316a2f97889
-# ╠═b5e038f2-8004-43fa-98ae-713a796679a2
+# ╠═0e2a4852-0b80-4ff3-b5d0-2afe045044c0
 # ╠═4f9946e3-feda-404a-8316-2525848c0579
 # ╠═0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
-# ╠═908325bc-6a3f-4bbc-af04-d7ca73f4d6e1
 # ╠═4274301c-18c5-4329-a1f4-3f5a69c6574b
-# ╠═9b71d29d-6b7d-4a3c-a34f-251a9248bbfd
-# ╠═3b2ae836-9d7d-416a-844b-ddae1b8cfb4d
-# ╠═70608acf-2495-48d7-9e7d-ff9a85c7fe0a
+# ╠═fc6e3681-2386-4a4f-be68-16d71606a7fe
+# ╠═00eca953-6fbf-431a-9be8-417567606ebd
 # ╠═dd30581a-ab0f-4fcd-a167-38d585717beb
 # ╠═67e7082c-9747-4fc3-bbc6-9842dce52bf6
 # ╠═192115b0-68a8-430a-bdc8-cafd3aaf227d
-# ╠═652d89b6-218a-4d04-b3f9-b37ef82f792c
 # ╠═3d1a53dc-dd97-4429-b754-dee7a67955f0
 # ╠═b8080bc0-b92c-4c22-82b0-1d76aff6842d
 # ╠═0e6f9e9c-f353-4368-82fa-a097f5391613
