@@ -41,12 +41,12 @@ begin
 	using GaussianSpectralDensities.Samples: sample_eigenvalues
 	using GaussianSpectralDensities.Solutions: greens, issuccess
 	using GaussianSpectralDensities.Surrogates:
-		SurrogateModel, evaluate, evaluatebatch, unpack_args
+		SurrogateModel, evaluate, evaluatebatch, unpack_args, zvals
 
 	using CairoMakie:
-		Axis, Colorbar, DataAspect, Figure, hlines!, lines!, mesh!, plot, scatter!, vlines!, @L_str
+		Axis, CairoMakie, Colorbar, DataAspect, Figure, hlines!, lines!, mesh!, poly!, scatter!, vlines!, @L_str
 	using DistMesh: distmesh2d
-	using GeometryBasics: TriangleFace, Mesh, Point, per_face
+	using GeometryBasics: GeometryBasics, per_face
 	using LinearAlgebra: I, Diagonal, dot
 	using StaticArrays: SVector
 	using Statistics: mean
@@ -65,36 +65,51 @@ eq = ResolventEquation(e; shiftmin=-0.5)
 # ╔═╡ c076126d-98a9-45aa-a144-1bc4803a87b5
 constraint = PTraceConstraint(1; shape0=0, shift0=1)
 
-# ╔═╡ 953d657e-84e4-4923-bcb4-cccdd8f233ad
-coarse = Meshing.mesh(eq, constraint, SpreadAnnealing(), 64; refinement=nothing)
-
-# ╔═╡ f260bf48-a72e-4857-a7d9-e1da13af5d4e
-coarse_eigvals = map(splat(complex), coarse.model.rbf.x)
+# ╔═╡ a6337bdb-91ab-4fe5-8733-ebdeab64d44c
+eigvals, coarse_mesh = let
+	# The sampled eigenvalues aren't always good enough, so we catch and repeat
+	local mod, msh
+	while true
+		mod = SurrogateModel(eq, constraint, SpreadAnnealing(), 64)
+		try
+			msh = Meshing.mesh(mod; hcoeff=3//2, shiftoffset=1//8)
+			break
+		catch
+		end
+	end
+	zvals(mod), msh
+end
 
 # ╔═╡ 86074959-e77b-4b96-ad68-5c12480422b7
-bbox = Meshing.bounding_box(coarse.model.rbf.x)
+bbox = Meshing.boundingbox(eigvals)
 
-# ╔═╡ 3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
-let
+# ╔═╡ aa75d5c3-cb38-4ffc-9283-f6a52cf3778a
+coarse_zs = map(splat(complex), coarse_mesh.position)
+
+# ╔═╡ 0e2a4852-0b80-4ff3-b5d0-2afe045044c0
+model = SurrogateModel(eq, constraint, SpreadAnnealing(), coarse_zs)
+
+# ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
+boundaries = extract_boundaries(model, 1 // 4)
+
+# ╔═╡ 875b4f94-99d9-412c-a7b3-d876a322d5b3
+function figax()
 	fig = Figure()
 	ax = Axis(
 		fig[1, 1];
 		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
 	)
-	vlines!(ax, collect(first.(bbox)))
-	hlines!(ax, collect(last.(bbox)))
-	scatter!(ax, real(coarse_eigvals), imag(coarse_eigvals))
-	fig
+	return fig, ax
 end
 
-# ╔═╡ 057a9734-46e7-4ea9-b945-5316a2f97889
-premsh_s_offset = 1 // 6
-
-# ╔═╡ 0e2a4852-0b80-4ff3-b5d0-2afe045044c0
-model = SurrogateModel(eq, constraint, SpreadAnnealing(), coarse.vertices)
-
-# ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
-boundaries = extract_boundaries(model, 1 // 4)
+# ╔═╡ 3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
+let
+	fig, ax = figax()
+	vlines!(ax, collect(first.(bbox)))
+	hlines!(ax, collect(last.(bbox)))
+	scatter!(ax, real(eigvals), imag(eigvals); color=:black, alpha=0.5)
+	fig
+end
 
 # ╔═╡ 0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
 function plot_boundaries!(ax, boundaries)
@@ -109,7 +124,9 @@ function plot_boundaries!(ax, boundaries)
 end
 
 # ╔═╡ 4274301c-18c5-4329-a1f4-3f5a69c6574b
-let fig=plot(Meshing.dmesh(coarse)), ax=fig.current_axis[]
+let
+	fig, ax = figax()
+	poly!(ax, coarse_mesh; color=:grey90, strokewidth=1)
 	vlines!(ax, collect(first.(bbox)))
 	hlines!(ax, collect(last.(bbox)))
 	plot_boundaries!(ax, boundaries)
@@ -117,34 +134,35 @@ let fig=plot(Meshing.dmesh(coarse)), ax=fig.current_axis[]
 end
 
 # ╔═╡ fc6e3681-2386-4a4f-be68-16d71606a7fe
-msh = Meshing.refine(coarse)
-
-# ╔═╡ 00eca953-6fbf-431a-9be8-417567606ebd
-dmsh = Meshing.dmesh(msh)
+msh = Meshing.mesh(model; hcoeff=1//4)
 
 # ╔═╡ dd30581a-ab0f-4fcd-a167-38d585717beb
-let fig=plot(dmsh), ax=fig.current_axis[]
+let
+	fig, ax = figax()
+	poly!(ax, msh; color=:gray90, strokewidth=1)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
 # ╔═╡ 67e7082c-9747-4fc3-bbc6-9842dce52bf6
-eigs = sample_eigenvalues(e, 1536);
+eigvals_large = sample_eigenvalues(e, 1536);
 
 # ╔═╡ 192115b0-68a8-430a-bdc8-cafd3aaf227d
 let
-	fig = Figure()
-	ax = Axis(
-		fig[1, 1];
-		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
-	)
+	fig, ax = figax()
 	plot_boundaries!(ax, boundaries)
-	scatter!(ax, real(eigs), imag(eigs); markersize=4)
+	scatter!(
+		ax, real(eigvals_large), imag(eigvals_large);
+		markersize=4, color=:black, alpha=0.5,
+	)
 	fig
 end
 
+# ╔═╡ 67f5fd93-aad0-4e03-838b-f82060f5ad09
+msh_zs = zvals(msh)
+
 # ╔═╡ 3d1a53dc-dd97-4429-b754-dee7a67955f0
-msh_sols = evaluatebatch(model, msh.vertices; refine=false);
+msh_sols = evaluatebatch(model, msh_zs; refine=false);
 
 # ╔═╡ b8080bc0-b92c-4c22-82b0-1d76aff6842d
 msh_shift = shift(msh_sols);
@@ -158,51 +176,53 @@ msh_greens_re, msh_greens_im = reim(msh_greens);
 # ╔═╡ c1abcb97-ccb9-423a-8345-28e915a9d38f
 msh_greens_abs, msh_greens_arg = abs.(msh_greens), angle.(msh_greens);
 
-# ╔═╡ 41e9aa36-6756-4425-89c5-7c03508449e9
-msh_faces = reduce(vcat, transpose.(msh.faces));
-
 # ╔═╡ 9d41a80c-8e3f-49a6-98bf-a71a02557e4c
-let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, dmsh.p, msh_faces; color=msh_shift, colorrange=(0.0, 1.0))
+let
+	fig, ax = figax()
+	co = mesh!(ax, msh; color=msh_shift, colorrange=(0.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
 # ╔═╡ e8b72031-5b52-4afe-8ff0-5a3dbc0016e5
-let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, dmsh.p, msh_faces; color=msh_greens_re, colorrange=(-1.0, 1.0))
+let
+	fig, ax = figax()
+	co = mesh!(ax, msh; color=msh_greens_re, colorrange=(-1.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
 # ╔═╡ aa86d73f-554f-499b-a593-490644042b2f
-let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(dmsh.p, msh_faces; color=msh_greens_im, colorrange=(-1.0, 1.0))
+let
+	fig, ax = figax()
+	co = mesh!(msh; color=msh_greens_im, colorrange=(-1.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
 # ╔═╡ 869a8407-9c6e-4a7b-9840-74ea47fc6ca7
-let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, dmsh.p, msh_faces; color=msh_greens_abs, colorrange=(0.0, 1.0))
+let
+	fig, ax = figax()
+	co = mesh!(ax, msh; color=msh_greens_abs, colorrange=(0.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
 # ╔═╡ f6c3584c-8f44-4839-a5e4-45bcbe357768
-let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, dmsh.p, msh_faces; color=msh_greens_arg, colorrange=(-π, π))
+let
+	fig, ax = figax()
+	co = mesh!(ax, msh; color=msh_greens_arg, colorrange=(-π, π))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
 # ╔═╡ c9e97073-ec93-487b-89a5-6f51192d11c2
-msh_greens_grad = mesh_gradient_per_vertex(msh_greens, msh.vertices, msh.faces)
+msh_greens_grad = mesh_gradient_per_vertex(msh_greens, msh.position, msh.faces)
 
 # ╔═╡ 6bf63dbb-043c-4350-b82c-5703c226436f
 # NOTE: First vector in dot conjugated, hence the minus sign to get d_dzc
@@ -212,24 +232,26 @@ msh_dgreens_dzc = dot.([SVector(1 // 2, -im // 2)], msh_greens_grad)
 msh_density = abs.(msh_dgreens_dzc) ./ π
 
 # ╔═╡ bca18e3b-67fc-4a7d-803c-1bb18a5c6926
-msh_face_area = map(ti -> abs(signed_face_area(msh.vertices, ti)), msh.faces)
+msh_face_area = map(abs ∘ Base.Fix1(signed_face_area, msh.position), msh.faces)
 
 # ╔═╡ f9d059f4-464f-4f58-85c6-39327eea9b5f
 msh_area = sum(msh_face_area)
 
 # ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
-let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(
-		ax, dmsh.p, msh_faces; color=msh_density, colorrange=(0.0, 2inv(msh_area))
-	)
+let
+	fig, ax = figax()
+	co = mesh!(ax, msh; color=msh_density, colorrange=(0.0, 2inv(msh_area)))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
-	scatter!(ax, real(eigs), imag(eigs); markersize=4, color=:black, alpha=0.5)
+	scatter!(
+		ax, real(eigvals_large), imag(eigvals_large);
+		markersize=4, color=:black, alpha=0.5,
+	)
 	fig
 end
 
 # ╔═╡ cab4874c-365f-4f84-b5c7-0f07291bf2dc
-msh_greens_grad_pf = mesh_gradient_per_face(msh_greens, msh.vertices, msh.faces)
+msh_greens_grad_pf = mesh_gradient_per_face(msh_greens, msh.position, msh.faces)
 
 # ╔═╡ 21d04fd4-b4e7-4c2c-974b-300d5fb4f940
 msh_dgreens_dzc_pf = dot.([SVector(1 // 2, -im // 2)], msh_greens_grad_pf)
@@ -240,20 +262,19 @@ msh_density_pf = abs.(msh_dgreens_dzc_pf) ./ π
 # ╔═╡ 230cf7e2-78e5-4533-b498-6c4cfb5ea463
 dot(msh_face_area, msh_density_pf)  # density integral, should be == 1
 
-# ╔═╡ 7f75e1ec-301e-4001-9bbf-571fab308b96
-gmsh_points, gmsh_faces = Point.(dmsh.p), TriangleFace.(msh.faces)
-
-# ╔═╡ 975a513d-b38f-452f-9849-208923a3c412
-gmsh_density = Mesh(
-	gmsh_points, gmsh_faces; color=per_face(msh_density_pf, gmsh_faces)
-)
+# ╔═╡ bb6f19a4-384a-4649-8cc3-30a0d3dab8d6
+msh_with_density_pf = GeometryBasics.mesh(msh; color=per_face(msh_density_pf, msh))
 
 # ╔═╡ bf1493cf-452d-4a02-820e-7c21738192e3
-let fig=Figure(), ax=Axis(fig[1, 1]; aspect=DataAspect())
-	co = mesh!(ax, gmsh_density; colorrange=(0.0, 2inv(msh_area)))
+let
+	fig, ax = figax()
+	co = mesh!(ax, msh_with_density_pf; colorrange=(0.0, 2inv(msh_area)))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
-	scatter!(ax, real(eigs), imag(eigs); markersize=4, color=:black, alpha=0.5)
+	scatter!(
+		ax, real(eigvals_large), imag(eigvals_large);
+		markersize=4, color=:black, alpha=0.5,
+	)
 	fig
 end
 
@@ -263,26 +284,25 @@ end
 # ╠═8266b399-d711-473e-9a55-ed837e65db0d
 # ╠═d2733d97-69ce-4ecd-9e0a-e2f040912b82
 # ╠═c076126d-98a9-45aa-a144-1bc4803a87b5
-# ╠═953d657e-84e4-4923-bcb4-cccdd8f233ad
-# ╠═f260bf48-a72e-4857-a7d9-e1da13af5d4e
+# ╠═a6337bdb-91ab-4fe5-8733-ebdeab64d44c
 # ╠═86074959-e77b-4b96-ad68-5c12480422b7
 # ╠═3af9d3f8-17c0-4ef8-9bb6-cb03dd15c376
-# ╠═057a9734-46e7-4ea9-b945-5316a2f97889
+# ╠═aa75d5c3-cb38-4ffc-9283-f6a52cf3778a
 # ╠═0e2a4852-0b80-4ff3-b5d0-2afe045044c0
 # ╠═4f9946e3-feda-404a-8316-2525848c0579
+# ╠═875b4f94-99d9-412c-a7b3-d876a322d5b3
 # ╠═0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
 # ╠═4274301c-18c5-4329-a1f4-3f5a69c6574b
 # ╠═fc6e3681-2386-4a4f-be68-16d71606a7fe
-# ╠═00eca953-6fbf-431a-9be8-417567606ebd
 # ╠═dd30581a-ab0f-4fcd-a167-38d585717beb
 # ╠═67e7082c-9747-4fc3-bbc6-9842dce52bf6
 # ╠═192115b0-68a8-430a-bdc8-cafd3aaf227d
+# ╠═67f5fd93-aad0-4e03-838b-f82060f5ad09
 # ╠═3d1a53dc-dd97-4429-b754-dee7a67955f0
 # ╠═b8080bc0-b92c-4c22-82b0-1d76aff6842d
 # ╠═0e6f9e9c-f353-4368-82fa-a097f5391613
 # ╠═3fb17c5b-6191-41d0-a709-873f739bf984
 # ╠═c1abcb97-ccb9-423a-8345-28e915a9d38f
-# ╠═41e9aa36-6756-4425-89c5-7c03508449e9
 # ╠═9d41a80c-8e3f-49a6-98bf-a71a02557e4c
 # ╠═e8b72031-5b52-4afe-8ff0-5a3dbc0016e5
 # ╠═aa86d73f-554f-499b-a593-490644042b2f
@@ -298,6 +318,5 @@ end
 # ╠═21d04fd4-b4e7-4c2c-974b-300d5fb4f940
 # ╠═3329c5d6-8a7f-47d4-9699-83105998d9f2
 # ╠═230cf7e2-78e5-4533-b498-6c4cfb5ea463
-# ╠═7f75e1ec-301e-4001-9bbf-571fab308b96
-# ╠═975a513d-b38f-452f-9849-208923a3c412
+# ╠═bb6f19a4-384a-4649-8cc3-30a0d3dab8d6
 # ╠═bf1493cf-452d-4a02-820e-7c21738192e3

@@ -1,30 +1,28 @@
 module Densities
 
 using LinearAlgebra: dot
-using StaticArrays: SVector
-
-using ..ArrayTools: RealOrComplex
+using StaticArrays: SVector, StaticVector
 
 public mesh_gradient_per_face, mesh_gradient_per_vertex, signed_face_area
 
 """
     mesh_gradient_per_face(values, vertices, faces) -> AbstractVector
 
-Compute per-face gradients of a field over a complex mesh
+Compute per-face gradients of a field over a 2D mesh
 
 Uses linear FEM basis functions, so gradient is constant over each triangular face. Returns
 a vector where each entry is the gradient on the corresponding face in `faces`.
 """
 function mesh_gradient_per_face(
-    values::AbstractArray{T},
-    vertices::AbstractArray{Complex{F}},
-    faces::AbstractVector{<:SVector{3,<:Integer}},
-) where {F,T<:RealOrComplex{F}}
+    values::AbstractArray{<:Any,N},
+    vertices::AbstractArray{<:StaticVector{2,<:Real},N},
+    faces::AbstractVector{<:StaticVector{3,<:Integer}},
+) where {N}
     return map(faces) do face
         vals = face_vertex_vals(values, face)
 
-        dzs = face_edge_dvals(vertices, face)
-        dxs, dys = real.(dzs), imag.(dzs)
+        dps = face_edge_dvals(vertices, face)
+        dxs, dys = first.(dps), last.(dps)
         signed_area2 = cross1(dxs, dys)
 
         # Important: pass the known real triple first first arg to avoid dot's conjugation
@@ -37,16 +35,16 @@ end
 """
     mesh_gradient_per_vertex(values, vertices, faces) -> AbstractVector
 
-Compute per-vertex gradients of a field over a complex mesh
+Compute per-vertex gradients of a field over a 2D mesh
 
 Gradient per face are computed as in `mesh_gradient_per_face`. Gradients per vertex are
 obtained by area-weighted averaging.
 """
 function mesh_gradient_per_vertex(
-    values::AbstractArray{T},
-    vertices::AbstractArray{Complex{F}},
-    faces::AbstractVector{<:SVector{3,<:Integer}},
-) where {F,T<:RealOrComplex{F}}
+    values::AbstractArray{<:Any,N},
+    vertices::AbstractArray{<:StaticVector{2,<:Real},N},
+    faces::AbstractVector{<:StaticVector{3,<:Integer}},
+) where {N}
     face_grads = mesh_gradient_per_face(values, vertices, faces)
     return area_weighted_averages(face_grads, vertices, faces)
 end
@@ -61,9 +59,9 @@ faces, weighted by the areas of those faces.
 """
 function area_weighted_averages(
     face_values::AbstractVector{T},
-    vertices::AbstractArray{Complex{F}},
-    faces::AbstractVector{<:SVector{3,<:Integer}},
-) where {F,T}
+    vertices::AbstractArray{<:StaticVector{2,F}},
+    faces::AbstractVector{<:StaticVector{3,<:Integer}},
+) where {F<:Real,T}
     zero_area = zero(F)^2
     zero_value = zero(T) * zero_area
     awvalues, aweights = fill(zero_value, size(vertices)), fill(zero_area, size(vertices))
@@ -78,15 +76,15 @@ function area_weighted_averages(
 end
 
 function signed_face_area(
-    vertices::AbstractArray{T}, face::SVector{3,<:Integer}
-) where {T<:Complex}
-    dzs = face_edge_dvals(vertices, face)
-    return cross1(real.(dzs), imag.(dzs)) / 2
+    vertices::AbstractArray{<:StaticVector{2,<:Real}}, face::StaticVector{3,<:Integer}
+)
+    dps = face_edge_dvals(vertices, face)
+    return cross1(first.(dps), last.(dps)) / 2
 end
 
 cross1(a, b) = (a[2] * b[3]) - (a[3] * b[2])
 
-function face_edge_dvals(vertex_vals::AbstractArray, face::SVector{3,<:Integer})
+function face_edge_dvals(vertex_vals::AbstractArray, face::StaticVector{3,<:Integer})
     face_vvals = face_vertex_vals(vertex_vals, face)
     return (
         face_vvals[2] - face_vvals[3],
@@ -95,7 +93,7 @@ function face_edge_dvals(vertex_vals::AbstractArray, face::SVector{3,<:Integer})
     )
 end
 
-function face_vertex_vals(vertex_vals::AbstractArray, face::SVector{3,<:Integer})
+function face_vertex_vals(vertex_vals::AbstractArray, face::StaticVector{3,<:Integer})
     return ntuple(i -> vertex_vals[face[i]], Val(3))
 end
 

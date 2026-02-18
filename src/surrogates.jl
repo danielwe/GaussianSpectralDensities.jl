@@ -17,10 +17,10 @@ using ..Solvers: pointsolve
 using ..Spreads: Spread
 using ..Workspaces: Workspace
 
-using StaticArrays: @SVector, SVector
+using StaticArrays: @SVector, SVector, StaticVector
 
 public SurrogateModel,
-    evaluate, evaluatebatch, interpolate, pack, unpack_args, unpack_constraint
+    evaluate, evaluatebatch, interpolate, pack, unpack_args, unpack_constraint, zvals
 
 struct SurrogateModel{
     F,
@@ -73,9 +73,11 @@ end
 outputdim(::SpreadConstraint) = 2
 outputdim(::PTraceConstraint) = 3
 
-zpoint(::Type{F}, z) where {F<:Real} = SVector{2,F}(real(z), imag(z))
+zvec(z::Complex) = SVector(reim(z))
+zval(zv::StaticVector{2,<:Real}) = complex(zv...)
+zvals(model::SurrogateModel) = map(zval, model.rbf.x)
 
-haspoint(rbf::RBFInterpolant{F}, z::SVector{2,F}) where {F} = any(xi -> xi == z, rbf.x)
+haspoint(rbf::RBFInterpolant{F}, zv::SVector{2,F}) where {F} = any(xi -> xi == zv, rbf.x)
 
 function SurrogateModel(
     equation::ResolventEquation{F},
@@ -94,7 +96,7 @@ function SurrogateModel(
         solution = pointsolve(problem, algorithm)
         if issuccess(solution)
             y = pack(solution, constraint)
-            push!(xs, zpoint(F, zF))
+            push!(xs, zvec(zF))
             push!(ys, y)
             constraint_guess = unpack_constraint(y, constraint)
         end
@@ -117,17 +119,17 @@ end
 function SurrogateModel(model::SurrogateModel{F}, zs::AbstractVector{<:Complex}) where {F}
     (; equation, constraint, algorithm, workspace) = model
     sols = filter(issuccess, evaluatebatch(model, zs; refine=false))
-    xs = map(sol -> zpoint(F, sol.z), sols)
+    xs = map(sol -> zvec(sol.z), sols)
     ys = map(sol -> pack(sol, constraint), sols)
     rbf = RBFInterpolant(ThinPlateSpline(), xs, ys)
     return SurrogateModel(equation, constraint, algorithm, rbf, workspace)
 end
 
-interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(zpoint(F, z))
+interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(map(F, zvec(z)))
 
 function evaluate_one(model::SurrogateModel{F}, z) where {F}
     zF = Complex{F}(z)
-    zv = zpoint(F, zF)
+    zv = zvec(zF)
     model_y = model.rbf(zv)
     shape, spread = unpack_args(model_y, model.constraint)
     model_sol = PointSolution(model.equation, zF, shape, spread; workspace=model.workspace)
@@ -149,7 +151,7 @@ end
 function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}
     sol, refine_candidate = evaluate_one(model, z)
     if refine && refine_candidate
-        RBFInterpolants.push!(model.rbf, zpoint(F, z), pack(sol, model.constraint))
+        RBFInterpolants.push!(model.rbf, zvec(sol.z), pack(sol, model.constraint))
     end
     return sol
 end
@@ -164,7 +166,7 @@ function evaluatebatch(model::SurrogateModel{F,N}, zs; refine::Bool=false) where
         sol, refine_candidate = evaluate_one(model, z)
         sols[i] = sol
         if refine && refine_candidate
-            push!(refine_xs, zpoint(F, z))
+            push!(refine_xs, zvec(sol.z))
             push!(refine_ys, pack(sol, model.constraint))
         end
     end
@@ -516,7 +518,7 @@ end
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
-    using GaussianSpectralDensities.Surrogates: SurrogateModel
+    using GaussianSpectralDensities.Surrogates: SurrogateModel, zvals
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
@@ -548,6 +550,7 @@ end
         @test model.algorithm === alg
         @test model.workspace isa Workspace{Float64}
         @test length(model.rbf.x) == length(zs)
+        @test zvals(model) == zs
     end
 
     @testset "excludes failed solves" begin
@@ -561,6 +564,7 @@ end
         model = SurrogateModel(eq, constraint, alg, zs)
         @test length(model.rbf.x) < length(zs)
         @test length(model.rbf.x) == length(zs_ok)
+        @test zvals(model) == zs_ok
     end
 
     @testset "SpreadConstraint" begin
@@ -571,6 +575,7 @@ end
 
         model = SurrogateModel(eq, constraint, alg, zs)
         @test length(model.rbf.x) == length(zs)
+        @test zvals(model) == zs
     end
 
     @testset "resampling round-trip" begin
@@ -587,6 +592,7 @@ end
         @test model2.workspace === model.workspace
         @test model2.rbf !== model.rbf
         @test length(model2.rbf.x) == length(zs)
+        @test zvals(model) == zs
     end
 
     @testset "resampling round-trip SpreadConstraint" begin
@@ -599,6 +605,7 @@ end
         model2 = SurrogateModel(model, zs)
         @test model2.rbf !== model.rbf
         @test length(model2.rbf.x) == length(zs)
+        @test zvals(model2) == zs
     end
 
     @testset "resampling excludes failed" begin
@@ -611,5 +618,6 @@ end
         model = SurrogateModel(eq, constraint, alg, zs_ok)
         model2 = SurrogateModel(model, vcat(zs_ok, zs_bad))
         @test length(model2.rbf.x) == length(zs_ok)
+        @test zvals(model2) == zs_ok
     end
 end
