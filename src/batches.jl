@@ -36,8 +36,12 @@ function BatchProblem(equation::ResolventEquation{F}, constraint, zs) where {F}
     return BatchProblem{F}(equation, constraint, zs)
 end
 
+function Base.getindex(prob::BatchProblem, I::Integer...)
+    return PointProblem(prob.equation, prob.constraint, prob.zs[I...])
+end
+
 function Base.getindex(prob::BatchProblem, I)
-    return PointProblem(prob.equation, prob.constraint, prob.zs[I])
+    return BatchProblem(prob.equation, prob.constraint, prob.zs[I])
 end
 
 ## BatchSolution
@@ -50,6 +54,13 @@ end
     params::P
     status::Array{SolutionStatus.T,N}
 
+    # Secret constructor that accepts data unchecked, mainly to support getindex
+    function BatchSolution{F,N,E}(
+        equation::E, zs, params, status
+    ) where {F,N,E<:ResolventEquation{F}}
+        return new{F,N,E,typeof(params)}(equation, zs, params, status)
+    end
+
     function BatchSolution{F}(equation, zs) where {F}
         eqF = convert(ResolventEquation{F}, equation)
         s = size(zs)
@@ -61,23 +72,44 @@ end
 
 BatchSolution(equation::ResolventEquation{F}, zs) where {F} = BatchSolution{F}(equation, zs)
 
-function Base.getindex(sol::BatchSolution{F,N,E}, I) where {F,N,E}
+function Base.getindex(sol::BatchSolution{F,N,E}, I::Integer...) where {F,N,E}
     (; equation, zs, params, status) = sol
-    return PointSolution{F,E}(equation, zs[I], params[I], status[I])
+    return PointSolution{F,E}(equation, zs[I...], params[I...], status[I...])
 end
 
-function Base.setindex!(sol::BatchSolution, ps::PointSolution, I)
+function Base.getindex(sol::BatchSolution{F,N,E}, I) where {F,N,E}
+    (; equation, zs, params, status) = sol
+    zsI, paramsI, statusI = zs[I], params[I], status[I]
+    return BatchSolution{F,ndims(zsI),E}(equation, zsI, paramsI, statusI)
+end
+
+function Base.setindex!(sol::BatchSolution, ps::PointSolution, I::Integer...)
     if ps.equation !== sol.equation
         msg = "Cannot assign to BatchSolution using PointSolution for different equation"
         throw(ArgumentError(msg))
     end
-    zI = sol.zs[I]
+    zI = sol.zs[I...]
     if ps.z != zI
-        msg = "PointSolution z=$(ps.z) does not match z[i] = $zI"
+        msg = "PointSolution z=$(ps.z) does not match z[I...] = $zI"
         throw(ArgumentError(msg))
     end
-    sol.params[I] = ps.params
-    sol.status[I] = ps.status
+    sol.params[I...] = ps.params
+    sol.status[I...] = ps.status
+    return sol
+end
+
+function Base.setindex!(sol::BatchSolution, s::BatchSolution, I)
+    if s.equation !== sol.equation
+        msg = "Cannot assign to BatchSolution using BatchSolution for different equation"
+        throw(ArgumentError(msg))
+    end
+    zI = sol.zs[I]
+    if s.zs != zI
+        msg = "BatchSolution zs=$(s.zs) does not match zs[I] = $zI"
+        throw(ArgumentError(msg))
+    end
+    sol.params[I] = s.params
+    sol.status[I] = s.status
     return sol
 end
 
@@ -172,6 +204,18 @@ end  # module Batches
     @test pp.z == zs[1]
     @test pp.equation == eq
     @test pp.constraint == constraint
+
+    # non-scalar getindex
+    @testset for index in (
+        1:4, [1, 3, 5], [true, false, true, false, true, false, true, false, true]
+    )
+        sub = prob[index]
+        @test sub isa BatchProblem{Float64}
+        @test sub.zs == zs[index]
+        @test sub.equation == eq
+        @test sub.constraint == constraint
+        @test length(sub) == length(zs[index])
+    end
 end
 
 @testitem "BatchSolution" begin
@@ -224,6 +268,41 @@ end
     ps_wrongB = PointSolution(eq, z2, 1.0, Spread(; shift=1.0))
     @test_throws ArgumentError sol[1] = ps_wrongA
     @test_throws ArgumentError sol[1] = ps_wrongB
+
+    # non-scalar getindex
+    for i in eachindex(sol)
+        sol.params[i] = ResolventParams(0.5im * i, 0.25i, 0.5i, 1.0i, -0.5im * i)
+        sol.status[i] = isodd(i) ? SolutionStatus.success : SolutionStatus.not_finite
+    end
+    @testset for index in (
+        1:4, [1, 3, 5], [true, false, true, false, true, false, true, false, true]
+    )
+        sub = sol[index]
+        @test sub isa BatchSolution{Float64}
+        @test sub.zs == zs[index]
+        @test sub.equation === eq
+        @test sub.params == sol.params[index]
+        @test sub.status == sol.status[index]
+        @test length(sub) == length(zs[index])
+    end
+
+    # non-scalar setindex!
+    sub = sol[1:3]
+    for i in eachindex(sub)
+        sub.params[i] = ResolventParams(1.0im * i, 0.5i, 1.0i, 2.0i, -1.0im * i)
+        sub.status[i] = SolutionStatus.success
+    end
+    sol[1:3] = sub
+    @test sol.params[1:3] == sub.params
+    @test sol.status[1:3] == sub.status
+
+    # non-scalar setindex! with mismatched equation
+    sub_wrong_eq = BatchSolution(eq2, zs[1:3])
+    @test_throws ArgumentError sol[1:3] = sub_wrong_eq
+
+    # non-scalar setindex! with mismatched zs
+    sub_wrong_zs = sol[4:6]
+    @test_throws ArgumentError sol[1:3] = sub_wrong_zs
 
     # accessors
     sol.params.shape .= ComplexF64[0.9 0.8 0.7; 0.6 0.5 0.4; 0.3 0.2 0.1]

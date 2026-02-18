@@ -108,10 +108,19 @@ function SurrogateModel(
     equation::ResolventEquation{F},
     constraint::AbstractConstraint{F},
     algorithm::AbstractAlgorithm,
-    N::Integer=96,
+    N::Integer=64,
 ) where {F}
     zs = sample_eigenvalues(equation.ensemble, N)
     return SurrogateModel(equation, constraint, algorithm, zs)
+end
+
+function SurrogateModel(model::SurrogateModel{F}, zs::AbstractVector{<:Complex}) where {F}
+    (; equation, constraint, algorithm, workspace) = model
+    sols = filter(issuccess, evaluatebatch(model, zs; refine=false))
+    xs = map(sol -> zpoint(F, sol.z), sols)
+    ys = map(sol -> pack(sol, constraint), sols)
+    rbf = RBFInterpolant(ThinPlateSpline(), xs, ys)
+    return SurrogateModel(equation, constraint, algorithm, rbf, workspace)
 end
 
 interpolate(model::SurrogateModel{F}, z) where {F} = model.rbf(zpoint(F, z))
@@ -562,5 +571,45 @@ end
 
         model = SurrogateModel(eq, constraint, alg, zs)
         @test length(model.rbf.x) == length(zs)
+    end
+
+    @testset "resampling round-trip" begin
+        ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+        eq = ResolventEquation(ensemble)
+        constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+        zs = ComplexF64[0.25 + 0.25im, 0.5 + 0.25im, 0.25 + 0.5im, 0.5 + 0.5im]
+
+        model = SurrogateModel(eq, constraint, alg, zs)
+        model2 = SurrogateModel(model, zs)
+        @test model2.equation === model.equation
+        @test model2.constraint === model.constraint
+        @test model2.algorithm === model.algorithm
+        @test model2.workspace === model.workspace
+        @test model2.rbf !== model.rbf
+        @test length(model2.rbf.x) == length(zs)
+    end
+
+    @testset "resampling round-trip SpreadConstraint" begin
+        ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+        eq = ResolventEquation(ensemble)
+        constraint = SpreadConstraint(; gap=0.5, shape0=complex(0.25))
+        zs = ComplexF64[0.25 + 0.25im, 0.5 + 0.25im, 0.25 + 0.5im, 0.5 + 0.5im]
+
+        model = SurrogateModel(eq, constraint, alg, zs)
+        model2 = SurrogateModel(model, zs)
+        @test model2.rbf !== model.rbf
+        @test length(model2.rbf.x) == length(zs)
+    end
+
+    @testset "resampling excludes failed" begin
+        ensemble = MatrixEnsemble(0.0I, I, I, 0.0I)
+        eq = ResolventEquation(ensemble; shiftmin=0.0)
+        constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+        zs_ok = ComplexF64[0.1 + 0.1im, 0.3 + 0.1im, 0.1 + 0.3im]
+        zs_bad = ComplexF64[5.0 + 5.0im, 6.0 + 6.0im]
+
+        model = SurrogateModel(eq, constraint, alg, zs_ok)
+        model2 = SurrogateModel(model, vcat(zs_ok, zs_bad))
+        @test length(model2.rbf.x) == length(zs_ok)
     end
 end
