@@ -46,7 +46,7 @@ begin
 	using CairoMakie:
 		Axis, CairoMakie, Colorbar, DataAspect, Figure, hlines!, lines!, mesh!, poly!, scatter!, vlines!, @L_str
 	using DistMesh: distmesh2d
-	using GeometryBasics: GeometryBasics, per_face
+	using GeometryBasics: FaceView, Mesh, per_face
 	using LinearAlgebra: I, Diagonal, dot
 	using StaticArrays: SVector
 	using Statistics: mean
@@ -134,7 +134,7 @@ let
 end
 
 # ╔═╡ fc6e3681-2386-4a4f-be68-16d71606a7fe
-msh = Meshing.mesh(model; hcoeff=1//4)
+msh = Meshing.mesh(model; hcoeff=1//4, params=true)
 
 # ╔═╡ dd30581a-ab0f-4fcd-a167-38d585717beb
 let
@@ -143,6 +143,12 @@ let
 	plot_boundaries!(ax, boundaries)
 	fig
 end
+
+# ╔═╡ f9d059f4-464f-4f58-85c6-39327eea9b5f
+msh_areas = map(abs ∘ Base.Fix1(Meshing.signed_face_area, msh.position), msh.faces)
+
+# ╔═╡ 75eac998-61e0-491e-b152-a205a7f9b756
+msh_area = sum(msh_areas)
 
 # ╔═╡ 67e7082c-9747-4fc3-bbc6-9842dce52bf6
 eigvals_large = sample_eigenvalues(e, 1536);
@@ -158,28 +164,10 @@ let
 	fig
 end
 
-# ╔═╡ 67f5fd93-aad0-4e03-838b-f82060f5ad09
-msh_zs = zvals(msh)
-
-# ╔═╡ 3d1a53dc-dd97-4429-b754-dee7a67955f0
-msh_sols = evaluatebatch(model, msh_zs; refine=false);
-
-# ╔═╡ b8080bc0-b92c-4c22-82b0-1d76aff6842d
-msh_shift = shift(msh_sols);
-
-# ╔═╡ 0e6f9e9c-f353-4368-82fa-a097f5391613
-msh_greens = greens(msh_sols);
-
-# ╔═╡ 3fb17c5b-6191-41d0-a709-873f739bf984
-msh_greens_re, msh_greens_im = reim(msh_greens);
-
-# ╔═╡ c1abcb97-ccb9-423a-8345-28e915a9d38f
-msh_greens_abs, msh_greens_arg = abs.(msh_greens), angle.(msh_greens);
-
 # ╔═╡ 9d41a80c-8e3f-49a6-98bf-a71a02557e4c
 let
 	fig, ax = figax()
-	co = mesh!(ax, msh; color=msh_shift, colorrange=(0.0, 1.0))
+	co = mesh!(ax, msh; color=msh.shift, colorrange=(0.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -188,7 +176,7 @@ end
 # ╔═╡ e8b72031-5b52-4afe-8ff0-5a3dbc0016e5
 let
 	fig, ax = figax()
-	co = mesh!(ax, msh; color=msh_greens_re, colorrange=(-1.0, 1.0))
+	co = mesh!(ax, msh; color=real.(msh.greens), colorrange=(-1.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -197,7 +185,7 @@ end
 # ╔═╡ aa86d73f-554f-499b-a593-490644042b2f
 let
 	fig, ax = figax()
-	co = mesh!(msh; color=msh_greens_im, colorrange=(-1.0, 1.0))
+	co = mesh!(msh; color=imag.(msh.greens), colorrange=(-1.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -206,7 +194,7 @@ end
 # ╔═╡ 869a8407-9c6e-4a7b-9840-74ea47fc6ca7
 let
 	fig, ax = figax()
-	co = mesh!(ax, msh; color=msh_greens_abs, colorrange=(0.0, 1.0))
+	co = mesh!(ax, msh; color=abs.(msh.greens), colorrange=(0.0, 1.0))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
@@ -215,32 +203,33 @@ end
 # ╔═╡ f6c3584c-8f44-4839-a5e4-45bcbe357768
 let
 	fig, ax = figax()
-	co = mesh!(ax, msh; color=msh_greens_arg, colorrange=(-π, π))
+	co = mesh!(ax, msh; color=angle.(msh.greens), colorrange=(-π, π))
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	fig
 end
 
-# ╔═╡ c9e97073-ec93-487b-89a5-6f51192d11c2
-msh_greens_grad = mesh_gradient_per_vertex(msh_greens, msh.position, msh.faces)
+# ╔═╡ 557d845a-8d25-4982-b97d-fa147f16d53f
+msh_with_density = let
+	msh_with_greens_grad = Meshing.grad(msh, :greens)
+	density = abs.(dot.(
+		(SVector(1 // 2, -im // 2),), msh_with_greens_grad.greens_grad.data,
+	)) ./ π
+	Meshing.updatemesh(msh_with_greens_grad; density=per_face(density, msh))
+end
 
-# ╔═╡ 6bf63dbb-043c-4350-b82c-5703c226436f
-# NOTE: First vector in dot conjugated, hence the minus sign to get d_dzc
-msh_dgreens_dzc = dot.([SVector(1 // 2, -im // 2)], msh_greens_grad)
+# ╔═╡ 3a49302e-8724-4587-a126-1785da30c4ef
+msh_density_integral = dot(msh_areas, msh_with_density.density.data)
 
-# ╔═╡ 92cd0183-2a6e-4415-94ba-74b26ae32e81
-msh_density = abs.(msh_dgreens_dzc) ./ π
+# ╔═╡ 324b06ed-0521-42b1-88cb-57b9ecbd6718
+msh_colored_by_density = Meshing.updatemesh(
+	msh_with_density; color=msh_with_density.density
+)
 
-# ╔═╡ bca18e3b-67fc-4a7d-803c-1bb18a5c6926
-msh_face_area = map(abs ∘ Base.Fix1(signed_face_area, msh.position), msh.faces)
-
-# ╔═╡ f9d059f4-464f-4f58-85c6-39327eea9b5f
-msh_area = sum(msh_face_area)
-
-# ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
+# ╔═╡ bf1493cf-452d-4a02-820e-7c21738192e3
 let
 	fig, ax = figax()
-	co = mesh!(ax, msh; color=msh_density, colorrange=(0.0, 2inv(msh_area)))
+	co = mesh!(ax, msh_colored_by_density; colorrange=(0.0, 2inv(msh_area)))	   
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	scatter!(
@@ -250,25 +239,22 @@ let
 	fig
 end
 
-# ╔═╡ cab4874c-365f-4f84-b5c7-0f07291bf2dc
-msh_greens_grad_pf = mesh_gradient_per_face(msh_greens, msh.position, msh.faces)
+# ╔═╡ 92cd0183-2a6e-4415-94ba-74b26ae32e81
+msh_with_vertex_density = let
+	# We need to clear out all face view attributes for plotting to accept using a
+	# vertex attribute as color. Probably a Makie bug.
+	m = Meshing.area_weighted_average(msh_with_density, :density)
+	Mesh(m.faces; filter(v -> !(v isa FaceView), m.vertex_attributes)...)
+end
 
-# ╔═╡ 21d04fd4-b4e7-4c2c-974b-300d5fb4f940
-msh_dgreens_dzc_pf = dot.([SVector(1 // 2, -im // 2)], msh_greens_grad_pf)
-
-# ╔═╡ 3329c5d6-8a7f-47d4-9699-83105998d9f2
-msh_density_pf = abs.(msh_dgreens_dzc_pf) ./ π
-
-# ╔═╡ 230cf7e2-78e5-4533-b498-6c4cfb5ea463
-dot(msh_face_area, msh_density_pf)  # density integral, should be == 1
-
-# ╔═╡ bb6f19a4-384a-4649-8cc3-30a0d3dab8d6
-msh_with_density_pf = GeometryBasics.mesh(msh; color=per_face(msh_density_pf, msh))
-
-# ╔═╡ bf1493cf-452d-4a02-820e-7c21738192e3
+# ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
 let
 	fig, ax = figax()
-	co = mesh!(ax, msh_with_density_pf; colorrange=(0.0, 2inv(msh_area)))
+	co = mesh!(
+		ax, msh_with_vertex_density;
+		color=msh_with_vertex_density.vertex_density,
+		colorrange=(0.0, 2inv(msh_area)),
+	)
 	Colorbar(fig[1, 2], co)
 	plot_boundaries!(ax, boundaries)
 	scatter!(
@@ -295,28 +281,18 @@ end
 # ╠═4274301c-18c5-4329-a1f4-3f5a69c6574b
 # ╠═fc6e3681-2386-4a4f-be68-16d71606a7fe
 # ╠═dd30581a-ab0f-4fcd-a167-38d585717beb
+# ╠═f9d059f4-464f-4f58-85c6-39327eea9b5f
+# ╠═75eac998-61e0-491e-b152-a205a7f9b756
 # ╠═67e7082c-9747-4fc3-bbc6-9842dce52bf6
 # ╠═192115b0-68a8-430a-bdc8-cafd3aaf227d
-# ╠═67f5fd93-aad0-4e03-838b-f82060f5ad09
-# ╠═3d1a53dc-dd97-4429-b754-dee7a67955f0
-# ╠═b8080bc0-b92c-4c22-82b0-1d76aff6842d
-# ╠═0e6f9e9c-f353-4368-82fa-a097f5391613
-# ╠═3fb17c5b-6191-41d0-a709-873f739bf984
-# ╠═c1abcb97-ccb9-423a-8345-28e915a9d38f
 # ╠═9d41a80c-8e3f-49a6-98bf-a71a02557e4c
 # ╠═e8b72031-5b52-4afe-8ff0-5a3dbc0016e5
 # ╠═aa86d73f-554f-499b-a593-490644042b2f
 # ╠═869a8407-9c6e-4a7b-9840-74ea47fc6ca7
 # ╠═f6c3584c-8f44-4839-a5e4-45bcbe357768
-# ╠═c9e97073-ec93-487b-89a5-6f51192d11c2
-# ╠═6bf63dbb-043c-4350-b82c-5703c226436f
-# ╠═92cd0183-2a6e-4415-94ba-74b26ae32e81
-# ╠═bca18e3b-67fc-4a7d-803c-1bb18a5c6926
-# ╠═f9d059f4-464f-4f58-85c6-39327eea9b5f
-# ╠═e45d65ff-d035-4dc5-b019-135dd51cb358
-# ╠═cab4874c-365f-4f84-b5c7-0f07291bf2dc
-# ╠═21d04fd4-b4e7-4c2c-974b-300d5fb4f940
-# ╠═3329c5d6-8a7f-47d4-9699-83105998d9f2
-# ╠═230cf7e2-78e5-4533-b498-6c4cfb5ea463
-# ╠═bb6f19a4-384a-4649-8cc3-30a0d3dab8d6
+# ╠═557d845a-8d25-4982-b97d-fa147f16d53f
+# ╠═3a49302e-8724-4587-a126-1785da30c4ef
+# ╠═324b06ed-0521-42b1-88cb-57b9ecbd6718
 # ╠═bf1493cf-452d-4a02-820e-7c21738192e3
+# ╠═92cd0183-2a6e-4415-94ba-74b26ae32e81
+# ╠═e45d65ff-d035-4dc5-b019-135dd51cb358
