@@ -1,100 +1,28 @@
 module Densities
 
-using LinearAlgebra: dot
-using StaticArrays: SVector, StaticVector
+using GeometryBasics: FaceView, Mesh, per_face
 
-public mesh_gradient_per_face, mesh_gradient_per_vertex, signed_face_area
+using ..Meshing: Meshing
 
-"""
-    mesh_gradient_per_face(values, vertices, faces) -> AbstractVector
-
-Compute per-face gradients of a field over a 2D mesh
-
-Uses linear FEM basis functions, so gradient is constant over each triangular face. Returns
-a vector where each entry is the gradient on the corresponding face in `faces`.
-"""
-function mesh_gradient_per_face(
-    values::AbstractArray{<:Any,N},
-    vertices::AbstractArray{<:StaticVector{2,<:Real},N},
-    faces::AbstractVector{<:StaticVector{3,<:Integer}},
-) where {N}
-    return map(faces) do face
-        vals = face_vertex_vals(values, face)
-
-        dps = face_edge_dvals(vertices, face)
-        dxs, dys = first.(dps), last.(dps)
-        signed_area2 = cross1(dxs, dys)
-
-        # Important: pass the known real triple first first arg to avoid dot's conjugation
-        dfdx = dot(dys, vals) / signed_area2
-        dfdy = -dot(dxs, vals) / signed_area2
-        return SVector(dfdx, dfdy)
-    end
-end
+public spectral_density
 
 """
-    mesh_gradient_per_vertex(values, vertices, faces) -> AbstractVector
+    spectral_density(mesh, s=:greens; label=:density)
 
-Compute per-vertex gradients of a field over a 2D mesh
+Compute the spectral density of a matrix ensemble from a mesh with resolvent parameters.
 
-Gradient per face are computed as in `mesh_gradient_per_face`. Gradients per vertex are
-obtained by area-weighted averaging.
+    density = |∂t/∂z̄| / π; here t is the ensemble's Green's function (normalized trace of
+                           the ensemble-averaged resolvent).
+
+Returns a new mesh with an additional FaceView attribute `mesh.vertex_attributes[label]`
+containing the spectral density.
 """
-function mesh_gradient_per_vertex(
-    values::AbstractArray{<:Any,N},
-    vertices::AbstractArray{<:StaticVector{2,<:Real},N},
-    faces::AbstractVector{<:StaticVector{3,<:Integer}},
-) where {N}
-    face_grads = mesh_gradient_per_face(values, vertices, faces)
-    return area_weighted_averages(face_grads, vertices, faces)
-end
-
-"""
-     area_weighted_averages(face_values, vertices, faces) -> AbstractVector
-
-Compute area-weighted averages of `face_values`
-
-The value at each vertex is calculated as an average of the values at each of the adjacent
-faces, weighted by the areas of those faces.
-"""
-function area_weighted_averages(
-    face_values::AbstractVector{T},
-    vertices::AbstractArray{<:StaticVector{2,F}},
-    faces::AbstractVector{<:StaticVector{3,<:Integer}},
-) where {F<:Real,T}
-    zero_area = zero(F)^2
-    zero_value = zero(T) * zero_area
-    awvalues, aweights = fill(zero_value, size(vertices)), fill(zero_area, size(vertices))
-    for (face, face_val) in zip(faces, face_values)
-        area = abs(signed_face_area(vertices, face))
-        for I in face
-            awvalues[I] += area * face_val
-            aweights[I] += area
-        end
-    end
-    return awvalues ./ aweights
-end
-
-function signed_face_area(
-    vertices::AbstractArray{<:StaticVector{2,<:Real}}, face::StaticVector{3,<:Integer}
-)
-    dps = face_edge_dvals(vertices, face)
-    return cross1(first.(dps), last.(dps)) / 2
-end
-
-cross1(a, b) = (a[2] * b[3]) - (a[3] * b[2])
-
-function face_edge_dvals(vertex_vals::AbstractArray, face::StaticVector{3,<:Integer})
-    face_vvals = face_vertex_vals(vertex_vals, face)
-    return (
-        face_vvals[2] - face_vvals[3],
-        face_vvals[3] - face_vvals[1],
-        face_vvals[1] - face_vvals[2],
-    )
-end
-
-function face_vertex_vals(vertex_vals::AbstractArray, face::StaticVector{3,<:Integer})
-    return ntuple(i -> vertex_vals[face[i]], Val(3))
+function spectral_density(msh::Mesh{2}, s=:greens; label=:density)
+    wirt_label = Symbol(s, "_wirt")
+    wirt_msh = Meshing.wirtinger_derivatives(msh, s; label=wirt_label)
+    wirt = wirt_msh.vertex_attributes[wirt_label]::FaceView
+    density = real.(last.(wirt.data)) ./ π
+    return Meshing.updatemesh(msh; label => per_face(density, wirt.faces))
 end
 
 end  # module Densities

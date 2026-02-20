@@ -12,7 +12,7 @@ using ..Spreads: shift
 using ..Surrogates: SurrogateModel, Surrogates, evaluate, evaluatebatch, zvals
 
 public addresolventparams,
-    area_weighted_average, boundingbox, grad, mesh, signed_face_area, updatemesh
+    area_weighted_average, boundingbox, grad, mesh, updatemesh, wirtinger_derivatives
 
 function mesh(model::SurrogateModel; hcoeff::Real=1, shiftoffset::Real=0, params=false)
     h = hcoeff * mean(model.rbf.nn_dists)
@@ -50,7 +50,7 @@ function updatemesh(msh; attrs...)
 end
 
 """
-    grad(msh, s) -> Mesh
+    grad(msh, s; label=Symbol(s, "_grad")) -> Mesh
 
 Compute per-face gradients of a field over a 2D mesh
 
@@ -136,6 +136,37 @@ function area_weighted_average(
         end
     end
     return aw_values ./ aweights
+end
+
+function remove_faceviews(msh::Mesh)
+    # Coloring a mesh plot with a vertex attribute when face views exist is broken. Probably
+    # a Makie bug. For now, provide this convenience function to strip out the faceviews.
+    # NOTE: filter applies the predicate to values, not key-value pairs, when applied to
+    # NamedTuples (unlike when applied to Dicts). Surprising and undocumented, but OK.
+    return Mesh(msh.faces; filter(v -> !(v isa FaceView), msh.vertex_attributes)...)
+end
+
+"""
+    wirtinger_derivatives(mesh, s; label=Symbol(s, "_wirt") -> Mesh
+
+Compute the Wirtinger derivatives of a scalar field on a 2D mesh over the complex plane
+
+Returns a new mesh with an additional FaceView attribute `mesh.vertex_attributes[label]`
+containing the Wirtinger derivatives. Each entry is an SVector of the form `(∂s/∂z, ∂s/∂z̄)`.
+"""
+function wirtinger_derivatives(
+    mesh::Mesh{2,F}, s::Symbol; label=Symbol(s, "_wirt")
+) where {F<:Real}
+    grad_label = Symbol(s, "_grad")
+    grad_msh = grad(mesh, s; label=grad_label)
+    grd = grad_msh.vertex_attributes[grad_label]::FaceView
+    # ∂f/∂z = (∂f/∂x - i∂f/∂y) / 2
+    # ∂f/∂z̄ = (∂f/∂x + i∂f/∂y) / 2
+    wirt_data = map(grd.data) do (gx, gy)::SVector{2}
+        gx_2, igy_2 = gx / 2, im * gy / 2
+        return SVector(gx_2 - igy_2, gx_2 + igy_2)
+    end
+    return updatemesh(grad_msh; label => per_face(wirt_data, grd.faces))
 end
 
 end  # module Meshing
