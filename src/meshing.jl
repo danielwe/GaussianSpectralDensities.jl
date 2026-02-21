@@ -200,3 +200,87 @@ end  # module Meshing
     nv = length(fine.position)
     @test all(f -> all(i -> 1 <= i <= nv, f), fine.faces)
 end
+
+@testitem "grad and wirtinger_derivatives" begin
+    using GaussianSpectralDensities.Meshing:
+        area_weighted_average, grad, updatemesh, wirtinger_derivatives
+
+    using GeometryBasics: FaceView, Mesh, Point2, TriangleFace
+    using StaticArrays: SVector
+
+    # Build a minimal mesh: unit square split into two triangles
+    #   4--3
+    #   |\ |
+    #   | \|
+    #   1--2
+    vertices = Point2.([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+    faces = TriangleFace.([(1, 2, 3), (1, 3, 4)])
+    msh = Mesh(vertices, faces)
+
+    @testset "grad with real-valued linear field" begin
+        # f(x, y) = 2x + 3y — gradient should be exactly [2, 3] on every face
+        vals = [2.0 * p[1] + 3.0 * p[2] for p in vertices]
+        msh_f = updatemesh(msh; scalar=vals)
+
+        msh_g = grad(msh_f, :scalar)
+        gdata = msh_g.vertex_attributes[:scalar_grad]
+        @test gdata isa FaceView
+        @testset "face = $i" for (i, g) in pairs(gdata.data)
+            @test g ≈ SVector(2.0, 3.0)
+        end
+    end
+
+    @testset "grad with complex-valued linear field" begin
+        vals = [(2.0 + 1.0im) * p[1] + (3.0 - 1.0im) * p[2] for p in vertices]
+        msh_f = updatemesh(msh; scalar=vals)
+
+        msh_g = grad(msh_f, :scalar)
+        gdata = msh_g.vertex_attributes[:scalar_grad]
+        @test gdata isa FaceView
+        @testset "face = $i" for (i, g) in pairs(gdata.data)
+            @test g ≈ SVector(2.0 + 1.0im, 3.0 - 1.0im)
+        end
+    end
+
+    @testset "wirtinger_derivatives of anti-analytic function" begin
+        # f(z) = z̄ = x - iy, exactly linear => ∂f/∂z = 0, ∂f/∂z̄ = 1 exactly
+        vals = [p[1] - im * p[2] for p in vertices]
+        msh_f = updatemesh(msh; scalar=vals)
+
+        msh_w = wirtinger_derivatives(msh_f, :scalar)
+        wdata = msh_w.vertex_attributes[:scalar_wirt]
+        @test wdata isa FaceView
+        @testset "face = $i" for (i, w) in pairs(wdata.data)
+            @test w[1] ≈ 0  # ∂f/∂z
+            @test w[2] ≈ 1  # ∂f/∂z̄
+        end
+    end
+
+    @testset "wirtinger_derivatives of analytic function" begin
+        # f(z) = z = x + iy => ∂f/∂z = 1, ∂f/∂z̄ = 0 exactly
+        vals = [complex(p[1], p[2]) for p in vertices]
+        msh_f = updatemesh(msh; scalar=vals)
+
+        msh_w = wirtinger_derivatives(msh_f, :scalar)
+        wdata = msh_w.vertex_attributes[:scalar_wirt]
+        @test wdata isa FaceView
+        @testset "face = $i" for (i, w) in pairs(wdata.data)
+            @test w[1] ≈ 1  # ∂f/∂z
+            @test w[2] ≈ 0  # ∂f/∂z̄
+        end
+    end
+
+    @testset "area_weighted_average round-trip" begin
+        # For a linear field the per-face gradient is constant, so area-weighted
+        # averaging back to vertices should recover that same constant at every vertex.
+        vals = [2.0 * p[1] + 3.0 * p[2] for p in vertices]
+        msh_f = updatemesh(msh; scalar=vals)
+
+        msh_g = grad(msh_f, :scalar)
+        msh_a = area_weighted_average(msh_g, :scalar_grad)
+        vg = msh_a.vertex_attributes[:vertex_scalar_grad]
+        @testset "vertex = $i" for (i, g) in pairs(vg)
+            @test g ≈ SVector(2.0, 3.0)
+        end
+    end
+end
