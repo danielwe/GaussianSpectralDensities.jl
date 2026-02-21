@@ -441,15 +441,15 @@ end
 
 end  # module Boundaries
 
-@testitem "BoundaryResult construction" begin
-    using GaussianSpectralDensities.Boundaries: BoundaryResult
+@testitem "BoundarySegment construction" begin
+    using GaussianSpectralDensities.Boundaries: BoundarySegment
 
     @testset "closed = true" begin
         pts = ComplexF64[1.0 + 0.0im, 0.0 + 1.0im, -1.0 + 0.0im, 1.0 + 0.0im]
         shifts = [0.0, 0.0, 0.0, 0.0]
         seed = 1.0 + 0.0im
 
-        result = BoundaryResult(pts, shifts, true, seed)
+        result = BoundarySegment(pts, shifts, seed, true)
         @test result.points === pts
         @test result.shift_values === shifts
         @test result.closed === true
@@ -462,7 +462,7 @@ end  # module Boundaries
         shifts = [0.01, -0.02]
         seed = 1.0 + 0.0im
 
-        result = BoundaryResult(pts, shifts, false, seed)
+        result = BoundarySegment(pts, shifts, seed, false)
         @test result.points === pts
         @test result.shift_values === shifts
         @test result.closed === false
@@ -475,7 +475,7 @@ end  # module Boundaries
         shifts = [0.0, 0.0, 0.0, 0.0]
         seed = 1.0 + 0.0im
 
-        result = BoundaryResult(pts, shifts, true, seed, true)
+        result = BoundarySegment(pts, shifts, seed, true, true)
         @test result.closed === true
         @test result.internal === true
     end
@@ -485,7 +485,7 @@ end  # module Boundaries
         shifts = Float64[]
         seed = 0.0 + 0.0im
 
-        result = BoundaryResult(pts, shifts, false, seed)
+        result = BoundarySegment(pts, shifts, seed, false)
         @test isempty(result.points)
         @test isempty(result.shift_values)
         @test result.closed === false
@@ -493,15 +493,15 @@ end  # module Boundaries
     end
 end
 
-@testitem "BoundaryTrace construction" begin
-    using GaussianSpectralDensities.Boundaries: BoundaryResult, BoundaryTrace
+@testitem "BoundarySegmentTrace construction" begin
+    using GaussianSpectralDensities.Boundaries: BoundarySegment, BoundarySegmentTrace
 
     pts = ComplexF64[1.0 + 0.0im, 0.0 + 1.0im, 1.0 + 0.0im]
     shifts = [0.0, 0.0, 0.0]
     seed = 1.0 + 0.0im
-    result = BoundaryResult(pts, shifts, true, seed)
+    result = BoundarySegment(pts, shifts, seed, true)
 
-    trace = BoundaryTrace(result, 150, 2)
+    trace = BoundarySegmentTrace(result, 150, 2)
     @test trace.result === result
     @test trace.n_solver_calls == 150
     @test trace.n_failures == 2
@@ -605,15 +605,15 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    # At right endpoint (1.25, 0), gradient should point outward (positive real direction)
+    # At right endpoint (1.25, 0), the gradient should point leftward (shift decreases outward)
     grad = compute_gradient(model, complex(1.25))
     @test !isnothing(grad)
-    @test real(grad) < 0  # shift decreases outward, so gradient points outward (negative)
+    @test real(grad) < 0
 
-    # At top of ellipse (0, 0.75), gradient should point outward (positive imaginary direction)
+    # At top of ellipse (0, 0.75), the gradient should point downward (shift decreases outward)
     grad = compute_gradient(model, complex(0.0, 0.75))
     @test !isnothing(grad)
-    @test imag(grad) < 0  # shift decreases outward, so gradient points in -y direction
+    @test imag(grad) < 0
 end
 
 @testitem "compute_gradient inside support" begin
@@ -795,13 +795,13 @@ end
 end
 
 @testitem "is_near_contour" begin
-    using GaussianSpectralDensities.Boundaries: BoundaryResult, is_near_contour
+    using GaussianSpectralDensities.Boundaries: BoundarySegment, is_near_contour
 
     @testset "$F" for F in [Float32, Float64]
         # Contour with a few known points
         pts = Complex{F}[1, im, -1, -im, 1]
         shifts = zeros(F, 5)
-        contour = BoundaryResult(pts, shifts, true, Complex{F}(1))
+        contour = BoundarySegment(pts, shifts, Complex{F}(1), true)
 
         # Point exactly on a contour point: distance = 0 < any positive threshold
         @test is_near_contour(Complex{F}(1), contour, F(0.1))
@@ -816,18 +816,18 @@ end
         @test is_near_contour(Complex{F}(2.0), contour, F(2.0))
 
         # Empty contour points
-        empty_contour = BoundaryResult(Complex{F}[], F[], true, Complex{F}(0))
+        empty_contour = BoundarySegment(Complex{F}[], F[], Complex{F}(0), true)
         @test !is_near_contour(Complex{F}(0), empty_contour, F(1.0))
     end
 end
 
 @testitem "is_near_contour threshold boundary" begin
-    using GaussianSpectralDensities.Boundaries: BoundaryResult, is_near_contour
+    using GaussianSpectralDensities.Boundaries: BoundarySegment, is_near_contour
 
     @testset "$F" for F in [Float32, Float64]
         pts = Complex{F}[0]
         shifts = zeros(F, 1)
-        contour = BoundaryResult(pts, shifts, true, Complex{F}(0))
+        contour = BoundarySegment(pts, shifts, Complex{F}(0), true)
 
         # Distance is exactly 0.5; threshold is 1.0 → near
         @test is_near_contour(Complex{F}(0.5), contour, F(1.0))
@@ -838,19 +838,19 @@ end
 end
 
 @testitem "is_near_any_contour" begin
-    using GaussianSpectralDensities.Boundaries: BoundaryResult, is_near_any_contour
+    using GaussianSpectralDensities.Boundaries: BoundarySegment, is_near_any_contour
 
     @testset "$F" for F in [Float32, Float64]
         pts1 = Complex{F}[1, im, -1, -im, 1]
-        contour1 = BoundaryResult(pts1, zeros(F, 5), true, Complex{F}(1))
+        contour1 = BoundarySegment(pts1, zeros(F, 5), Complex{F}(1), true)
 
         pts2 = Complex{F}[5, 5 + im, 5 + 2im]
-        contour2 = BoundaryResult(pts2, zeros(F, 3), false, Complex{F}(5))
+        contour2 = BoundarySegment(pts2, zeros(F, 3), Complex{F}(5), false)
 
         pts3 = Complex{F}[10, 10 + im, 10 + 2im, 10]
-        contour3 = BoundaryResult(pts3, zeros(F, 4), true, Complex{F}(10))
+        contour3 = BoundarySegment(pts3, zeros(F, 4), Complex{F}(10), true)
 
-        contours = BoundaryResult{F}[contour1, contour2, contour3]
+        contours = BoundarySegment{F}[contour1, contour2, contour3]
         threshold = F(0.5)
 
         # Near contour1
@@ -866,13 +866,13 @@ end
         @test !is_near_any_contour(Complex{F}(50.0), contours, threshold)
 
         # Empty contours
-        @test !is_near_any_contour(Complex{F}(1.0), BoundaryResult{F}[], threshold)
+        @test !is_near_any_contour(Complex{F}(1.0), BoundarySegment{F}[], threshold)
     end
 end
 
-@testitem "extract_boundaries single component" begin
+@testitem "spectral_boundary single component" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Boundaries: BoundaryTrace, extract_boundaries
+    using GaussianSpectralDensities.Boundaries: BoundarySegmentTrace, spectral_boundary
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
@@ -884,8 +884,8 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    traces = extract_boundaries(model)
-    @test traces isa Vector{BoundaryTrace{Float64}}
+    traces = spectral_boundary(model)
+    @test traces isa Vector{BoundarySegmentTrace{Float64}}
     @test length(traces) == 1
 
     result = traces[1].result
@@ -903,10 +903,10 @@ end
     end
 end
 
-@testitem "extract_boundaries annular support" begin
+@testitem "spectral_boundary annular support" begin
     using GaussianSpectralDensities.Algorithms: SpreadAnnealing
     using GaussianSpectralDensities.Boundaries:
-        BoundaryTrace, extract_boundaries, point_in_polygon
+        BoundarySegmentTrace, spectral_boundary, point_in_polygon
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
@@ -920,8 +920,8 @@ end
     constraint = PTraceConstraint(1.0; shift0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, SpreadAnnealing(), 96)
 
-    traces = extract_boundaries(model)
-    @test traces isa Vector{BoundaryTrace{Float64}}
+    traces = spectral_boundary(model)
+    @test traces isa Vector{BoundarySegmentTrace{Float64}}
     @test length(traces) == 2
 
     # Sort by contour size so outer comes first
@@ -960,9 +960,9 @@ end
     @test !point_in_polygon(z_outside, inner.points)
 end
 
-@testitem "extract_boundaries max_components limit" begin
+@testitem "spectral_boundary max_components limit" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
@@ -974,13 +974,13 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    traces = extract_boundaries(model; max_components=1)
+    traces = spectral_boundary(model; max_components=1)
     @test length(traces) <= 1
 end
 
-@testitem "extract_boundaries argument validation" begin
+@testitem "spectral_boundary argument validation" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
@@ -992,17 +992,17 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    @test_throws ArgumentError extract_boundaries(model, 0.0)
-    @test_throws ArgumentError extract_boundaries(model, -0.1)
-    @test_throws ArgumentError extract_boundaries(model; tol=0.0)
-    @test_throws ArgumentError extract_boundaries(model; tol=-1e-6)
-    @test_throws ArgumentError extract_boundaries(model; max_components=0)
-    @test_throws ArgumentError extract_boundaries(model; max_components=-1)
+    @test_throws ArgumentError spectral_boundary(model, 0.0)
+    @test_throws ArgumentError spectral_boundary(model, -0.1)
+    @test_throws ArgumentError spectral_boundary(model; tol=0.0)
+    @test_throws ArgumentError spectral_boundary(model; tol=-1e-6)
+    @test_throws ArgumentError spectral_boundary(model; max_components=0)
+    @test_throws ArgumentError spectral_boundary(model; max_components=-1)
 end
 
-@testitem "extract_boundaries keyword forwarding" begin
+@testitem "spectral_boundary keyword forwarding" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
@@ -1015,14 +1015,14 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # max_steps=2 should produce an open contour, which stops the loop
-    traces = extract_boundaries(model; max_steps=2)
+    traces = spectral_boundary(model; max_steps=2)
     @test length(traces) == 1
     @test !traces[1].result.closed
 end
 
-@testitem "extract_boundaries stops on open contour" begin
+@testitem "spectral_boundary stops on open contour" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Boundaries: extract_boundaries
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
     using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
@@ -1035,7 +1035,73 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # Force open contour via very few max_steps; loop should stop after first trace
-    traces = extract_boundaries(model; max_steps=3, max_components=10)
+    traces = spectral_boundary(model; max_steps=3, max_components=10)
     @test length(traces) == 1
     @test !traces[1].result.closed
+end
+
+@testitem "spectral_boundary from SpectralModel" begin
+    using CommonSolve: solve
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: BoundarySegmentTrace, spectral_boundary
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint
+    using GaussianSpectralDensities.SpectralModels: SpectralProblem
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    prob = SpectralProblem(ensemble, constraint)
+    model = solve(prob, DirectSolve(); nsamples=16)
+
+    traces = spectral_boundary(model)
+    @test traces isa Vector{BoundarySegmentTrace{Float64}}
+    @test length(traces) == 1
+
+    result = traces[1].result
+    @test result.closed
+    @test !result.internal
+    @test length(result.points) > 10
+    @test all(s -> abs(s) < 1e-3, result.shift_values)
+end
+
+@testitem "spectral_boundary SpectralModel wrapper equivalence" begin
+    using CommonSolve: solve
+    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems: PTraceConstraint
+    using GaussianSpectralDensities.SpectralModels: SpectralProblem
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    prob = SpectralProblem(ensemble, constraint)
+    model = solve(prob, DirectSolve(); nsamples=16)
+
+    step_size_coeff = 1 // 4
+    traces_from_model = spectral_boundary(model; step_size_coeff, max_components=1)
+    traces_from_surrogate = spectral_boundary(
+        model.surrogate, step_size_coeff; max_components=1
+    )
+
+    @test length(traces_from_model) == length(traces_from_surrogate)
+    @testset "trace = $i" for (i, (from_model, from_surrogate)) in
+                              enumerate(zip(traces_from_model, traces_from_surrogate))
+        @test from_model.result.closed == from_surrogate.result.closed
+        @test from_model.result.internal == from_surrogate.result.internal
+        @test length(from_model.result.points) == length(from_surrogate.result.points)
+        @test length(from_model.result.shift_values) ==
+            length(from_surrogate.result.shift_values)
+        @test all(
+            abs(z1 - z2) < 1e-10 for
+            (z1, z2) in zip(from_model.result.points, from_surrogate.result.points)
+        )
+        @test all(
+            abs(s1 - s2) < 1e-10 for (s1, s2) in
+            zip(from_model.result.shift_values, from_surrogate.result.shift_values)
+        )
+    end
 end
