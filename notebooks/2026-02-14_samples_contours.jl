@@ -24,7 +24,7 @@ end
 # ╔═╡ 07c3373f-fefb-49f3-8384-0f6826ec2a4a
 begin
 	using GaussianSpectralDensities.Algorithms: SpreadAnnealing
-	using GaussianSpectralDensities.Boundaries: extract_boundaries
+	using GaussianSpectralDensities.Boundaries: spectral_boundary
 	using GaussianSpectralDensities.Spreads: shift
 	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
@@ -32,7 +32,9 @@ begin
 	using GaussianSpectralDensities.Solutions: greens
 	using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluatebatch
 
-	using CairoMakie: Axis, Colorbar, DataAspect, Figure, contour!, contourf!, lines!, scatter!, @L_str
+	using CairoMakie:
+		Axis, Colorbar, DataAspect, Figure, contour!, contourf!, lines!, scatter!,
+		@L_str
 	using LinearAlgebra: I, Diagonal
 end
 
@@ -149,8 +151,6 @@ let
 end
 
 # ╔═╡ 272863c6-aa6b-435d-914b-f473dd66418e
-# ╠═╡ disabled = true
-#=╠═╡
 let f=let model=model
 		f(zs) = evaluatebatch(model, zs; refine=false)
 	end
@@ -158,10 +158,9 @@ let f=let model=model
 	@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $eigs)
 	@btime $f($zs)
 end;
-  ╠═╡ =#
 
 # ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
-boundaries = extract_boundaries(model)
+boundaries = spectral_boundary(model)
 
 # ╔═╡ 8b17145b-0698-44f6-95cd-95112bc21bf8
 let

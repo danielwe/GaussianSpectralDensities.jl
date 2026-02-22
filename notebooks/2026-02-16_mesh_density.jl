@@ -31,8 +31,9 @@ end
 # ╔═╡ 07c3373f-fefb-49f3-8384-0f6826ec2a4a
 begin
 	using GaussianSpectralDensities.Algorithms: SpreadAnnealing
-	using GaussianSpectralDensities.Boundaries: extract_boundaries
-	using GaussianSpectralDensities.Densities: spectral_density
+	using GaussianSpectralDensities.Boundaries: spectral_boundary
+	using GaussianSpectralDensities.Densities:
+		area_weighted_average, remove_faceviews, spectral_density
 	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 	using GaussianSpectralDensities.Meshing: Meshing
 	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
@@ -80,7 +81,7 @@ bbox = Meshing.boundingbox(coarse_eigvals)
 model = SurrogateModel(eq, constraint, SpreadAnnealing(), zvals(coarse_mesh))
 
 # ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
-boundaries = extract_boundaries(model, 1 // 4)
+boundaries = spectral_boundary(model, 1 // 4)
 
 # ╔═╡ 875b4f94-99d9-412c-a7b3-d876a322d5b3
 function figax()
@@ -216,7 +217,7 @@ let
 end
 
 # ╔═╡ 92cd0183-2a6e-4415-94ba-74b26ae32e81
-msh_with_vertex_density = Meshing.area_weighted_average(msh_with_density, :density)
+msh_with_vertex_density = area_weighted_average(msh_with_density, :density)
 
 # ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
 let
@@ -224,7 +225,7 @@ let
 	co = mesh!(
 		# When using a vertex attribute as color, the mesh can't contain face views.
 		# Probably a Makie bug.
-		ax, Meshing.remove_faceviews(msh_with_vertex_density);
+		ax, remove_faceviews(msh_with_vertex_density);
 		color=msh_with_vertex_density.vertex_density,
 		colorrange=(0.0, 2inv(msh_area)),
 	)
