@@ -1,5 +1,139 @@
-# module SpectralModels — implementation pending
-# end  # module SpectralModels
+module SpectralModels
+
+using AutoHashEquals: @auto_hash_equals
+using CommonSolve: CommonSolve
+
+using ..Algorithms: AbstractAlgorithm, SpreadAnnealing
+using ..ArrayTools: ArrayTools, adaptrealtype
+using ..Ensembles: MatrixEnsemble
+using ..Meshing: mesh
+using ..Problems: AbstractConstraint, PTraceConstraint, ResolventEquation
+using ..Surrogates: SurrogateModel, zvals
+
+public SpectralModel, SpectralProblem
+
+@auto_hash_equals typearg=true struct SpectralProblem{
+    F<:AbstractFloat,E<:ResolventEquation{F},C<:AbstractConstraint{F}
+}
+    equation::E
+    constraint::C
+    shiftoffset::F
+
+    function SpectralProblem{F}(equation, constraint, shiftoffset) where {F}
+        eqF = adaptrealtype(F, equation)
+        constraintF = adaptrealtype(F, constraint)
+        return new{F,typeof(eqF),typeof(constraintF)}(eqF, constraintF, shiftoffset)
+    end
+end
+
+function SpectralProblem(
+    equation::ResolventEquation{F},
+    constraint=PTraceConstraint{F}(one(F); shape0=zero(Complex{F}), shift0=one(F));
+    shiftoffset::Real=F(1 // 12),
+) where {F}
+    return SpectralProblem{F}(equation, constraint, shiftoffset)
+end
+
+function SpectralProblem(
+    ensemble::MatrixEnsemble{F},
+    constraint::AbstractConstraint...;
+    shiftmin::Real=(-one(F)),
+    kwargs...,
+) where {F}
+    return SpectralProblem(ResolventEquation(ensemble; shiftmin), constraint...; kwargs...)
+end
+
+function SpectralProblem{F}(p::SpectralProblem) where {F}
+    return SpectralProblem{F}(p.equation, p.constraint, p.shiftoffset)
+end
+
+## Conversions
+## ===========
+function Base.convert(::Type{P}, p::SpectralProblem) where {F,P<:SpectralProblem{F}}
+    return (p isa P) ? p : SpectralProblem{F}(p)
+end
+
+function ArrayTools.adaptrealtype(::Type{F}, p::SpectralProblem) where {F}
+    return convert(SpectralProblem{F}, p)
+end
+
+@auto_hash_equals typearg=true struct SpectralSolver{
+    F,P<:SpectralProblem{F},A<:AbstractAlgorithm
+}
+    problem::P
+    algorithm::A
+    nsamples::Int
+    hcoeff::F
+    max_retries::Int
+
+    function SpectralSolver{F}(problem, algorithm, nsamples, hcoeff, max_retries) where {F}
+        problemF = adaptrealtype(F, problem)
+        algorithmF = adaptrealtype(F, algorithm)
+        (nsamples > 0) || throw(ArgumentError("nsamples must be positive"))
+        (hcoeff > 0) || throw(ArgumentError("hcoeff must be positive"))
+        (max_retries > 0) || throw(ArgumentError("max_retries must be positive"))
+        return new{F,typeof(problemF),typeof(algorithmF)}(
+            problemF, algorithmF, nsamples, hcoeff, max_retries
+        )
+    end
+end
+
+function SpectralSolver(
+    problem::SpectralProblem{F},
+    algorithm=adaptrealtype(F, SpreadAnnealing());
+    nsamples::Integer=64,
+    hcoeff::Real=one(F),
+    max_retries::Integer=8,
+) where {F}
+    return SpectralSolver{F}(problem, algorithm, nsamples, hcoeff, max_retries)
+end
+
+function SpectralSolver{F}(s::SpectralSolver) where {F}
+    return SpectralSolver{F}(s.problem, s.algorithm, s.nsamples, s.hcoeff, s.max_retries)
+end
+
+## Conversions
+## ===========
+function Base.convert(::Type{S}, s::SpectralSolver) where {F,S<:SpectralSolver{F}}
+    return (s isa S) ? s : SpectralSolver{F}(s)
+end
+
+function ArrayTools.adaptrealtype(::Type{F}, s::SpectralSolver) where {F}
+    return convert(SpectralSolver{F}, s)
+end
+
+@auto_hash_equals typearg=true struct SpectralModel{
+    F<:AbstractFloat,P<:SpectralProblem{F},S<:SurrogateModel{F}
+}
+    problem::P
+    surrogate::S
+end
+
+function CommonSolve.init(
+    problem::SpectralProblem, algorithm::AbstractAlgorithm...; kwargs...
+)
+    return SpectralSolver(problem, algorithm...; kwargs...)
+end
+
+function CommonSolve.solve!(solver::SpectralSolver)
+    (; problem, algorithm, nsamples, hcoeff, max_retries) = solver
+    (; equation, constraint, shiftoffset) = problem
+
+    for _ in 1:max_retries
+        model = SurrogateModel(equation, constraint, algorithm, nsamples)
+        refinement = try
+            mesh(model; hcoeff, shiftoffset)
+        catch
+            continue
+        end
+        refined_zs = zvals(refinement)
+        refined_model = SurrogateModel(equation, constraint, algorithm, refined_zs)
+        return SpectralModel(problem, refined_model)
+    end
+    return error("Failed to build spectral model after $max_retries attempts")
+end
+
+end  # module SpectralModels
 
 @testitem "Spectral{Problem,Solver} from MatrixEnsemble" begin
     using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing

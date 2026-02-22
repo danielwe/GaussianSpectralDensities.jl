@@ -94,6 +94,7 @@ include("batches.jl")
 include("rbfinterpolants.jl")
 include("surrogates.jl")
 include("meshing.jl")
+include("spectralmodels.jl")
 include("densities.jl")
 include("boundaries.jl")
 

@@ -1,10 +1,27 @@
 module Densities
 
 using GeometryBasics: FaceView, Mesh, per_face
+using LinearAlgebra: dot
+using StaticArrays: SVector, StaticVector
 
-using ..Meshing: Meshing
+using ..Meshing: Meshing, updatemesh
+using ..SpectralModels: SpectralModel
 
-public spectral_density
+public area_weighted_average,
+    grad, remove_faceviews, spectral_density, wirtinger_derivatives
+
+"""
+    spectral_density(model::SpectralModel; hcoeff=1//4, kwargs...) -> Mesh
+
+Build a fine mesh from `model.surrogate`, compute spectral density, and add an
+area-weighted vertex density attribute.
+"""
+function spectral_density(model::SpectralModel; hcoeff=1 // 4, kwargs...)
+    msh = Meshing.mesh(model.surrogate; hcoeff, params=true, kwargs...)
+    msh = spectral_density(msh)
+    msh = area_weighted_average(msh, :density)
+    return msh
+end
 
 """
     spectral_density(mesh, s=:greens; label=:density)
@@ -19,10 +36,118 @@ containing the spectral density.
 """
 function spectral_density(msh::Mesh{2}, s=:greens; label=:density)
     wirt_label = Symbol(s, "_wirt")
-    wirt_msh = Meshing.wirtinger_derivatives(msh, s; label=wirt_label)
+    wirt_msh = wirtinger_derivatives(msh, s; label=wirt_label)
     wirt = wirt_msh.vertex_attributes[wirt_label]::FaceView
     density = real.(last.(wirt.data)) ./ π
-    return Meshing.updatemesh(msh; label => per_face(density, wirt.faces))
+    return updatemesh(msh; label => per_face(density, wirt.faces))
+end
+
+"""
+    grad(msh, s; label=Symbol(s, "_grad")) -> Mesh
+
+Compute per-face gradients of a field over a 2D mesh using linear FEM basis functions.
+"""
+function grad(msh::Mesh, s::Symbol; label=Symbol(s, "_grad"))
+    g = grad(msh.vertex_attributes[s], msh.position, msh.faces)
+    return updatemesh(msh; label => per_face(g, msh))
+end
+
+function grad(
+    values::AbstractArray{<:Any,N},
+    vertices::AbstractArray{<:StaticVector{2,<:Real},N},
+    faces::AbstractVector{<:StaticVector{3,<:Integer}},
+) where {N}
+    return map(faces) do face
+        vals = face_vertex_vals(values, face)
+
+        dps = face_edge_dvals(vertices, face)
+        dxs, dys = first.(dps), last.(dps)
+        signed_area2 = cross1(dxs, dys)
+
+        # Important: pass the coordinate triple, always real, as first arg to avoid dot's conjugation
+        dfdx = dot(dys, vals) / signed_area2
+        dfdy = -dot(dxs, vals) / signed_area2
+        return SVector(dfdx, dfdy)
+    end
+end
+
+function signed_face_area(
+    vertices::AbstractArray{<:StaticVector{2,<:Real}}, face::StaticVector{3,<:Integer}
+)
+    dps = face_edge_dvals(vertices, face)
+    return cross1(first.(dps), last.(dps)) / 2
+end
+
+cross1(a, b) = (a[2] * b[3]) - (a[3] * b[2])
+
+function face_edge_dvals(vertex_vals::AbstractArray, face::StaticVector{3,<:Integer})
+    face_vvals = face_vertex_vals(vertex_vals, face)
+    return (
+        face_vvals[2] - face_vvals[3],
+        face_vvals[3] - face_vvals[1],
+        face_vvals[1] - face_vvals[2],
+    )
+end
+
+function face_vertex_vals(vertex_vals::AbstractArray, face::StaticVector{3,<:Integer})
+    return ntuple(i -> vertex_vals[face[i]], Val(3))
+end
+
+"""
+    area_weighted_average(msh, s; label=Symbol("vertex_", s)) -> Mesh
+
+Map a per-face mesh attribute to vertices using face-area weighting.
+"""
+function area_weighted_average(msh::Mesh, s::Symbol; label=Symbol("vertex_", s))
+    face_values = msh.vertex_attributes[s]::FaceView
+    vertex_values = area_weighted_average(face_values.data, msh.position, msh.faces)
+    return updatemesh(msh; label => vertex_values)
+end
+
+function area_weighted_average(
+    face_values::AbstractVector{T},
+    vertices::AbstractArray{<:StaticVector{2,F}},
+    faces::AbstractVector{<:StaticVector{3,<:Integer}},
+) where {F<:Real,T}
+    zero_area = zero(F)^2
+    zero_value = zero(T) * zero_area
+    aw_values, aweights = fill(zero_value, size(vertices)), fill(zero_area, size(vertices))
+    for (face, face_val) in zip(faces, face_values)
+        area = abs(signed_face_area(vertices, face))
+        for I in face
+            aw_values[I] += area * face_val
+            aweights[I] += area
+        end
+    end
+    return aw_values ./ aweights
+end
+
+function remove_faceviews(msh::Mesh)
+    # Coloring a mesh plot with a vertex attribute when face views exist is broken. Probably
+    # a Makie bug. For now, provide this convenience function to strip out the faceviews.
+    # NOTE: filter applies the predicate to values, not key-value pairs, when applied to
+    # NamedTuples (unlike when applied to Dicts). Surprising and undocumented, but OK.
+    return Mesh(msh.faces; filter(v -> !(v isa FaceView), msh.vertex_attributes)...)
+end
+
+"""
+    wirtinger_derivatives(mesh, s; label=Symbol(s, "_wirt") -> Mesh
+
+Compute the Wirtinger derivatives of a scalar field on a 2D mesh over the complex plane.
+"""
+function wirtinger_derivatives(
+    mesh::Mesh{2,F}, s::Symbol; label=Symbol(s, "_wirt")
+) where {F<:Real}
+    grad_label = Symbol(s, "_grad")
+    grad_msh = grad(mesh, s; label=grad_label)
+    grd = grad_msh.vertex_attributes[grad_label]::FaceView
+    # ∂f/∂z = (∂f/∂x - i∂f/∂y) / 2
+    # ∂f/∂z̄ = (∂f/∂x + i∂f/∂y) / 2
+    wirt_data = map(grd.data) do (gx, gy)::SVector{2}
+        gx_2, igy_2 = gx / 2, im * gy / 2
+        return SVector(gx_2 - igy_2, gx_2 + igy_2)
+    end
+    return updatemesh(grad_msh; label => per_face(wirt_data, grd.faces))
 end
 
 end  # module Densities
@@ -145,40 +270,6 @@ end
     @testset "vertex = $i" for (i, g) in pairs(vg)
         @test g ≈ SVector(2.0, 3.0)
     end
-end
-
-@testitem "grad low-level method" begin
-    using GaussianSpectralDensities.Densities: grad
-
-    using GeometryBasics: Point2, TriangleFace
-    using StaticArrays: SVector
-
-    vertices = Point2.([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
-    faces = TriangleFace.([(1, 2, 3), (1, 3, 4)])
-    values = [2.0 * p[1] + 3.0 * p[2] for p in vertices]
-
-    g = grad(values, vertices, faces)
-    @test length(g) == length(faces)
-    @testset "face = $i" for (i, gi) in pairs(g)
-        @test gi ≈ SVector(2.0, 3.0)
-    end
-end
-
-@testitem "area_weighted_average low-level method" begin
-    using GaussianSpectralDensities.Densities: area_weighted_average
-
-    using GeometryBasics: Point2, TriangleFace
-
-    vertices = Point2.([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
-    faces = TriangleFace.([(1, 2, 3), (1, 3, 4)])
-    face_values = [1.0, 3.0]
-
-    vertex_values = area_weighted_average(face_values, vertices, faces)
-    @test length(vertex_values) == length(vertices)
-    @test vertex_values[1] == 2.0
-    @test vertex_values[2] == 1.0
-    @test vertex_values[3] == 2.0
-    @test vertex_values[4] == 3.0
 end
 
 @testitem "remove_faceviews" begin

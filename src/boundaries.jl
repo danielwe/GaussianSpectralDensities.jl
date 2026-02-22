@@ -2,47 +2,49 @@ module Boundaries
 
 using ..Defaults: Defaults
 using ..Newton: increment
+using ..SpectralModels: SpectralModel
 using ..Solutions: issuccess
 using ..Spreads: Spreads
 using ..Surrogates: SurrogateModel, evaluate
 
 using Statistics: mean
 
-public BoundaryResult, BoundaryTrace, extract_boundaries, point_in_polygon
+public BoundarySegment,
+    BoundarySegmentTrace, SpectralModel, spectral_boundary, point_in_polygon
 
 # TODO: Derive and implement analytic gradient (implicit differentiation)
 
 """
-    BoundaryResult(points, shift_values, closed, seed, internal=false)
+    BoundarySegment(points, shift_values, seed, closed, internal=false)
 
 Container for traced boundary points and their shift values.
 
   - `points` are ordered along the contour.
   - `shift_values` aligns with `points` and should be near zero.
-  - `closed` marks whether the contour loop closed.
   - `seed` stores the (refined) starting point.
+  - `closed` marks whether the contour loop closed.
   - `internal` marks whether this is an internal boundary (hole) of an annular support
     region. `false` for outer boundaries and open contours.
 """
-struct BoundaryResult{F<:AbstractFloat}
+struct BoundarySegment{F<:AbstractFloat}
     points::Vector{Complex{F}}
     shift_values::Vector{F}
-    closed::Bool
     seed::Complex{F}
+    closed::Bool
     internal::Bool
 end
 
-function BoundaryResult(points, shift_values, closed, seed)
-    return BoundaryResult(points, shift_values, closed, seed, false)
+function BoundarySegment(points, shift_values, seed, closed)
+    return BoundarySegment(points, shift_values, seed, closed, false)
 end
 
 """
-    BoundaryTrace(result, n_solver_calls, n_failures)
+    BoundarySegmentTrace(result, n_solver_calls, n_failures)
 
 Diagnostic wrapper for a boundary extraction run, including solver counts and failures.
 """
-struct BoundaryTrace{F<:AbstractFloat}
-    result::BoundaryResult{F}
+struct BoundarySegmentTrace{F<:AbstractFloat}
+    result::BoundarySegment{F}
     n_solver_calls::Int
     n_failures::Int
 end
@@ -208,12 +210,12 @@ function classify_interior(
 end
 
 """
-    extract_boundary(model, seed, step_size, tol; ...) -> BoundaryTrace
+    spectral_boundary_segment(model, seed, step_size, tol; ...) -> BoundarySegmentTrace
 
 Trace a single shift=0 contour starting from `seed` (assumed already refined onto the
-contour). Returns a `BoundaryTrace` with the traced points and diagnostics.
+contour). Returns a `BoundarySegmentTrace` with the traced points and diagnostics.
 """
-function extract_boundary(
+function spectral_boundary_segment(
     model::SurrogateModel{F},
     seed::Complex{F},
     step_size::F,
@@ -243,8 +245,8 @@ function extract_boundary(
     )
 
     internal = closed ? classify_interior(model, points, counter) : false
-    result = BoundaryResult(points, shift_values, closed, seed_z, internal)
-    return BoundaryTrace(result, counter[], n_failures)
+    result = BoundarySegment(points, shift_values, seed_z, closed, internal)
+    return BoundarySegmentTrace(result, counter[], n_failures)
 end
 
 """
@@ -352,7 +354,7 @@ end
 Return `true` if `z` is within `threshold` of any point in `contour`.
 """
 function is_near_contour(
-    z::Complex{F}, contour::BoundaryResult{F}, threshold::F
+    z::Complex{F}, contour::BoundarySegment{F}, threshold::F
 ) where {F<:AbstractFloat}
     isempty(contour.points) && return false
     for p in contour.points
@@ -369,7 +371,7 @@ end
 Return `true` if `z` is near any closed contour in `contours`.
 """
 function is_near_any_contour(
-    z::Complex{F}, contours::AbstractVector{BoundaryResult{F}}, threshold::F
+    z::Complex{F}, contours::AbstractVector{BoundarySegment{F}}, threshold::F
 ) where {F<:AbstractFloat}
     for contour in contours
         contour.closed || continue
@@ -379,12 +381,21 @@ function is_near_any_contour(
 end
 
 """
-    extract_boundaries(model; kwargs...) -> Vector{BoundaryTrace}
+    spectral_boundary(model::SpectralModel; step_size_coeff=1//4, kwargs...) -> Vector{BoundarySegmentTrace}
+
+Extract all boundary segments from the model's surrogate.
+"""
+function spectral_boundary(model::SpectralModel; step_size_coeff=1 // 4, kwargs...)
+    return spectral_boundary(model.surrogate, step_size_coeff; kwargs...)
+end
+
+"""
+    spectral_boundary(model::SurrogateModel; kwargs...) -> Vector{BoundarySegmentTrace}
 
 Trace all disconnected boundary components. Sample points are sorted by
 `abs(shift)` and each is tried once as a potential seed for a new contour.
 """
-function extract_boundaries(
+function spectral_boundary(
     model::SurrogateModel{F},
     step_size_coeff::Real=one(F);
     tol::Real=Defaults.atol(F),
@@ -405,8 +416,8 @@ function extract_boundaries(
         throw(ArgumentError("max_components must be positive"))
     end
 
-    traces = BoundaryTrace{F}[]
-    contours = BoundaryResult{F}[]
+    traces = BoundarySegmentTrace{F}[]
+    contours = BoundarySegment{F}[]
 
     candidates = map(model.rbf.x) do xv
         z = complex(xv[1], xv[2])
@@ -421,7 +432,7 @@ function extract_boundaries(
         isnothing(refined) && continue
         is_near_any_contour(refined[1], contours, step_size) && continue
 
-        t = extract_boundary(
+        t = spectral_boundary_segment(
             model,
             refined[1],
             step_size,
