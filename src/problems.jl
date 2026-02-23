@@ -298,8 +298,8 @@ end
 end  # module Problems
 
 @testitem "ResolventEquation" begin
+    using GaussianSpectralDensities: MatrixEnsemble
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems: ResolventEquation, update
 
     using LinearAlgebra: I
@@ -353,10 +353,10 @@ end  # module Problems
 end
 
 @testitem "Constraint types" begin
+    using GaussianSpectralDensities: Spread
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Problems:
         AbstractConstraint, PTraceConstraint, SpreadConstraint, spreadtype
-    using GaussianSpectralDensities.Spreads: Spread
 
     shape0_64 = complex(0.25)
     spread64 = Spread(0.5, :gap)
@@ -417,8 +417,8 @@ end
 end
 
 @testitem "Constraint keyword constructors" begin
+    using GaussianSpectralDensities: Spread
     using GaussianSpectralDensities.Problems: PTraceConstraint, SpreadConstraint
-    using GaussianSpectralDensities.Spreads: Spread
 
     shift = 0.5
     gap = 0.25
@@ -459,8 +459,8 @@ end
 end
 
 @testitem "Constraint update methods" begin
+    using GaussianSpectralDensities: Spread
     using GaussianSpectralDensities.Problems: PTraceConstraint, SpreadConstraint, update
-    using GaussianSpectralDensities.Spreads: Spread
 
     @testset "update(::SpreadConstraint)" begin
         shape0 = complex(0.25)
@@ -541,8 +541,8 @@ end
 end
 
 @testitem "PointProblems" begin
+    using GaussianSpectralDensities: MatrixEnsemble, Spread
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint,
         PointProblem,
@@ -550,7 +550,6 @@ end
         SpreadConstraint,
         issameproblem,
         update
-    using GaussianSpectralDensities.Spreads: Spread
 
     using LinearAlgebra: I
 

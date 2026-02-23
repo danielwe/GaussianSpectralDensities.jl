@@ -117,9 +117,8 @@ end
 end  # module SpectralModels
 
 @testitem "Spectral{Problem,Solver} from MatrixEnsemble" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation, SpreadAnnealing
     using GaussianSpectralDensities.SpectralModels: SpectralProblem, SpectralSolver
 
     using LinearAlgebra: I
@@ -164,8 +163,7 @@ end  # module SpectralModels
 end
 
 @testitem "SpectralProblem from ResolventEquation" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities: MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.SpectralModels: SpectralProblem
 
     using LinearAlgebra: I
@@ -191,8 +189,7 @@ end
 end
 
 @testitem "SpectralProblem type-enforcing constructor" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities: MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.SpectralModels: SpectralProblem
 
     using LinearAlgebra: I
@@ -208,7 +205,7 @@ end
 end
 
 @testitem "SpectralSolver validation" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities: MatrixEnsemble
     using GaussianSpectralDensities.SpectralModels: SpectralProblem, SpectralSolver
 
     using LinearAlgebra: I
@@ -225,10 +222,10 @@ end
 end
 
 @testitem "CommonSolve.init produces SpectralSolver" begin
-    using CommonSolve: init
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities: MatrixEnsemble
     using GaussianSpectralDensities.SpectralModels: SpectralProblem, SpectralSolver
 
+    using CommonSolve: init
     using LinearAlgebra: I
 
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
@@ -238,12 +235,12 @@ end
 end
 
 @testitem "CommonSolve.solve! produces SpectralModel" begin
-    using CommonSolve: solve!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities: MatrixEnsemble
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
     using GaussianSpectralDensities.SpectralModels:
         SpectralModel, SpectralProblem, SpectralSolver
-    using GaussianSpectralDensities.Surrogates: SurrogateModel
 
+    using CommonSolve: solve!
     using LinearAlgebra: I
 
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
@@ -259,10 +256,9 @@ end
 end
 
 @testitem "CommonSolve.solve convenience" begin
-    using CommonSolve: solve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.SpectralModels: SpectralModel, SpectralProblem
+    using GaussianSpectralDensities: MatrixEnsemble, solve
     using GaussianSpectralDensities.Surrogates: SurrogateModel
+    using GaussianSpectralDensities.SpectralModels: SpectralModel, SpectralProblem
 
     using LinearAlgebra: I
 
@@ -276,10 +272,8 @@ end
 end
 
 @testitem "SpectralModel fields" begin
-    using CommonSolve: solve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities: MatrixEnsemble, solve, zvals
     using GaussianSpectralDensities.SpectralModels: SpectralProblem
-    using GaussianSpectralDensities.Surrogates: zvals
 
     using LinearAlgebra: I
 

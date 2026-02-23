@@ -49,10 +49,9 @@ end
 end  # module Meshing
 
 @testitem "meshing" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Meshing: mesh
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel, zvals
 
     using GeometryBasics: Mesh

@@ -125,7 +125,7 @@ end  # module RBFInterpolants
 end
 
 @testitem "RBFInterpolant constructor and evaluation" begin
-    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities: Defaults
     using GaussianSpectralDensities.RBFInterpolants: RBFInterpolant, ThinPlateSpline
 
     using StaticArrays: SVector
@@ -147,7 +147,7 @@ end
 end
 
 @testitem "RBFInterpolant vector-valued output" begin
-    using GaussianSpectralDensities.Defaults: Defaults
+    using GaussianSpectralDensities: Defaults
     using GaussianSpectralDensities.RBFInterpolants: RBFInterpolant, ThinPlateSpline
 
     using StaticArrays: SVector

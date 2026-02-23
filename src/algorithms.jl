@@ -518,9 +518,9 @@ end  # module Algorithms
 end
 
 @testitem "SpreadAnnealing" begin
+    using GaussianSpectralDensities: Defaults
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Algorithms: AnnealingState, SpreadAnnealing, statetype
-    using GaussianSpectralDensities.Defaults: Defaults
 
     schedule64, type = 2.0 .^ (2:-1:-2), :gap
     alg64 = SpreadAnnealing(schedule64, type)
@@ -556,9 +556,9 @@ end
 end
 
 @testitem "SymmetryAnnealing" begin
+    using GaussianSpectralDensities: Defaults
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Algorithms: AnnealingState, SymmetryAnnealing, statetype
-    using GaussianSpectralDensities.Defaults: Defaults
 
     steps = 3
     schedule64 = range(0.0, 1.0, steps)
@@ -624,10 +624,9 @@ end
 end
 
 @testitem "DirectSolve/SpreadConstraint" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Algorithms: DirectSolve, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -666,10 +665,9 @@ end
 end
 
 @testitem "DirectSolve/PTraceConstraint" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Algorithms: DirectSolve, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -698,12 +696,10 @@ end
 end
 
 @testitem "SpreadAnnealing/SpreadConstraint" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, ResolventEquation, Spread, SpreadConstraint
     using GaussianSpectralDensities.Algorithms: SpreadAnnealing, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
-    using GaussianSpectralDensities.Problems:
-        PointProblem, ResolventEquation, SpreadConstraint
-    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Solutions: issuccess, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -804,11 +800,15 @@ end
 end
 
 @testitem "SpreadAnnealing/PTraceConstraint" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble,
+        PointProblem,
+        PTraceConstraint,
+        ResolventEquation,
+        SpreadConstraint,
+        ptrace
     using GaussianSpectralDensities.Algorithms: SpreadAnnealing, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: issuccess, ptrace, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -900,12 +900,10 @@ end
 end
 
 @testitem "SymmetryAnnealing/SpreadConstraint" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, ResolventEquation, Spread, SpreadConstraint
     using GaussianSpectralDensities.Algorithms: SymmetryAnnealing, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
-    using GaussianSpectralDensities.Problems:
-        PointProblem, ResolventEquation, SpreadConstraint
-    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Solutions: issuccess, shape, solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -983,11 +981,10 @@ end
 end
 
 @testitem "SymmetryAnnealing/PTraceConstraint" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Algorithms: SymmetryAnnealing, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.MathTools: isapproxlinear
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Solutions: issuccess, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -1056,11 +1053,9 @@ end
 end
 
 @testitem "SpreadAnnealing shiftmin abort" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, PTraceConstraint, ResolventEquation, shift
     using GaussianSpectralDensities.Algorithms: SpreadAnnealing, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Spreads: shift
     using GaussianSpectralDensities.Solutions: SolutionStatus, issuccess, status
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -1104,11 +1099,9 @@ end
 end
 
 @testitem "SymmetryAnnealing shiftmin no abort" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, PTraceConstraint, ResolventEquation, shift
     using GaussianSpectralDensities.Algorithms: SymmetryAnnealing, isdone, step!
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Spreads: shift
     using GaussianSpectralDensities.Solutions: SolutionStatus, issuccess, status
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -1151,10 +1144,9 @@ end
 end
 
 @testitem "pointsolve" begin
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PointProblem, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing, pointsolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, solves
 
     using LinearAlgebra: I

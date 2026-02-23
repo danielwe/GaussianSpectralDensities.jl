@@ -84,10 +84,9 @@ end
 end  # module EquationSolvers
 
 @testitem "eqsolve!" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
     using GaussianSpectralDensities.Solutions: solves
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -135,11 +134,14 @@ end  # module EquationSolvers
 end
 
 @testitem "eqsolve! failure" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities:
+        MatrixEnsemble,
+        PTraceConstraint,
+        PointProblem,
+        ResolventEquation,
+        SpreadConstraint,
+        issuccess
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
-    using GaussianSpectralDensities.Solutions: issuccess
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I

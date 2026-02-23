@@ -487,8 +487,8 @@ end
 end
 
 @testitem "sample_eigenvalues: Ginibre ensemble eigenvalues near unit circle" begin
+    using GaussianSpectralDensities: MatrixEnsemble
     using GaussianSpectralDensities.Samples: sample_eigenvalues
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
     using LinearAlgebra: I
     using Random: default_rng, seed!
@@ -506,8 +506,8 @@ end
 end
 
 @testitem "sample_eigenvalues: elliptic ensemble elongation" begin
+    using GaussianSpectralDensities: MatrixEnsemble
     using GaussianSpectralDensities.Samples: sample_eigenvalues
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
     using LinearAlgebra: I
     using Random: default_rng, seed!
@@ -536,8 +536,8 @@ end
 end
 
 @testitem "sample_eigenvalues: N = n (single copy)" begin
+    using GaussianSpectralDensities: MatrixEnsemble
     using GaussianSpectralDensities.Samples: sample_eigenvalues
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
     using LinearAlgebra: I
     using Random: default_rng, seed!
@@ -552,8 +552,8 @@ end
 end
 
 @testitem "sample_eigenvalues: default rng" begin
+    using GaussianSpectralDensities: MatrixEnsemble
     using GaussianSpectralDensities.Samples: sample_eigenvalues
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
 
     using LinearAlgebra: I
 

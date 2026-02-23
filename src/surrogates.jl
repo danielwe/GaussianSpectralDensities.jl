@@ -191,11 +191,10 @@ end
 end  # module Surrogates
 
 @testitem "pack/unpack round-trip SpreadConstraint" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities: MatrixEnsemble, Spread
     using GaussianSpectralDensities.Problems:
         PointProblem, ResolventEquation, SpreadConstraint, update
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, shape, spreadfrom
-    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Surrogates: pack, unpack_args, unpack_constraint
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -240,13 +239,10 @@ end  # module Surrogates
 end
 
 @testitem "pack/unpack round-trip PTraceConstraint" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities: DirectSolve, MatrixEnsemble, Spread, pointsolve
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, spreadtype
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, shape, spreadfrom
-    using GaussianSpectralDensities.Algorithms: pointsolve
-    using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Surrogates: pack, unpack_args, unpack_constraint
 
     using LinearAlgebra: I
@@ -284,10 +280,13 @@ end
 end
 
 @testitem "interpolate returns correct SVector dimension" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities:
+        DirectSolve,
+        MatrixEnsemble,
+        PTraceConstraint,
+        PointProblem,
+        ResolventEquation,
+        SpreadConstraint
     using GaussianSpectralDensities.Surrogates: SurrogateModel, interpolate
 
     using LinearAlgebra: I
@@ -315,10 +314,13 @@ end
 end
 
 @testitem "evaluate fast path" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities:
+        DirectSolve,
+        MatrixEnsemble,
+        PTraceConstraint,
+        PointProblem,
+        ResolventEquation,
+        SpreadConstraint
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess
     using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate, evaluatebatch
 
@@ -382,10 +384,13 @@ end
 end
 
 @testitem "evaluate slow path / adaptive refinement" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities:
+        DirectSolve,
+        MatrixEnsemble,
+        PTraceConstraint,
+        PointProblem,
+        ResolventEquation,
+        SpreadConstraint
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, shape
     using GaussianSpectralDensities.Surrogates:
         SurrogateModel, evaluate, evaluatebatch, interpolate, unpack_args
@@ -480,11 +485,13 @@ end
 end
 
 @testitem "no poisoning" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation
-    using GaussianSpectralDensities.Solutions: issuccess
+    using GaussianSpectralDensities:
+        DirectSolve,
+        MatrixEnsemble,
+        PTraceConstraint,
+        PointProblem,
+        ResolventEquation,
+        issuccess
     using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluate, evaluatebatch
 
     using LinearAlgebra: I
@@ -518,10 +525,13 @@ end
 end
 
 @testitem "SurrogateModel constructor" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+    using GaussianSpectralDensities:
+        DirectSolve,
+        MatrixEnsemble,
+        PTraceConstraint,
+        PointProblem,
+        ResolventEquation,
+        SpreadConstraint
     using GaussianSpectralDensities.Surrogates: SurrogateModel, zvals
     using GaussianSpectralDensities.Workspaces: Workspace
 

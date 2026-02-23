@@ -296,11 +296,10 @@ end
 end
 
 @testitem "spectral_density low-level (Mesh)" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Densities: spectral_density
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Meshing: addresolventparams, mesh
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel, zvals
 
     using GeometryBasics: FaceView, Mesh
@@ -329,12 +328,9 @@ end
 end
 
 @testitem "spectral_density high-level (SpectralModel)" begin
-    using CommonSolve: solve
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, SpectralProblem, solve
     using GaussianSpectralDensities.Densities: spectral_density
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint
-    using GaussianSpectralDensities.SpectralModels: SpectralProblem
 
     using GeometryBasics: FaceView, Mesh
     using LinearAlgebra: I

@@ -394,9 +394,7 @@ end
 end  # module Workspaces
 
 @testitem "Workspace" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: ResolventEquation
-    using GaussianSpectralDensities.Spreads: Spread
+    using GaussianSpectralDensities: MatrixEnsemble, ResolventEquation, Spread
     using GaussianSpectralDensities.Workspaces:
         Valid, Workspace, gap!, greens!, ptrace!, shapeFP!, shift!
 

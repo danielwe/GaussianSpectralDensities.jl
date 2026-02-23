@@ -519,10 +519,9 @@ end
 end
 
 @testitem "solve_shift inside support" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: solve_shift
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -539,10 +538,9 @@ end
 end
 
 @testitem "solve_shift outside support" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: solve_shift
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -559,10 +557,9 @@ end
 end
 
 @testitem "solve_shift on boundary" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: solve_shift
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -584,10 +581,9 @@ end
 end
 
 @testitem "solve_shift failure" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: solve_shift
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -603,10 +599,9 @@ end
 end
 
 @testitem "compute_gradient on boundary" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: compute_gradient
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -628,10 +623,9 @@ end
 end
 
 @testitem "compute_gradient inside support" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: compute_gradient
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -648,10 +642,9 @@ end
 end
 
 @testitem "compute_gradient failure" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: compute_gradient
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -667,10 +660,9 @@ end
 end
 
 @testitem "corrector_step convergence" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: corrector_step
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -696,10 +688,9 @@ end
 end
 
 @testitem "corrector_step far from boundary" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: corrector_step
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -882,10 +873,9 @@ end
 end
 
 @testitem "spectral_boundary single component" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: BoundarySegmentTrace, spectral_boundary
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -915,11 +905,10 @@ end
 end
 
 @testitem "spectral_boundary annular support" begin
-    using GaussianSpectralDensities.Algorithms: SpreadAnnealing
+    using GaussianSpectralDensities:
+        MatrixEnsemble, PTraceConstraint, ResolventEquation, SpreadAnnealing
     using GaussianSpectralDensities.Boundaries:
         BoundarySegmentTrace, spectral_boundary, point_in_polygon
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: Diagonal, I
@@ -972,10 +961,9 @@ end
 end
 
 @testitem "spectral_boundary max_components limit" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: spectral_boundary
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -990,10 +978,9 @@ end
 end
 
 @testitem "spectral_boundary argument validation" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: spectral_boundary
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -1012,10 +999,9 @@ end
 end
 
 @testitem "spectral_boundary keyword forwarding" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: spectral_boundary
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -1032,10 +1018,9 @@ end
 end
 
 @testitem "spectral_boundary stops on open contour" begin
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Boundaries: spectral_boundary
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -1052,12 +1037,9 @@ end
 end
 
 @testitem "spectral_boundary from SpectralModel" begin
-    using CommonSolve: solve
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, SpectralProblem, solve
     using GaussianSpectralDensities.Boundaries: BoundarySegmentTrace, spectral_boundary
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint
-    using GaussianSpectralDensities.SpectralModels: SpectralProblem
 
     using LinearAlgebra: I
 
@@ -1078,12 +1060,9 @@ end
 end
 
 @testitem "spectral_boundary SpectralModel wrapper equivalence" begin
-    using CommonSolve: solve
-    using GaussianSpectralDensities.Algorithms: DirectSolve
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, SpectralProblem, solve
     using GaussianSpectralDensities.Boundaries: spectral_boundary
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems: PTraceConstraint
-    using GaussianSpectralDensities.SpectralModels: SpectralProblem
 
     using LinearAlgebra: I
 

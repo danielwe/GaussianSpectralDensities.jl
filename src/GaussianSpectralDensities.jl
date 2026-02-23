@@ -1,6 +1,39 @@
 module GaussianSpectralDensities
 
+using CommonSolve: solve
 using TestItems: @testitem
+
+public Boundaries,
+    Defaults,
+    Densities,
+    DirectSolve,
+    MatrixEnsemble,
+    Meshing,
+    PointProblem,
+    PTraceConstraint,
+    ResolventEquation,
+    Spread,
+    SpectralProblem,
+    SpreadAnnealing,
+    SpreadConstraint,
+    Surrogates,
+    SymmetryAnnealing,
+    evaluate,
+    evaluatebatch,
+    gap,
+    greens,
+    issuccess,
+    pointsolve,
+    ptrace,
+    sample_eigenvalues,
+    sample_matrix,
+    shape,
+    shift,
+    solve,
+    spectral_boundary,
+    spectral_density,
+    status,
+    zvals
 
 module Defaults
 
@@ -62,5 +95,16 @@ include("meshing.jl")
 include("spectralmodels.jl")
 include("densities.jl")
 include("boundaries.jl")
+
+using .Algorithms: DirectSolve, SpreadAnnealing, SymmetryAnnealing, pointsolve
+using .Boundaries: spectral_boundary
+using .Densities: spectral_density
+using .Ensembles: MatrixEnsemble
+using .Problems: PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
+using .Samples: sample_eigenvalues, sample_matrix
+using .Solutions: greens, issuccess, ptrace, shape, status
+using .SpectralModels: SpectralProblem
+using .Spreads: Spread, gap, shift
+using .Surrogates: evaluate, evaluatebatch, zvals
 
 end

@@ -355,12 +355,11 @@ end  # module Solutions
 end
 
 @testitem "PointSolution" begin
+    using GaussianSpectralDensities: MatrixEnsemble, Spread, gap, shift
     using GaussianSpectralDensities.ArrayTools: adaptrealtype
     using GaussianSpectralDensities.Defaults: intheballpark
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint, update
-    using GaussianSpectralDensities.Spreads: Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
         PointSolution,
         SolutionStatus,
@@ -453,10 +452,14 @@ end
 end
 
 @testitem "PointSolution accessors" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Problems:
-        PointProblem, ResolventEquation, SpreadConstraint
-    using GaussianSpectralDensities.Spreads: Spread, gap, shift
+    using GaussianSpectralDensities:
+        MatrixEnsemble,
+        PointProblem,
+        ResolventEquation,
+        Spread,
+        SpreadConstraint,
+        gap,
+        shift
     using GaussianSpectralDensities.Solutions:
         PointSolution, SolutionStatus, greens, issuccess, ptrace, shape, spreadfrom, status
     using GaussianSpectralDensities.Workspaces: Workspace
@@ -487,11 +490,9 @@ end
 end
 
 @testitem "BatchSolution" begin
-    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-    using GaussianSpectralDensities.Solutions: BatchSolution
-    using GaussianSpectralDensities.Problems: ResolventEquation
-    using GaussianSpectralDensities.Spreads: Spread, gap, shift
+    using GaussianSpectralDensities: MatrixEnsemble, ResolventEquation, Spread, gap, shift
     using GaussianSpectralDensities.Solutions:
+        BatchSolution,
         PointSolution,
         ResolventParams,
         SolutionStatus,
@@ -500,6 +501,7 @@ end
         ptrace,
         shape,
         spreadfrom
+
     using LinearAlgebra: I
 
     zs = complex.(0.0:0.5:1.0, (0.0:0.5:1.0)')
