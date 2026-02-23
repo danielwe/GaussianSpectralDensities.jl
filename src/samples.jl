@@ -6,7 +6,7 @@ using Random: AbstractRNG, default_rng
 using ..ArrayTools: DiagonalOrUniform
 using ..Ensembles: MatrixEnsemble
 
-public expand, partially_hermitize, sample_eigenvalues
+public expand, partially_hermitize, sample_matrix, sample_eigenvalues
 
 function expand(e::MatrixEnsemble, ncopies::Int)
     ncopies >= 1 || throw(ArgumentError("ncopies must be positive"))
@@ -47,7 +47,7 @@ function partially_hermitize(X, S::DiagonalOrUniform)
     return result
 end
 
-function sample_eigenvalues(
+function sample_matrix(
     e::MatrixEnsemble{F}, N::Int; rng::AbstractRNG=default_rng()
 ) where {F}
     n = size(e, 1)
@@ -60,7 +60,13 @@ function sample_eigenvalues(
     X = randn(rng, Complex{F}, N, N) / sqrt(F(N))
     J = partially_hermitize(X, S_N)
     A = M_N + L_N * J * R_N
-    return eigvals(A)
+    return A
+end
+
+function sample_eigenvalues(
+    e::MatrixEnsemble{F}, N::Int; rng::AbstractRNG=default_rng()
+) where {F}
+    return eigvals(sample_matrix(e, N; rng))
 end
 
 end  # module Samples
@@ -294,6 +300,86 @@ end
 
         @test result ≈ expected
     end
+end
+
+@testitem "sample_matrix: return type and size" begin
+    using GaussianSpectralDensities.Samples: sample_matrix
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
+    using LinearAlgebra: I
+    using Random: default_rng, seed!
+
+    @testset "$F" for F in [Float32, Float64]
+        e = MatrixEnsemble{F}(I, I, I, F(0) * I)
+        N = 10
+        A = sample_matrix(e, N; rng=seed!(default_rng(), 42))
+        @test A isa Matrix{Complex{F}}
+        @test size(A) == (N, N)
+    end
+end
+
+@testitem "sample_matrix: errors on invalid N" begin
+    using GaussianSpectralDensities.Samples: sample_matrix
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
+    using LinearAlgebra: I
+
+    e_scalar = MatrixEnsemble(I, I, I, 0.5I)
+
+    @test_throws ArgumentError sample_matrix(e_scalar, 0)
+    @test_throws ArgumentError sample_matrix(e_scalar, -1)
+
+    A = ComplexF64[1 0; 0 1]
+    e_matrix = MatrixEnsemble(A, I, I, 0.5I)
+    @test_throws ArgumentError sample_matrix(e_matrix, 3)
+end
+
+@testitem "sample_matrix: deterministic with seeded rng" begin
+    using GaussianSpectralDensities.Samples: sample_matrix
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
+    using LinearAlgebra: I
+    using Random: default_rng, seed!
+
+    @testset "$F" for F in [Float32, Float64]
+        e = MatrixEnsemble{F}(I, I, I, F(0) * I)
+        N = 10
+
+        A1 = sample_matrix(e, N; rng=seed!(default_rng(), 123))
+        A2 = sample_matrix(e, N; rng=seed!(default_rng(), 123))
+        @test A1 == A2
+
+        A3 = sample_matrix(e, N; rng=seed!(default_rng(), 456))
+        @test A1 != A3
+    end
+end
+
+@testitem "sample_matrix: S = I produces Hermitian J" begin
+    using GaussianSpectralDensities.Samples: sample_matrix
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
+    using LinearAlgebra: I
+    using Random: default_rng, seed!
+
+    e = MatrixEnsemble(0.0I, I, I, 1.0I)
+    A = sample_matrix(e, 20; rng=seed!(default_rng(), 42))
+    # With M=0, L=R=I, S=I: A = J, and J should be Hermitian
+    @test A ≈ A'
+end
+
+@testitem "sample_eigenvalues: consistent with sample_matrix" begin
+    using GaussianSpectralDensities.Samples: sample_eigenvalues, sample_matrix
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+
+    using LinearAlgebra: I, eigvals
+    using Random: default_rng, seed!
+
+    e = MatrixEnsemble(0.0I, I, I, 0.5I)
+    N = 10
+
+    A = sample_matrix(e, N; rng=seed!(default_rng(), 99))
+    eigs = sample_eigenvalues(e, N; rng=seed!(default_rng(), 99))
+    @test eigs ≈ eigvals(A)
 end
 
 @testitem "sample_eigenvalues: return type and length" begin
