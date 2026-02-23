@@ -12,8 +12,8 @@ using ..ArrayTools: ArrayTools
 using EnumX: @enumx
 using StructArrays: StructArray
 
-public PointSolution,
-    BatchSolution,
+public BatchSolution,
+    PointSolution,
     ResolventParams,
     SolutionStatus,
     greens,

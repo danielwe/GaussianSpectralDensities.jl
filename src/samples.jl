@@ -6,7 +6,7 @@ using Random: AbstractRNG, default_rng
 using ..ArrayTools: DiagonalOrUniform
 using ..Ensembles: MatrixEnsemble
 
-public expand, partially_hermitize, sample_matrix, sample_eigenvalues
+public expand, partially_hermitize, sample_eigenvalues, sample_matrix
 
 function expand(e::MatrixEnsemble, ncopies::Int)
     ncopies >= 1 || throw(ArgumentError("ncopies must be positive"))
