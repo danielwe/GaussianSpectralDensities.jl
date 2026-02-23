@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 
 [workspace]
-projects = ["demo.new", "test"]
+projects = ["test"]
 
 [deps]
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
