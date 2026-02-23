@@ -88,6 +88,9 @@ function SurrogateModel(
     xs = SVector{2,F}[]
     ys = SVector{outputdim(constraint),F}[]
 
+    # TODO: Parallelize solves (embarrassingly parallel per z). Needs per-thread Workspaces
+    # and a collect-then-append pattern for xs/ys, since constraint_guess chaining is only
+    # used for warm-starting and isn't essential for correctness.
     constraint_guess = constraint
     for z in zs
         zF = Complex{F}(z)
@@ -159,6 +162,8 @@ function evaluatebatch(model::SurrogateModel{F,N}, zs; refine::Bool=false) where
     refine_xs = SVector{2,F}[]
     refine_ys = SVector{N,F}[]
 
+    # TODO: Parallelize evaluate_one calls (embarrassingly parallel per z). Needs per-thread
+    # Workspaces; collect refine candidates into per-thread buffers, then append! after.
     sols = BatchSolution{F}(model.equation, zs)
     for i in eachindex(zs, sols)
         z = zs[i]
