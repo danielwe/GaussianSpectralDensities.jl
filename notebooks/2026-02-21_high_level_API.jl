@@ -23,16 +23,17 @@ end
 
 # ╔═╡ 07c3373f-fefb-49f3-8384-0f6826ec2a4a
 begin
-	using GaussianSpectralDensities.Boundaries: spectral_boundary
-	using GaussianSpectralDensities.Densities: spectral_density, remove_faceviews
-	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-	using GaussianSpectralDensities.Meshing: Meshing
-	using GaussianSpectralDensities.Samples: sample_eigenvalues
-	using GaussianSpectralDensities.SpectralModels: SpectralProblem
+	using GaussianSpectralDensities:
+		MatrixEnsemble, 
+		Meshing,
+		SpectralProblem,
+		spectral_boundary,
+		spectral_density,
+		sample_eigenvalues,
+		solve
 
 	using CairoMakie:
 		Axis, Colorbar, DataAspect, Figure, lines!, mesh!, poly!, scatter!, @L_str
-	using CommonSolve: solve  # TODO: probably reexport?
 	using GeometryBasics: area
 	using LinearAlgebra: I, Diagonal
 end
@@ -103,7 +104,7 @@ end
 function plotmesh!(ax, msh; colorbar=nothing, kwargs...)
 	# When using a vertex attribute as color, the mesh can't contain face views.
 	# Probably a Makie bug.
-	msh_fixed = (:color in keys(kwargs)) ? remove_faceviews(msh) : msh
+	msh_fixed = (:color in keys(kwargs)) ? Meshing.remove_faceviews(msh) : msh
 	mshplot = mesh!(ax, msh_fixed; kwargs...)
 	if !isnothing(colorbar)
 		Colorbar(colorbar, mshplot)

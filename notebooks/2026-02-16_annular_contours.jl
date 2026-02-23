@@ -23,14 +23,17 @@ end
 
 # ╔═╡ 07c3373f-fefb-49f3-8384-0f6826ec2a4a
 begin
-	using GaussianSpectralDensities.Algorithms: SpreadAnnealing
-	using GaussianSpectralDensities.Boundaries: spectral_boundary
-	using GaussianSpectralDensities.Spreads: shift
-	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
-	using GaussianSpectralDensities.Samples: sample_eigenvalues
-	using GaussianSpectralDensities.Solutions: greens
-	using GaussianSpectralDensities.Surrogates: SurrogateModel, evaluatebatch
+	using GaussianSpectralDensities:
+		MatrixEnsemble,
+		PTraceConstraint,
+		ResolventEquation,
+		SpreadAnnealing,
+		Surrogates,
+		evaluatebatch,
+		greens,
+		sample_eigenvalues,
+		shift,
+		spectral_boundary
 
 	using CairoMakie:
 		Axis, Colorbar, DataAspect, Figure, contour!, contourf!, lines!, scatter!,
@@ -53,7 +56,7 @@ constraint = PTraceConstraint(1; shape0=0, shift0=1)
 N = 96
 
 # ╔═╡ d311b9b0-36fb-4446-95b7-fd323edd3853
-model = SurrogateModel(eq, constraint, SpreadAnnealing(), N)
+model = Surrogates.SurrogateModel(eq, constraint, SpreadAnnealing(), N)
 
 # ╔═╡ f260bf48-a72e-4857-a7d9-e1da13af5d4e
 eigs = map(zv -> complex(zv...), model.rbf.x)
@@ -156,8 +159,8 @@ end
 let f=let model=model
 		f(zs) = evaluatebatch(model, zs; refine=false)
 	end
-	@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $N)
-	@btime SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $eigs)
+	@btime Surrogates.SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $N)
+	@btime Surrogates.SurrogateModel($eq, $constraint, $(SpreadAnnealing()), $eigs)
 	@btime $f($zs)
 end;
 

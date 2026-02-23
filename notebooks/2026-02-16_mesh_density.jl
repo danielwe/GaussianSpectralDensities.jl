@@ -30,15 +30,18 @@ end
 
 # ╔═╡ 07c3373f-fefb-49f3-8384-0f6826ec2a4a
 begin
-	using GaussianSpectralDensities.Algorithms: SpreadAnnealing
-	using GaussianSpectralDensities.Boundaries: spectral_boundary
-	using GaussianSpectralDensities.Densities:
-		area_weighted_average, remove_faceviews, spectral_density
-	using GaussianSpectralDensities.Ensembles: MatrixEnsemble
-	using GaussianSpectralDensities.Meshing: Meshing
-	using GaussianSpectralDensities.Problems: PTraceConstraint, ResolventEquation
-	using GaussianSpectralDensities.Samples: sample_eigenvalues
-	using GaussianSpectralDensities.Surrogates: SurrogateModel, zvals
+	using GaussianSpectralDensities:
+		Densities,
+		MatrixEnsemble,
+		Meshing,
+		PTraceConstraint,
+		ResolventEquation,
+		SpreadAnnealing,
+		Surrogates,
+		sample_eigenvalues,
+		spectral_boundary,
+		spectral_density,
+		zvals
 
 	using CairoMakie:
 		Axis, Colorbar, DataAspect, Figure, hlines!, lines!, mesh!, poly!, scatter!, vlines!, @L_str
@@ -64,7 +67,7 @@ coarse_eigvals, coarse_mesh = let
 	# The sampled eigenvalues aren't always good enough, so we catch and repeat
 	local mod, msh
 	while true
-		mod = SurrogateModel(eq, constraint, SpreadAnnealing(), 64)
+		mod = Surrogates.SurrogateModel(eq, constraint, SpreadAnnealing(), 64)
 		try
 			msh = Meshing.mesh(mod; hcoeff=3//2, shiftoffset=1//12)
 			break
@@ -78,7 +81,9 @@ end
 bbox = Meshing.boundingbox(coarse_eigvals)
 
 # ╔═╡ 0e2a4852-0b80-4ff3-b5d0-2afe045044c0
-model = SurrogateModel(eq, constraint, SpreadAnnealing(), zvals(coarse_mesh))
+model = Surrogates.SurrogateModel(
+	eq, constraint, SpreadAnnealing(), zvals(coarse_mesh)
+)
 
 # ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
 boundaries = spectral_boundary(model, 1 // 4)
@@ -217,7 +222,7 @@ let
 end
 
 # ╔═╡ 92cd0183-2a6e-4415-94ba-74b26ae32e81
-msh_with_vertex_density = area_weighted_average(msh_with_density, :density)
+msh_with_vertex_density = Densities.area_weighted_average(msh_with_density, :density)
 
 # ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
 let
@@ -225,7 +230,7 @@ let
 	co = mesh!(
 		# When using a vertex attribute as color, the mesh can't contain face views.
 		# Probably a Makie bug.
-		ax, remove_faceviews(msh_with_vertex_density);
+		ax, Meshing.remove_faceviews(msh_with_vertex_density);
 		color=msh_with_vertex_density.vertex_density,
 		colorrange=(0.0, 2inv(msh_area)),
 	)
