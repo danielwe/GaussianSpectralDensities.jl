@@ -1,7 +1,6 @@
 module Surrogates
 
-using ..Algorithms: AbstractAlgorithm, DirectSolve
-using ..Batches: BatchSolution
+using ..Algorithms: AbstractAlgorithm, DirectSolve, pointsolve
 using ..Problems:
     AbstractConstraint,
     PTraceConstraint,
@@ -12,8 +11,8 @@ using ..Problems:
     update
 using ..RBFInterpolants: RBFInterpolant, RBFInterpolants, ThinPlateSpline
 using ..Samples: sample_eigenvalues
-using ..Solutions: PointSolution, SolutionStatus, issuccess, shape, spreadfrom
-using ..Solvers: pointsolve
+using ..Solutions:
+    BatchSolution, PointSolution, SolutionStatus, issuccess, shape, spreadfrom
 using ..Spreads: Spread
 using ..Workspaces: Workspace
 
@@ -119,7 +118,7 @@ end
 function SurrogateModel(model::SurrogateModel{F}, zs::AbstractVector{<:Complex}) where {F}
     (; equation, constraint, algorithm, workspace) = model
     sols = filter(issuccess, evaluatebatch(model, zs; refine=false))
-    xs = map(sol -> zvec(sol.z), sols)
+    xs = map(zvec, sols.zs)
     ys = map(sol -> pack(sol, constraint), sols)
     rbf = RBFInterpolant(ThinPlateSpline(), xs, ys)
     return SurrogateModel(equation, constraint, algorithm, rbf, workspace)
@@ -241,7 +240,7 @@ end
     using GaussianSpectralDensities.Problems:
         PTraceConstraint, PointProblem, ResolventEquation, spreadtype
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, shape, spreadfrom
-    using GaussianSpectralDensities.Solvers: pointsolve
+    using GaussianSpectralDensities.Algorithms: pointsolve
     using GaussianSpectralDensities.Spreads: Spread
     using GaussianSpectralDensities.Surrogates: pack, unpack_args, unpack_constraint
 

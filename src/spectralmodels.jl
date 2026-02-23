@@ -4,7 +4,7 @@ using AutoHashEquals: @auto_hash_equals
 using CommonSolve: CommonSolve
 
 using ..Algorithms: AbstractAlgorithm, SpreadAnnealing
-using ..ArrayTools: ArrayTools, adaptrealtype
+using ..ArrayTools: adaptrealtype
 using ..Ensembles: MatrixEnsemble
 using ..Meshing: mesh
 using ..Problems: AbstractConstraint, PTraceConstraint, ResolventEquation
@@ -43,65 +43,44 @@ function SpectralProblem(
     return SpectralProblem(ResolventEquation(ensemble; shiftmin), constraint...; kwargs...)
 end
 
-function SpectralProblem{F}(p::SpectralProblem) where {F}
-    return SpectralProblem{F}(p.equation, p.constraint, p.shiftoffset)
-end
+## SpectralSolver
+## ===============
+"""
+    SpectralSolver(problem::SpectralProblem; algorithm, nsamples=64, hcoeff=1, max_retries=8)
 
-## Conversions
-## ===========
-function Base.convert(::Type{P}, p::SpectralProblem) where {F,P<:SpectralProblem{F}}
-    return (p isa P) ? p : SpectralProblem{F}(p)
-end
+CommonSolve-compatible solver state. Created by `CommonSolve.init` and consumed by
+`CommonSolve.solve!` to produce a `SpectralModel`.
 
-function ArrayTools.adaptrealtype(::Type{F}, p::SpectralProblem) where {F}
-    return convert(SpectralProblem{F}, p)
-end
-
-@auto_hash_equals typearg=true struct SpectralSolver{
-    F,P<:SpectralProblem{F},A<:AbstractAlgorithm
-}
+  - `nsamples`: number of random eigenvalue samples for initial surrogate construction.
+  - `hcoeff`: mesh element size relative to surrogate point spacing (akin to a tolerance).
+  - `max_retries`: number of meshing attempts before giving up.
+"""
+struct SpectralSolver{F,P<:SpectralProblem{F},A<:AbstractAlgorithm}
     problem::P
     algorithm::A
     nsamples::Int
     hcoeff::F
     max_retries::Int
 
-    function SpectralSolver{F}(problem, algorithm, nsamples, hcoeff, max_retries) where {F}
-        problemF = adaptrealtype(F, problem)
+    function SpectralSolver(
+        problem::SpectralProblem{F},
+        algorithm=adaptrealtype(F, SpreadAnnealing());
+        nsamples::Integer=64,
+        hcoeff::Real=one(F),
+        max_retries::Integer=8,
+    ) where {F}
         algorithmF = adaptrealtype(F, algorithm)
         (nsamples > 0) || throw(ArgumentError("nsamples must be positive"))
         (hcoeff > 0) || throw(ArgumentError("hcoeff must be positive"))
         (max_retries > 0) || throw(ArgumentError("max_retries must be positive"))
-        return new{F,typeof(problemF),typeof(algorithmF)}(
-            problemF, algorithmF, nsamples, hcoeff, max_retries
+        return new{F,typeof(problem),typeof(algorithmF)}(
+            problem, algorithmF, nsamples, hcoeff, max_retries
         )
     end
 end
 
-function SpectralSolver(
-    problem::SpectralProblem{F},
-    algorithm=adaptrealtype(F, SpreadAnnealing());
-    nsamples::Integer=64,
-    hcoeff::Real=one(F),
-    max_retries::Integer=8,
-) where {F}
-    return SpectralSolver{F}(problem, algorithm, nsamples, hcoeff, max_retries)
-end
-
-function SpectralSolver{F}(s::SpectralSolver) where {F}
-    return SpectralSolver{F}(s.problem, s.algorithm, s.nsamples, s.hcoeff, s.max_retries)
-end
-
-## Conversions
-## ===========
-function Base.convert(::Type{S}, s::SpectralSolver) where {F,S<:SpectralSolver{F}}
-    return (s isa S) ? s : SpectralSolver{F}(s)
-end
-
-function ArrayTools.adaptrealtype(::Type{F}, s::SpectralSolver) where {F}
-    return convert(SpectralSolver{F}, s)
-end
-
+## SpectralModel
+## ==============
 @auto_hash_equals typearg=true struct SpectralModel{
     F<:AbstractFloat,P<:SpectralProblem{F},S<:SurrogateModel{F}
 }
@@ -109,6 +88,8 @@ end
     surrogate::S
 end
 
+## CommonSolve interface
+## =====================
 function CommonSolve.init(
     problem::SpectralProblem, algorithm::AbstractAlgorithm...; kwargs...
 )

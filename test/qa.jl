@@ -48,7 +48,6 @@ end
             :potrf!,             # LinearAlgebra.LAPACK
             :potri!,             # LinearAlgebra.LAPACK
             :init,               # CommonSolve.jl
-            :step!,              # CommonSolve.jl
             :solve!,             # CommonSolve.jl
         ),
         allow_internal_accesses=false,

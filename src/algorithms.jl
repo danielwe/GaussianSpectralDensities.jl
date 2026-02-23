@@ -22,6 +22,7 @@ public AbstractAlgorithm,
     SpreadAnnealing,
     SymmetryAnnealing,
     isdone,
+    pointsolve,
     statetype,
     step!
 
@@ -473,6 +474,25 @@ function isdone(
 ) where {F}
     # SymmetryAnnealing always keeps trucking to the end, intermediate success or not.
     return state.index == lastindex(alg)
+end
+
+## Convenience
+## ===========
+"""
+    pointsolve(problem::PointProblem, algorithm::AbstractAlgorithm) -> PointSolution
+
+Run `algorithm` to completion on `problem` and return the final `PointSolution`.
+"""
+function pointsolve(problem::PointProblem{F}, algorithm::AbstractAlgorithm) where {F}
+    ws = Workspace(problem.equation)
+    state = nothing
+    solution = nothing
+    while true
+        result = step!(ws, problem, algorithm, state)
+        isnothing(result) && break
+        solution, state = result
+    end
+    return solution
 end
 
 end  # module Algorithms
@@ -1127,5 +1147,49 @@ end
         @test !issuccess(solutions[end])
         @test status(solutions[end]) == SolutionStatus.shift_below_min
         @test isdone(problemF, algF, states[end])
+    end
+end
+
+@testitem "pointsolve" begin
+    using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing, pointsolve
+    using GaussianSpectralDensities.Ensembles: MatrixEnsemble
+    using GaussianSpectralDensities.Problems:
+        PTraceConstraint, PointProblem, ResolventEquation
+    using GaussianSpectralDensities.Solutions: PointSolution, issuccess, solves
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    z = 0.5 + 0.5im
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    problem = PointProblem(eq, constraint, z)
+
+    @testset "pointsolve(problem, alg)" begin
+        ps = pointsolve(problem, DirectSolve())
+        @test ps isa PointSolution{Float64}
+        @test issuccess(ps)
+        @test solves(ps, problem)
+    end
+
+    @testset "pointsolve with SpreadAnnealing" begin
+        schedule = [4.0, 2.0, 1.0, 0.5]
+        alg = SpreadAnnealing(schedule, :gap)
+
+        ps = pointsolve(problem, alg)
+        @test ps isa PointSolution{Float64}
+        @test issuccess(ps)
+        @test solves(ps, problem)
+    end
+
+    @testset "pointsolve returns failure when unsolvable" begin
+        # z outside support with shiftmin=0 will fail
+        eq_impossible = ResolventEquation(ensemble; shiftmin=0.0)
+        z_impossible = 2.0 + 2.0im
+        problem_impossible = PointProblem(eq_impossible, constraint, z_impossible)
+
+        ps = pointsolve(problem_impossible, DirectSolve())
+        @test ps isa PointSolution{Float64}
+        @test !issuccess(ps)
     end
 end
