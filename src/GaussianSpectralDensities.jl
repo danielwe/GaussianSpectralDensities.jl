@@ -2,37 +2,6 @@ module GaussianSpectralDensities
 
 using TestItems: @testitem
 
-# using Adapt
-# using ArnoldiMethod
-# using ArnoldiMethod: LM
-# using CommonSolve: CommonSolve, init, solve!, solve
-# using LinearMaps
-# using MappedArrays
-# using StaticArrays
-# using SparseArrays
-# using SuiteSparse
-# using StructArrays
-# using Random
-# using ThreadPools
-# using Printf
-
-#=
-* Consider defining plot recipes to simplify notebooks. This should perhaps also go in
-  a separate module with optional dependency on RecipesBase. I don't know exactly what kinds
-  of plots it makes sense to write recipes for, however.
-=#
-
-# public MatrixEnsemble, TraceObjective, RegularizerObjective
-
-# export init, solve!, solve
-# export DirectSolve, RegularizerSchedule, SymmetrySchedule
-# export partially_hermitize, randiid, randpartherm, transform, transform!, randsample
-# export SpectralProblem, SpectralSolver, set_ensemble!, solve, solve!
-# export spectral_density
-# export automesh, automesh!
-
-# const MissingOr{T} = Union{Missing, T}
-
 module Defaults
 
     public approxequal,
@@ -78,7 +47,6 @@ end
 
 include("arraytools.jl")
 include("mathtools.jl")
-# include("matrix_utils.jl")
 include("ensembles.jl")
 include("samples.jl")
 include("spreads.jl")
@@ -94,29 +62,5 @@ include("meshing.jl")
 include("spectralmodels.jl")
 include("densities.jl")
 include("boundaries.jl")
-
-# include("solve.jl")
-# include("density.jl")
-# include("sampling_old.jl")
-# include("automesh.jl")
-# include("printing.jl")
-
-# adapt(::Type{F}, x::U) where {F,U} = convert(@eval($(U.name.name){$F}), x)
-
-# score(value, reference) = inv(abs(value - reference))
-
-# using Requires
-#
-# function __init__()
-#     @require CUDA="052768ef-5323-5732-b1bb-66c8b64840ba" begin
-#         export CuMatrixEnsemble, CuHybridMatrixEnsemble
-#         include("cuda.jl")
-#         include("cudahybrid.jl")
-#     end
-#     @require LazySets="b4f0291d-fe17-52bc-9479-3d1a343d9043" begin
-#         export spectral_region, spectral_region!
-#         include("spectral_region.jl")
-#     end
-# end
 
 end

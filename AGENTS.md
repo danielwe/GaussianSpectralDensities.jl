@@ -28,19 +28,25 @@ jlfmt --history-file=no -- --prioritize-config-file --inplace src/source_file.jl
 
 ## Codebase State
 
-This code is being revived from a bitrotted rewrite. Many files are commented out in src/GaussianSpectralDensities.jl—**ignore files whose includes are commented out**. Focus only on active modules (in dependency order):
+Active modules in dependency order:
 
 1. `ArrayTools` — Generic array utilities
 1. `MathTools` — Linear algebra operations
 1. `Ensembles` — `MatrixEnsemble{F}` for `M + L·J·R` ensembles
+1. `Samples` — Random matrix sampling (`sample_matrix`, `sample_eigenvalues`)
 1. `Spreads` — `Spread{F}` (shift vs gap parameterization)
 1. `Problems` — `ResolventEquation{F}` (ensemble & auxiliary params), constraint types, `PointProblem{F}`
 1. `Workspaces` — `Workspace{F}` (mutable cache for intermediate computations)
-1. `Solutions` — `ResolventParams{F}` (resolvent unknowns), `PointSolution{F}`
+1. `Solutions` — `ResolventParams{F}` (resolvent unknowns), `PointSolution{F}`, `BatchSolution{F}`
 1. `Newton` — Generic Newton solver with finite-difference Jacobian
 1. `EquationSolvers` — `eqsolve!` per constraint type
 1. `Algorithms` — Solution strategies: `DirectSolve`, `SpreadAnnealing`, `SymmetryAnnealing`
-1. `Solvers` — User-facing `Solver` and `Solution` types with CommonSolve.jl interface
+1. `RBFInterpolants` — Radial basis function interpolation
+1. `Surrogates` — `SurrogateModel` (RBF-interpolated solver with adaptive refinement)
+1. `Meshing` — Triangular mesh generation via DistMesh
+1. `SpectralModels` — User-facing `SpectralProblem` and `SpectralModel` with CommonSolve.jl interface
+1. `Densities` — Spectral density computation via Wirtinger derivatives on meshes
+1. `Boundaries` — Spectral support boundary tracing via predictor-corrector contour following
 
 ## Architecture Patterns
 
@@ -98,6 +104,7 @@ Tests use TestItems.jl. Each `@testitem` block is independent with no access to 
 **Stop and Discuss Rule:** If a test failure appears to be caused by an issue **within the test itself** (missing import, typo, incorrect assumption, unsuitable tolerance), **stop immediately and report it to the user.** Do not attempt workarounds.
 
 **Prohibition of Workarounds:** Never attempt to:
+
 - Fix test issues by monkey-patching or modifying production code
 - Use `eval` or `Base.@eval` to inject code into core modules
 - Alter unrelated production code to bypass a test flaw
@@ -106,4 +113,4 @@ Tests use TestItems.jl. Each `@testitem` block is independent with no access to 
 
 ## Commented Code
 
-There's substantial commented code from the old implementation. Don't worry about cleaning it up unless specifically asked—focus on making active code work and be well-tested.
+There is commented-out code and stale notebooks in `demo/` and `demo.new/` from earlier iterations. Don't worry about cleaning it up unless specifically asked.
