@@ -7,8 +7,7 @@ using StaticArrays: SVector, StaticVector
 using ..Meshing: Meshing, updatemesh
 using ..SpectralModels: SpectralModel
 
-public area_weighted_average,
-    grad, remove_faceviews, spectral_density, wirtinger_derivatives
+public area_weighted_average, grad, spectral_density, wirtinger_derivatives
 
 """
     spectral_density(model::SpectralModel; hcoeff=1//4, kwargs...) -> Mesh
@@ -120,14 +119,6 @@ function area_weighted_average(
         end
     end
     return aw_values ./ aweights
-end
-
-function remove_faceviews(msh::Mesh)
-    # Coloring a mesh plot with a vertex attribute when face views exist is broken. Probably
-    # a Makie bug. For now, provide this convenience function to strip out the faceviews.
-    # NOTE: filter applies the predicate to values, not key-value pairs, when applied to
-    # NamedTuples (unlike when applied to Dicts). Surprising and undocumented, but OK.
-    return Mesh(msh.faces; filter(v -> !(v isa FaceView), msh.vertex_attributes)...)
 end
 
 """
@@ -270,29 +261,6 @@ end
     @testset "vertex = $i" for (i, g) in pairs(vg)
         @test g ≈ SVector(2.0, 3.0)
     end
-end
-
-@testitem "remove_faceviews" begin
-    using GaussianSpectralDensities.Densities: grad, remove_faceviews
-    using GaussianSpectralDensities.Meshing: updatemesh
-
-    using GeometryBasics: FaceView, Mesh, Point2, TriangleFace
-
-    vertices = Point2.([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
-    faces = TriangleFace.([(1, 2, 3), (1, 3, 4)])
-    msh = Mesh(vertices, faces)
-
-    vals = [2.0 * p[1] + 3.0 * p[2] for p in vertices]
-    msh_f = updatemesh(msh; scalar=vals)
-
-    # Add a FaceView via grad
-    msh_g = grad(msh_f, :scalar)
-    @test msh_g.vertex_attributes[:scalar_grad] isa FaceView
-
-    # remove_faceviews should strip FaceViews but keep non-FaceView attrs
-    msh_clean = remove_faceviews(msh_g)
-    @test !haskey(msh_clean.vertex_attributes, :scalar_grad)
-    @test haskey(msh_clean.vertex_attributes, :scalar)
 end
 
 @testitem "spectral_density low-level (Mesh)" begin

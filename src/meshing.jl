@@ -1,6 +1,6 @@
 module Meshing
 
-using GeometryBasics: Mesh, Point2, TriangleFace
+using GeometryBasics: FaceView, Mesh, Point2, TriangleFace
 using DistMesh: distmesh2d, huniform
 using Statistics: mean
 using StructArrays: components
@@ -9,7 +9,7 @@ using ..Solutions: issuccess
 using ..Spreads: shift
 using ..Surrogates: SurrogateModel, Surrogates, evaluate, evaluatebatch, zvals
 
-public addresolventparams, boundingbox, mesh, updatemesh
+public addresolventparams, boundingbox, mesh, remove_faceviews, updatemesh
 
 function mesh(model::SurrogateModel; hcoeff::Real=1, shiftoffset::Real=0, params=false)
     h = hcoeff * mean(model.rbf.nn_dists)
@@ -46,6 +46,14 @@ function updatemesh(msh; attrs...)
     return Mesh(msh.faces; msh.vertex_attributes..., attrs...)
 end
 
+function remove_faceviews(msh::Mesh)
+    # Coloring a mesh plot with a vertex attribute when face views exist is broken. Probably
+    # a Makie bug. For now, provide this convenience function to strip out the faceviews.
+    # NOTE: filter applies the predicate to values, not key-value pairs, when applied to
+    # NamedTuples (unlike when applied to Dicts). Surprising and undocumented, but OK.
+    return Mesh(msh.faces; filter(v -> !(v isa FaceView), msh.vertex_attributes)...)
+end
+
 end  # module Meshing
 
 @testitem "meshing" begin
@@ -75,4 +83,27 @@ end  # module Meshing
 
     nv = length(fine.position)
     @test all(f -> all(i -> 1 <= i <= nv, f), fine.faces)
+end
+
+@testitem "remove_faceviews" begin
+    using GaussianSpectralDensities.Meshing: remove_faceviews, updatemesh
+
+    using GeometryBasics: FaceView, Mesh, Point2, TriangleFace, per_face
+
+    vertices = Point2.([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+    faces = TriangleFace.([(1, 2, 3), (1, 3, 4)])
+    msh = Mesh(vertices, faces)
+
+    vertexvals = [2.0 * p[1] + 3.0 * p[2] for p in vertices]
+    msh_f = updatemesh(msh; vertexvals=vertexvals)
+
+    facevals = [1.0, 2.0]
+    msh_g = updatemesh(msh_f; facevals=per_face(facevals, msh))
+
+    @test msh_g.vertex_attributes[:facevals] isa FaceView
+
+    # remove_faceviews should strip FaceViews but keep non-FaceView attrs
+    msh_clean = remove_faceviews(msh_g)
+    @test !haskey(msh_clean.vertex_attributes, :facevals)
+    @test haskey(msh_clean.vertex_attributes, :vertexvals)
 end
