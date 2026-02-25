@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.22
+# v0.20.23
 
 using Markdown
 using InteractiveUtils
@@ -17,7 +17,7 @@ begin
     using Pkg: Pkg
     Pkg.activate(temp=true)
     Pkg.develop(path="..")
-    Pkg.add(["CairoMakie", "CommonSolve", "GeometryBasics", "LinearAlgebra"])
+    Pkg.add(["CairoMakie", "GeometryBasics", "LinearAlgebra"])
     Pkg.precompile()
 end
 
@@ -68,7 +68,7 @@ function figax()
 end
 
 # ╔═╡ 0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
-function plotboundary!(ax, boundaries)
+function plotboundary!(ax, boundary)
 	for segment in boundary
 		(; points, internal) = segment.result
 		lines!(
