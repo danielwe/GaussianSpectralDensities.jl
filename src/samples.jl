@@ -48,8 +48,8 @@ function partially_hermitize(X, S::DiagonalOrUniform)
 end
 
 function sample_matrix(
-    e::MatrixEnsemble{F}, N::Int; rng::AbstractRNG=default_rng()
-) where {F}
+    e::MatrixEnsemble{F,T}, N::Int; rng::AbstractRNG=default_rng()
+) where {F,T}
     n = size(e, 1)
     if N < 1 || N % n != 0
         throw(ArgumentError("N must be a positive multiple of the ensemble size"))
@@ -57,7 +57,7 @@ function sample_matrix(
     ncopies = N ÷ n
 
     M_N, L_N, R_N, S_N = expand(e, ncopies)
-    X = randn(rng, Complex{F}, N, N) / sqrt(F(N))
+    X = randn(rng, T, N, N) / sqrt(F(N))
     J = partially_hermitize(X, S_N)
     A = M_N + L_N * J * R_N
     return A
@@ -309,11 +309,11 @@ end
     using LinearAlgebra: I
     using Random: default_rng, seed!
 
-    @testset "$F" for F in [Float32, Float64]
-        e = MatrixEnsemble{F}(I, I, I, F(0) * I)
+    @testset "$T" for T in [Float32, Float64, ComplexF32, ComplexF64]
+        e = MatrixEnsemble{real(T)}(I, I, I, T(0) * I)
         N = 10
         A = sample_matrix(e, N; rng=seed!(default_rng(), 42))
-        @test A isa Matrix{Complex{F}}
+        @test A isa Matrix{T}
         @test size(A) == (N, N)
     end
 end
@@ -542,11 +542,11 @@ end
     using LinearAlgebra: I
     using Random: default_rng, seed!
 
-    @testset "$F" for F in [Float32, Float64]
-        e = MatrixEnsemble{F}(I, I, I, F(0) * I)
+    @testset "$T" for T in [Float32, Float64, ComplexF32, ComplexF64]
+        e = MatrixEnsemble{real(T)}(I, I, I, T(0) * I)
         n = size(e, 1)
         eigs = sample_eigenvalues(e, n; rng=seed!(default_rng(), 42))
-        @test eigs isa Vector{Complex{F}}
+        @test eigs isa Vector{T}
         @test length(eigs) == n
     end
 end
