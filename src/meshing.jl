@@ -2,7 +2,7 @@ module Meshing
 
 using GeometryBasics: FaceView, Mesh, Point2, TriangleFace
 using DistMesh: distmesh2d, huniform
-using Statistics: mean
+using Statistics: median
 using StructArrays: components
 
 using ..Solutions: issuccess
@@ -12,7 +12,7 @@ using ..Surrogates: SurrogateModel, Surrogates, evaluate, evaluatebatch, zvals
 public addresolventparams, boundingbox, mesh, remove_faceviews, updatemesh
 
 function mesh(model::SurrogateModel; hcoeff::Real=1, shiftoffset::Real=0, params=false)
-    h = hcoeff * mean(model.rbf.nn_dists)
+    h = hcoeff * median(model.rbf.nn_dists)
     bbox = boundingbox(model.rbf.x)
     dmsh = distmesh2d(huniform, h, bbox) do p
         sol = evaluate(model, complex(p...); refine=false)

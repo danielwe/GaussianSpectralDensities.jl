@@ -7,7 +7,7 @@ using ..Solutions: issuccess
 using ..Spreads: Spreads
 using ..Surrogates: SurrogateModel, evaluate
 
-using Statistics: mean
+using Statistics: median
 
 public BoundarySegment,
     BoundarySegmentTrace, SpectralModel, spectral_boundary, point_in_polygon
@@ -404,7 +404,7 @@ function spectral_boundary(
     min_steps_before_close::Int=12,
     max_components::Union{Nothing,Int}=nothing,
 ) where {F}
-    step_size = F(step_size_coeff * mean(model.rbf.nn_dists))
+    step_size = F(step_size_coeff * median(model.rbf.nn_dists))
     tol = F(tol)
     if step_size <= 0
         throw(ArgumentError("step_size_coeff must be positive"))
