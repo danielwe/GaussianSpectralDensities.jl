@@ -72,6 +72,8 @@ end
 outputdim(::SpreadConstraint) = 2
 outputdim(::PTraceConstraint) = 3
 
+nanvec(::SVector{N,F}) where {N,F} = @SVector fill(F(NaN), N)
+
 zvec(z::Complex) = SVector(reim(z))
 zval(zv::StaticVector{2,<:Real}) = complex(zv...)
 zvals(model::SurrogateModel) = map(zval, model.rbf.x)
@@ -82,29 +84,23 @@ function SurrogateModel(
     equation::ResolventEquation{F},
     constraint::AbstractConstraint{F},
     algorithm::AbstractAlgorithm,
-    zs::AbstractVector{<:Complex},
+    zs::AbstractVector{<:Complex};
+    kwargs...,
 ) where {F}
-    workspace = Workspace(equation)
-    xs = SVector{2,F}[]
-    ys = SVector{outputdim(constraint),F}[]
-
     # TODO: Parallelize solves (embarrassingly parallel per z). Needs per-thread Workspaces
-    # and a collect-then-append pattern for xs/ys, since constraint_guess chaining is only
-    # used for warm-starting and isn't essential for correctness.
-    constraint_guess = constraint
-    for z in zs
-        zF = Complex{F}(z)
-        problem = PointProblem(equation, constraint_guess, zF)
-        solution = pointsolve(workspace, problem, algorithm)
-        if issuccess(solution)
-            y = pack(solution, constraint)
-            push!(xs, zvec(zF))
-            push!(ys, y)
-            constraint_guess = unpack_constraint(y, constraint)
+    # and a collect-then-append pattern for xs/ys.
+    workspace = Workspace(equation)
+    xs = map(zvec ∘ Complex{F}, zs)
+    yfun = let eq=equation, co=constraint, alg=algorithm, ws=workspace
+        function yfun(x::SVector{2,F})
+            problem = PointProblem(eq, co, zval(x))
+            solution = pointsolve(ws, problem, alg)
+            y = pack(solution, co)
+            return issuccess(solution) ? y : nanvec(y)
         end
     end
 
-    rbf = RBFInterpolant(ThinPlateSpline(), xs, ys)
+    rbf = RBFInterpolant(ThinPlateSpline(), xs, yfun; kwargs...)
     return SurrogateModel(equation, constraint, algorithm, rbf, workspace)
 end
 
@@ -112,10 +108,14 @@ function SurrogateModel(
     equation::ResolventEquation{F},
     constraint::AbstractConstraint{F},
     algorithm::AbstractAlgorithm,
-    N::Integer=64,
+    npoints::Integer=64,
 ) where {F}
-    zs = sample_eigenvalues(equation.ensemble, N)
-    return SurrogateModel(equation, constraint, algorithm, zs)
+    # round up to integer multiple of ensemble size, required for sampling eigenvalues
+    N = size(equation.ensemble, 1)
+    npoints_ceil = ceil(typeof(npoints), npoints // N) * N
+    neigvals = max(npoints_ceil, size(equation.ensemble, 1))
+    zs = sample_eigenvalues(equation.ensemble, neigvals)
+    return SurrogateModel(equation, constraint, algorithm, zs; npoints)
 end
 
 function SurrogateModel(model::SurrogateModel{F}, zs::AbstractVector{<:Complex}) where {F}
@@ -542,16 +542,30 @@ end
     alg = DirectSolve()
 
     @testset "constructor with eigvals" begin
-        ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+        N = 8
+
+        ensemble = MatrixEnsemble(0.0I, I, I, 0.25I(N))
         eq = ResolventEquation(ensemble)
         constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
 
-        model = SurrogateModel(eq, constraint, alg, 16)
+        model = SurrogateModel(eq, constraint, alg, 2N)
         @test model.equation === eq
         @test model.constraint === constraint
         @test model.algorithm === alg
         @test model.workspace isa Workspace{Float64}
-        @test length(model.rbf.x) <= 16  # NOTE: pruning in RBFInterpolant constructor may reduce number of points
+
+        # NOTE: The following will not hold if the solver fails at any of the points, since
+        # we prune failed solves after pruning sample points. Make sure this test case is
+        # well-conditioned to avoid that.
+        @test length(model.rbf.x) == 2N
+
+        # should sample 2N eigvals and then prune down to N + 1 points
+        model = SurrogateModel(eq, constraint, alg, N + 1)
+        @test length(model.rbf.x) == N + 1  # NOTE: See above
+
+        # should sample N eigvals and then prune down to N - 1 points
+        model = SurrogateModel(eq, constraint, alg, N - 1)
+        @test length(model.rbf.x) == N - 1  # NOTE: See above
     end
 
     @testset "all points solvable" begin
