@@ -14,12 +14,11 @@ using LinearAlgebra:
     Tridiagonal,
     UniformScaling,
     cholesky,
+    cholesky!,
     diagind,
     dot,
     eigmin,
     ldiv!,
-    ldlt,
-    ldlt!,
     mul!,
     tr
 using LinearMaps: LinearMap
@@ -300,9 +299,9 @@ end
 """
     decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0)
 
-Get the LDLt factorization of `A + shift * I` with Hermitian `A` and real `shift`
+Get the Cholesky factorization of `A + shift * I` with Hermitian `A` and real `shift`
 """
-decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = ldlt(A; kwargs...)
+decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = cholesky(A; kwargs...)
 
 """
     decompose(A::Diagonal{E}; shift=zero(E)) where {E}
@@ -348,7 +347,7 @@ end
 function decompose!!(
     F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...
 )
-    return ldlt!(F, A; kwargs...)
+    return cholesky!(F, A; kwargs...)
 end
 
 function decompose!!(F::Diagonal{T}, A::Diagonal{T}; shift=zero(T)) where {T}
