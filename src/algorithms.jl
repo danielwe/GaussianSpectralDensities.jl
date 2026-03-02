@@ -479,20 +479,22 @@ end
 ## Convenience
 ## ===========
 """
-    pointsolve(problem::PointProblem, algorithm::AbstractAlgorithm) -> PointSolution
+    pointsolve(
+        ws::Workspace, problem::PointProblem, algorithm::AbstractAlgorithm
+    ) -> PointSolution
 
 Run `algorithm` to completion on `problem` and return the final `PointSolution`.
 """
-function pointsolve(problem::PointProblem{F}, algorithm::AbstractAlgorithm) where {F}
-    ws = Workspace(problem.equation)
-    state = nothing
-    solution = nothing
+function pointsolve(
+    ws::Workspace{F}, problem::PointProblem{F}, algorithm::AbstractAlgorithm
+) where {F}
+    result = step!(ws, problem, algorithm, nothing)
+    isnothing(result) && return nothing
     while true
-        result = step!(ws, problem, algorithm, state)
-        isnothing(result) && break
         solution, state = result
+        result = step!(ws, problem, algorithm, state)
+        isnothing(result) && return solution
     end
-    return solution
 end
 
 end  # module Algorithms
@@ -1148,17 +1150,19 @@ end
         MatrixEnsemble, PTraceConstraint, PointProblem, ResolventEquation
     using GaussianSpectralDensities.Algorithms: DirectSolve, SpreadAnnealing, pointsolve
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, solves
+    using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
 
     ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
     eq = ResolventEquation(ensemble)
+    ws = Workspace(eq)
     z = 0.5 + 0.5im
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     problem = PointProblem(eq, constraint, z)
 
     @testset "pointsolve(problem, alg)" begin
-        ps = pointsolve(problem, DirectSolve())
+        ps = pointsolve(ws, problem, DirectSolve())
         @test ps isa PointSolution{Float64}
         @test issuccess(ps)
         @test solves(ps, problem)
@@ -1168,7 +1172,7 @@ end
         schedule = [4.0, 2.0, 1.0, 0.5]
         alg = SpreadAnnealing(schedule, :gap)
 
-        ps = pointsolve(problem, alg)
+        ps = pointsolve(ws, problem, alg)
         @test ps isa PointSolution{Float64}
         @test issuccess(ps)
         @test solves(ps, problem)
@@ -1180,7 +1184,7 @@ end
         z_impossible = 2.0 + 2.0im
         problem_impossible = PointProblem(eq_impossible, constraint, z_impossible)
 
-        ps = pointsolve(problem_impossible, DirectSolve())
+        ps = pointsolve(ws, problem_impossible, DirectSolve())
         @test ps isa PointSolution{Float64}
         @test !issuccess(ps)
     end

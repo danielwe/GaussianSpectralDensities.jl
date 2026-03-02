@@ -95,7 +95,7 @@ function SurrogateModel(
     for z in zs
         zF = Complex{F}(z)
         problem = PointProblem(equation, constraint_guess, zF)
-        solution = pointsolve(problem, algorithm)
+        solution = pointsolve(workspace, problem, algorithm)
         if issuccess(solution)
             y = pack(solution, constraint)
             push!(xs, zvec(zF))
@@ -142,9 +142,9 @@ function evaluate_one(model::SurrogateModel{F}, z) where {F}
     constraint_guess = unpack_constraint(model_y, model.constraint)
     problem = PointProblem(model.equation, constraint_guess, zF)
     sol = if model_sol.status < SolutionStatus.not_intheballpark
-        pointsolve(problem, DirectSolve())
+        pointsolve(model.workspace, problem, DirectSolve())
     else
-        pointsolve(problem, model.algorithm)
+        pointsolve(model.workspace, problem, model.algorithm)
     end
     issuccess(sol) || return nan_solution(model, zF), false
     return sol, !haspoint(model.rbf, zv)
@@ -244,6 +244,7 @@ end
         PTraceConstraint, PointProblem, ResolventEquation, spreadtype
     using GaussianSpectralDensities.Solutions: PointSolution, issuccess, shape, spreadfrom
     using GaussianSpectralDensities.Surrogates: pack, unpack_args, unpack_constraint
+    using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
     using StaticArrays: SVector
@@ -257,7 +258,8 @@ end
         eqF = ResolventEquation{F}(eq64)
         constraintF = PTraceConstraint{F}(constraint64)
         problemF = PointProblem(eqF, constraintF, z64)
-        psF = pointsolve(problemF, DirectSolve())
+        wsF = Workspace(eqF)
+        psF = pointsolve(wsF, problemF, DirectSolve())
         @test issuccess(psF)
 
         y = pack(psF, constraintF)
