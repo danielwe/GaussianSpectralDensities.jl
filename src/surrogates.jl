@@ -142,7 +142,8 @@ function evaluate_one(model::SurrogateModel{F}, z) where {F}
     constraint_guess = unpack_constraint(model_y, model.constraint)
     problem = PointProblem(model.equation, constraint_guess, zF)
     sol = if model_sol.status < SolutionStatus.not_intheballpark
-        pointsolve(model.workspace, problem, DirectSolve())
+        cand = pointsolve(model.workspace, problem, DirectSolve())
+        issuccess(cand) ? cand : pointsolve(model.workspace, problem, model.algorithm)
     else
         pointsolve(model.workspace, problem, model.algorithm)
     end
