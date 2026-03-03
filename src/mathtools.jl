@@ -511,7 +511,7 @@ of `A`. The appropriate type of `F` is the return type of `decompose(A)`.
 function eigmin!!(F, A::Hermitian)
     Ai = inverse_as_map(F, A)
     which = ArnoldiMethod.LM()
-    schur, history = partialschur(Ai; which, nev=1, tol=Defaults.rtol(eltype(Ai)))
+    schur, history = partialschur(Ai; which, nev=1, tol=Defaults.rtol_strict(eltype(Ai)))
     (history.nconverged >= 1) || error("smallest eigenvalue not found: did not converge")
     return inv(real(first(schur.eigenvalues)))
 end

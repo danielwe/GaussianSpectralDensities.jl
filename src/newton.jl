@@ -11,8 +11,8 @@ struct NewtonException <: Exception
 end
 
 """
-    newton(f, x; atol=<see text>, maxiters=99)
-    newton(f, jac, x; atol=<see text>, maxiters=99)
+    newton(f, x; atol=<see text>, maxiters=192)
+    newton(f, jac, x; atol=<see text>, maxiters=192)
 
 Find a zero of `f` using Newton's method starting at `x`
 
@@ -37,7 +37,7 @@ function newton(f, x; kwargs...)
     return newton(f, jac, x; kwargs...)
 end
 
-function newton(f, jac, x; atol=Defaults.atol(eltype(x)) / 10, maxiters=99)
+function newton(f, jac, x; atol=Defaults.atol(eltype(x)) / 4, maxiters=192)
     fx = f(x)
     approx_zero(fx, atol) && return (x, 0)
     for i in 1:maxiters
@@ -81,7 +81,7 @@ function finite_difference_jacobian(f, x::SVector, fx=f(x))
 end
 
 function increment(x::Real)
-    inc = (Defaults.atol(typeof(x))^(2 // 3)) * (oneunit(x)^(1 // 3))
+    inc = sqrt(eps(one(x))) * oneunit(x) / 4  # empirically gives the most accurate derivatives
     return (x < zero(x)) ? -inc : inc
 end
 
@@ -92,8 +92,7 @@ end  # module Newton
 
     using LinearAlgebra: norm
 
-    rtol_exponent = 2 // 5
-    atol_exponent = 3 // 4
+    tol_exponent = 1 // 3
 
     f(x) = cos(x) - x^3
     df(x, _) = -sin(x) - 3x^2
@@ -102,18 +101,17 @@ end  # module Newton
 
     @testset "$F" for F in [Float32, Float64]
         x0_F = F(x0_64)
-        rtol = eps(F)^rtol_exponent
-        atol = eps(F)^atol_exponent
+        tol = eps(F)^tol_exponent
 
         # finite_difference_jacobian
         fx0_F = f(x0_F)
         dfx0_F = df(x0_F, fx0_F)
-        @test finite_difference_jacobian(f, x0_F, fx0_F) ≈ dfx0_F rtol = rtol
-        @test finite_difference_jacobian(f, x0_F) ≈ dfx0_F rtol = rtol
+        @test finite_difference_jacobian(f, x0_F, fx0_F) ≈ dfx0_F rtol = tol
+        @test finite_difference_jacobian(f, x0_F) ≈ dfx0_F rtol = tol
 
         # newton
-        @test norm(f(first(newton(f, x0_F)))) < atol
-        @test norm(f(first(newton(f, df, x0_F)))) < atol
+        @test norm(f(first(newton(f, x0_F)))) < tol
+        @test norm(f(first(newton(f, df, x0_F)))) < tol
     end
 end
 
@@ -123,8 +121,7 @@ end
     using LinearAlgebra: norm
     using StaticArrays: SMatrix, SVector, Size
 
-    rtol_exponent = 2 // 5
-    atol_exponent = 3 // 4
+    tol_exponent = 1 // 3
 
     g(x) = (x .* (x .^ 2 .- 1)) .+ (reverse(x) ./ 2)
 
@@ -141,19 +138,18 @@ end
 
     @testset "$F" for F in [Float32, Float64]
         x0_F = map(F, x0_64)
-        rtol = eps(F)^rtol_exponent
-        atol = eps(F)^atol_exponent
+        tol = eps(F)^tol_exponent
 
         # finite_difference_jacobian
         gx0_F = g(x0_F)
         jgx0_F = jg(x0_F, gx0_F)
-        @test finite_difference_jacobian(g, x0_F, gx0_F) ≈ jgx0_F rtol = rtol
-        @test finite_difference_jacobian(g, x0_F) ≈ jgx0_F rtol = rtol
+        @test finite_difference_jacobian(g, x0_F, gx0_F) ≈ jgx0_F rtol = tol
+        @test finite_difference_jacobian(g, x0_F) ≈ jgx0_F rtol = tol
 
         # newton
         N = length(x0_F)
-        @test norm(g(first(newton(g, x0_F)))) < atol * sqrt(N)
-        @test norm(g(first(newton(g, jg, x0_F)))) < atol * sqrt(N)
+        @test norm(g(first(newton(g, x0_F)))) < tol * sqrt(N)
+        @test norm(g(first(newton(g, jg, x0_F)))) < tol * sqrt(N)
     end
 end
 

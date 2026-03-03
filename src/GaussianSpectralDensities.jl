@@ -39,8 +39,10 @@ module Defaults
 
     public approxequal,
         atol,
+        atol_strict,
         intheballpark,
         rtol,
+        rtol_strict,
         rtol_ballpark,
         spread_annealing_schedule,
         spread_annealing_type,
@@ -64,8 +66,10 @@ module Defaults
         return isapprox(x, y; atol=atol(F), rtol=rtol(F))
     end
 
-    rtol(::Type{T}) where {T} = eps(one(real(T)))^(3 // 4)
+    rtol(::Type{T}) where {T} = sqrt(eps(one(real(T))))
     atol(::Type{T}) where {T} = rtol(T) * oneunit(real(T))
+    rtol_strict(::Type{T}) where {T} = eps(one(real(T)))^(3 // 4)
+    atol_strict(::Type{T}) where {T} = rtol_strict(T) * oneunit(real(T))
 
     intheballpark(x, y) = intheballpark(promote(x, y)...)
     intheballpark(x::T, y::T) where {T} = intheballpark(real(T), x, y)

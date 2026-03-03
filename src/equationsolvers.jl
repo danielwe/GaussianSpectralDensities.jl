@@ -66,20 +66,16 @@ function eqsolve_inner!(
     return PointSolution(eq, z, shape, spread; workspace=ws)
 end
 
-function eqsolve_common!(f, v0)
-    v, niters = try
-        newton(f, v0)
+eqsolve_common!(f, v0) =
+    try
+        v, niters = newton(f, v0)
+        @debug "eqsolve! converged" niters=niters v0=v0 v=v
+        return v
     catch e
         (e isa ConvergenceException) || rethrow()
-        oftype.(v0, NaN), -1
+        @warn "eqsolve! did not converge" v0=v0 e=e
+        return map(vi -> oftype(vi, NaN), v0)
     end
-    if niters < 0
-        @warn "eqsolve! did not converge" v0=v0
-    else
-        @debug "eqsolve! converged" niters=niters v0=v0 v=v
-    end
-    return v
-end
 
 end  # module EquationSolvers
 
