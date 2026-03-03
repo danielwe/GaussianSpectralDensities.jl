@@ -54,6 +54,8 @@ CommonSolve-compatible solver state. Created by `CommonSolve.init` and consumed 
   - `nsamples`: number of random eigenvalue samples for initial surrogate construction.
   - `hcoeff`: mesh element size relative to surrogate point spacing (akin to a tolerance).
   - `max_retries`: number of meshing attempts before giving up.
+  - `meshing`: whether to perform meshing. If false, use sampled eigenvalues without
+    refinement.
 """
 struct SpectralSolver{F,P<:SpectralProblem{F},A<:AbstractAlgorithm}
     problem::P
@@ -61,20 +63,22 @@ struct SpectralSolver{F,P<:SpectralProblem{F},A<:AbstractAlgorithm}
     nsamples::Int
     hcoeff::F
     max_retries::Int
+    meshing::Bool
 
     function SpectralSolver(
         problem::SpectralProblem{F},
         algorithm=adaptrealtype(F, SpreadAnnealing());
         nsamples::Integer=64,
         hcoeff::Real=one(F),
-        max_retries::Integer=8,
+        max_retries::Integer=4,
+        meshing::Bool=true,
     ) where {F}
         algorithmF = adaptrealtype(F, algorithm)
         (nsamples > 0) || throw(ArgumentError("nsamples must be positive"))
         (hcoeff > 0) || throw(ArgumentError("hcoeff must be positive"))
         (max_retries > 0) || throw(ArgumentError("max_retries must be positive"))
         return new{F,typeof(problem),typeof(algorithmF)}(
-            problem, algorithmF, nsamples, hcoeff, max_retries
+            problem, algorithmF, nsamples, hcoeff, max_retries, meshing
         )
     end
 end
@@ -97,14 +101,16 @@ function CommonSolve.init(
 end
 
 function CommonSolve.solve!(solver::SpectralSolver)
-    (; problem, algorithm, nsamples, hcoeff, max_retries) = solver
+    (; problem, algorithm, nsamples, hcoeff, max_retries, meshing) = solver
     (; equation, constraint, shiftoffset) = problem
 
-    for _ in 1:max_retries
+    for i in 1:max_retries
         model = SurrogateModel(equation, constraint, algorithm, nsamples)
+        meshing || return SpectralModel(problem, model)
         refinement = try
             mesh(model; hcoeff, shiftoffset)
         catch
+            @warn "Meshing attempt $i failed. Retrying..."
             continue
         end
         refined_zs = zvals(refinement)
@@ -136,7 +142,7 @@ end  # module SpectralModels
         @test solver.algorithm isa SpreadAnnealing
         @test solver.nsamples == 64
         @test solver.hcoeff == 1
-        @test solver.max_retries == 8
+        @test solver.max_retries == 4
     end
 
     @testset "custom args/kwargs" begin
