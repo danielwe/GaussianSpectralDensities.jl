@@ -70,10 +70,9 @@ end
 # ╔═╡ 0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
 function plotboundary!(ax, boundary)
 	for segment in boundary
-		(; points, internal) = segment.result
 		lines!(
-			ax, real(points), imag(points);
-			color=internal ? :green : :red, linewidth=2,
+			ax, real(segment.points), imag(segment.points);
+			color=segment.internal ? :green : :red, linewidth=2,
 		)
 	end
 	return nothing

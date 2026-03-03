@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.22
+# v0.20.23
 
 using Markdown
 using InteractiveUtils
@@ -110,10 +110,9 @@ end
 # ╔═╡ 0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
 function plot_boundaries!(ax, boundaries)
 	for b in boundaries
-		(; points, internal) = b.result
 		lines!(
-			ax, real(points), imag(points);
-			color=internal ? :green : :red, linewidth=2,
+			ax, real(b.points), imag(b.points);
+			color=b.internal ? :green : :red, linewidth=2,
 		)
 	end
 	return nothing

@@ -9,8 +9,7 @@ using ..Surrogates: SurrogateModel, evaluate
 
 using Statistics: median
 
-public BoundarySegment,
-    BoundarySegmentTrace, SpectralModel, spectral_boundary, point_in_polygon
+public BoundarySegment, SpectralModel, spectral_boundary, point_in_polygon
 
 # TODO: Derive and implement analytic gradient (implicit differentiation)
 
@@ -25,6 +24,8 @@ Container for traced boundary points and their shift values.
   - `closed` marks whether the contour loop closed.
   - `internal` marks whether this is an internal boundary (hole) of an annular support
     region. `false` for outer boundaries and open contours.
+  - `nsolvercalls` is a diagnostic count of how many surrogate evaluations were made.
+    Defaults to `-1` if not provided at construction.
 """
 struct BoundarySegment{F<:AbstractFloat}
     points::Vector{Complex{F}}
@@ -32,20 +33,12 @@ struct BoundarySegment{F<:AbstractFloat}
     seed::Complex{F}
     closed::Bool
     internal::Bool
-end
+    nsolvercalls::Int
 
-function BoundarySegment(points, shift_values, seed, closed)
-    return BoundarySegment(points, shift_values, seed, closed, false)
-end
-
-"""
-    BoundarySegmentTrace(result, n_solver_calls)
-
-Diagnostic wrapper for a boundary extraction run, including solver counts.
-"""
-struct BoundarySegmentTrace{F<:AbstractFloat}
-    result::BoundarySegment{F}
-    n_solver_calls::Int
+    function BoundarySegment(points, shift_values, seed, closed, internal, nsolvercalls=-1)
+        F = real(eltype(points))
+        return new{F}(points, shift_values, seed, closed, internal, nsolvercalls)
+    end
 end
 
 """
@@ -206,10 +199,11 @@ function classify_interior(
 end
 
 """
-    spectral_boundary_segment(model, seed, step_size, tol; ...) -> BoundarySegmentTrace
+    spectral_boundary_segment(model, seed, step_size, tol; ...) -> BoundarySegment
 
 Trace a single shift=0 contour starting from `seed` (assumed already refined onto the
-contour). Returns a `BoundarySegmentTrace` with the traced points and diagnostics.
+contour). Returns a `BoundarySegment` with the traced points, contour properties, and
+diagnostics.
 """
 function spectral_boundary_segment(
     model::SurrogateModel{F},
@@ -226,8 +220,7 @@ function spectral_boundary_segment(
     )
 
     internal = closed ? classify_interior(model, points, counter) : false
-    result = BoundarySegment(points, shift_values, seed, closed, internal)
-    return BoundarySegmentTrace(result, counter[])
+    return BoundarySegment(points, shift_values, seed, closed, internal, counter[])
 end
 
 """
@@ -328,7 +321,9 @@ function is_near_any_contour(
 end
 
 """
-    spectral_boundary(model::SpectralModel; step_size_coeff=1//4, kwargs...) -> Vector{BoundarySegmentTrace}
+    spectral_boundary(
+        model::SpectralModel; step_size_coeff=1//4, kwargs...
+    ) -> Vector{BoundarySegment}
 
 Extract all boundary segments from the model's surrogate.
 """
@@ -337,7 +332,7 @@ function spectral_boundary(model::SpectralModel; step_size_coeff=1 // 4, kwargs.
 end
 
 """
-    spectral_boundary(model::SurrogateModel; kwargs...) -> Vector{BoundarySegmentTrace}
+    spectral_boundary(model::SurrogateModel; kwargs...) -> Vector{BoundarySegment}
 
 Trace all disconnected boundary components. Sample points are sorted by
 `abs(shift)` and each is tried once as a potential seed for a new contour.
@@ -362,7 +357,6 @@ function spectral_boundary(
         throw(ArgumentError("max_components must be positive"))
     end
 
-    traces = BoundarySegmentTrace{F}[]
     contours = BoundarySegment{F}[]
 
     candidates = map(model.rbf.x) do xv
@@ -379,83 +373,17 @@ function spectral_boundary(
         seed, _ = refined
         is_near_any_contour(seed, contours, step_size / 2) && continue
 
-        t = spectral_boundary_segment(
+        c = spectral_boundary_segment(
             model, seed, step_size, tol; max_steps, min_steps_before_close
         )
-        push!(traces, t)
-        push!(contours, t.result)
-        (!isnothing(max_components) && (length(traces) >= max_components)) && break
+        push!(contours, c)
+        (!isnothing(max_components) && (length(contours) >= max_components)) && break
     end
 
-    return traces
+    return contours
 end
 
 end  # module Boundaries
-
-@testitem "BoundarySegment construction" begin
-    using GaussianSpectralDensities.Boundaries: BoundarySegment
-
-    @testset "closed = true" begin
-        pts = ComplexF64[1.0 + 0.0im, 0.0 + 1.0im, -1.0 + 0.0im, 1.0 + 0.0im]
-        shifts = [0.0, 0.0, 0.0, 0.0]
-        seed = 1.0 + 0.0im
-
-        result = BoundarySegment(pts, shifts, seed, true)
-        @test result.points === pts
-        @test result.shift_values === shifts
-        @test result.closed === true
-        @test result.seed === seed
-        @test result.internal === false
-    end
-
-    @testset "closed = false" begin
-        pts = ComplexF64[1.0 + 0.0im, 0.0 + 1.0im]
-        shifts = [0.01, -0.02]
-        seed = 1.0 + 0.0im
-
-        result = BoundarySegment(pts, shifts, seed, false)
-        @test result.points === pts
-        @test result.shift_values === shifts
-        @test result.closed === false
-        @test result.seed === seed
-        @test result.internal === false
-    end
-
-    @testset "internal = true" begin
-        pts = ComplexF64[1.0 + 0.0im, 0.0 + 1.0im, -1.0 + 0.0im, 1.0 + 0.0im]
-        shifts = [0.0, 0.0, 0.0, 0.0]
-        seed = 1.0 + 0.0im
-
-        result = BoundarySegment(pts, shifts, seed, true, true)
-        @test result.closed === true
-        @test result.internal === true
-    end
-
-    @testset "empty points" begin
-        pts = ComplexF64[]
-        shifts = Float64[]
-        seed = 0.0 + 0.0im
-
-        result = BoundarySegment(pts, shifts, seed, false)
-        @test isempty(result.points)
-        @test isempty(result.shift_values)
-        @test result.closed === false
-        @test result.internal === false
-    end
-end
-
-@testitem "BoundarySegmentTrace construction" begin
-    using GaussianSpectralDensities.Boundaries: BoundarySegment, BoundarySegmentTrace
-
-    pts = ComplexF64[1.0 + 0.0im, 0.0 + 1.0im, 1.0 + 0.0im]
-    shifts = [0.0, 0.0, 0.0]
-    seed = 1.0 + 0.0im
-    result = BoundarySegment(pts, shifts, seed, true)
-
-    trace = BoundarySegmentTrace(result, 150)
-    @test trace.result === result
-    @test trace.n_solver_calls == 150
-end
 
 @testitem "solve_shift inside support" begin
     using GaussianSpectralDensities:
@@ -742,7 +670,7 @@ end
         # Contour with a few known points
         pts = Complex{F}[1, im, -1, -im, 1]
         shifts = zeros(F, 5)
-        contour = BoundarySegment(pts, shifts, Complex{F}(1), true)
+        contour = BoundarySegment(pts, shifts, Complex{F}(1), true, false)
 
         # Point exactly on a contour point: distance = 0 < any positive threshold
         @test is_near_contour(Complex{F}(1), contour, F(0.1))
@@ -757,7 +685,7 @@ end
         @test is_near_contour(Complex{F}(2.0), contour, F(2.0))
 
         # Empty contour points
-        empty_contour = BoundarySegment(Complex{F}[], F[], Complex{F}(0), true)
+        empty_contour = BoundarySegment(Complex{F}[], F[], Complex{F}(0), true, false)
         @test !is_near_contour(Complex{F}(0), empty_contour, F(1.0))
     end
 end
@@ -768,7 +696,7 @@ end
     @testset "$F" for F in [Float32, Float64]
         pts = Complex{F}[0]
         shifts = zeros(F, 1)
-        contour = BoundarySegment(pts, shifts, Complex{F}(0), true)
+        contour = BoundarySegment(pts, shifts, Complex{F}(0), true, false)
 
         # Distance is exactly 0.5; threshold is 1.0 → near
         @test is_near_contour(Complex{F}(0.5), contour, F(1.0))
@@ -783,13 +711,13 @@ end
 
     @testset "$F" for F in [Float32, Float64]
         pts1 = Complex{F}[1, im, -1, -im, 1]
-        contour1 = BoundarySegment(pts1, zeros(F, 5), Complex{F}(1), true)
+        contour1 = BoundarySegment(pts1, zeros(F, 5), Complex{F}(1), true, false)
 
         pts2 = Complex{F}[5, 5 + im, 5 + 2im]
-        contour2 = BoundarySegment(pts2, zeros(F, 3), Complex{F}(5), false)
+        contour2 = BoundarySegment(pts2, zeros(F, 3), Complex{F}(5), false, false)
 
         pts3 = Complex{F}[10, 10 + im, 10 + 2im, 10]
-        contour3 = BoundarySegment(pts3, zeros(F, 4), Complex{F}(10), true)
+        contour3 = BoundarySegment(pts3, zeros(F, 4), Complex{F}(10), true, false)
 
         contours = BoundarySegment{F}[contour1, contour2, contour3]
         threshold = F(0.5)
@@ -814,7 +742,7 @@ end
 @testitem "spectral_boundary single component" begin
     using GaussianSpectralDensities:
         DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
-    using GaussianSpectralDensities.Boundaries: BoundarySegmentTrace, spectral_boundary
+    using GaussianSpectralDensities.Boundaries: BoundarySegment, spectral_boundary
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: I
@@ -824,20 +752,20 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    traces = spectral_boundary(model)
-    @test traces isa Vector{BoundarySegmentTrace{Float64}}
-    @test length(traces) == 1
+    contours = spectral_boundary(model)
+    @test contours isa Vector{BoundarySegment{Float64}}
+    @test length(contours) == 1
 
-    result = traces[1].result
-    @test result.closed
-    @test !result.internal  # outer boundary of simply connected support
-    @test length(result.points) > 10
+    contour = contours[1]
+    @test contour.closed
+    @test !contour.internal  # outer boundary of simply connected support
+    @test length(contour.points) > 10
 
     # All shift values should be near zero
-    @test all(s -> abs(s) < 1e-3, result.shift_values)
+    @test all(s -> abs(s) < 1e-3, contour.shift_values)
 
     # Each boundary point should lie approximately on the ellipse
-    for z in result.points
+    for z in contour.points
         ellipse_val = (real(z) / 1.25)^2 + (imag(z) / 0.75)^2
         @test abs(ellipse_val - 1.0) < 0.1
     end
@@ -847,7 +775,7 @@ end
     using GaussianSpectralDensities:
         MatrixEnsemble, PTraceConstraint, ResolventEquation, SpreadAnnealing
     using GaussianSpectralDensities.Boundaries:
-        BoundarySegmentTrace, spectral_boundary, point_in_polygon
+        BoundarySegment, spectral_boundary, point_in_polygon
     using GaussianSpectralDensities.Surrogates: SurrogateModel
 
     using LinearAlgebra: Diagonal, I
@@ -859,15 +787,15 @@ end
     constraint = PTraceConstraint(1.0; shift0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, SpreadAnnealing(), 96)
 
-    traces = spectral_boundary(model)
-    @test traces isa Vector{BoundarySegmentTrace{Float64}}
-    @test length(traces) == 2
+    contours = spectral_boundary(model)
+    @test contours isa Vector{BoundarySegment{Float64}}
+    @test length(contours) == 2
 
     # Sort by contour size so outer comes first
-    sort!(traces; by=t -> -length(t.result.points))
+    sort!(contours; by=c -> -length(c.points))
 
-    outer = traces[1].result
-    inner = traces[2].result
+    outer = contours[1]
+    inner = contours[2]
 
     @test outer.closed
     @test !outer.internal  # outer boundary
@@ -912,8 +840,8 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    traces = spectral_boundary(model; max_components=1)
-    @test length(traces) <= 1
+    contours = spectral_boundary(model; max_components=1)
+    @test length(contours) <= 1
 end
 
 @testitem "spectral_boundary argument validation" begin
@@ -951,17 +879,17 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # max_steps=2 should produce all open contours
-    traces = spectral_boundary(model; max_steps=2)
-    @test length(traces) > 0
-    @testset "trace $i" for (i, trace) in pairs(traces)
-        @test !trace.result.closed
+    contours = spectral_boundary(model; max_steps=2)
+    @test length(contours) > 0
+    @testset "contour $i" for (i, c) in pairs(contours)
+        @test !c.closed
     end
 end
 
 @testitem "spectral_boundary from SpectralModel" begin
     using GaussianSpectralDensities:
         DirectSolve, MatrixEnsemble, PTraceConstraint, SpectralProblem, solve
-    using GaussianSpectralDensities.Boundaries: BoundarySegmentTrace, spectral_boundary
+    using GaussianSpectralDensities.Boundaries: BoundarySegment, spectral_boundary
 
     using LinearAlgebra: I
 
@@ -970,15 +898,15 @@ end
     prob = SpectralProblem(ensemble, constraint)
     model = solve(prob, DirectSolve(); nsamples=16)
 
-    traces = spectral_boundary(model)
-    @test traces isa Vector{BoundarySegmentTrace{Float64}}
-    @test length(traces) == 1
+    contours = spectral_boundary(model)
+    @test contours isa Vector{BoundarySegment{Float64}}
+    @test length(contours) == 1
 
-    result = traces[1].result
-    @test result.closed
-    @test !result.internal
-    @test length(result.points) > 10
-    @test all(s -> abs(s) < 1e-3, result.shift_values)
+    contour = contours[1]
+    @test contour.closed
+    @test !contour.internal
+    @test length(contour.points) > 10
+    @test all(s -> abs(s) < 1e-3, contour.shift_values)
 end
 
 @testitem "spectral_boundary SpectralModel wrapper equivalence" begin
@@ -994,26 +922,25 @@ end
     model = solve(prob, DirectSolve(); nsamples=16)
 
     step_size_coeff = 1 // 4
-    traces_from_model = spectral_boundary(model; step_size_coeff, max_components=1)
-    traces_from_surrogate = spectral_boundary(
+    contours_from_model = spectral_boundary(model; step_size_coeff, max_components=1)
+    contours_from_surrogate = spectral_boundary(
         model.surrogate, step_size_coeff; max_components=1
     )
 
-    @test length(traces_from_model) == length(traces_from_surrogate)
-    @testset "trace = $i" for (i, (from_model, from_surrogate)) in
-                              enumerate(zip(traces_from_model, traces_from_surrogate))
-        @test from_model.result.closed == from_surrogate.result.closed
-        @test from_model.result.internal == from_surrogate.result.internal
-        @test length(from_model.result.points) == length(from_surrogate.result.points)
-        @test length(from_model.result.shift_values) ==
-            length(from_surrogate.result.shift_values)
+    @test length(contours_from_model) == length(contours_from_surrogate)
+    @testset "contour $i" for (i, (from_model, from_surrogate)) in
+                              enumerate(zip(contours_from_model, contours_from_surrogate))
+        @test from_model.closed == from_surrogate.closed
+        @test from_model.internal == from_surrogate.internal
+        @test length(from_model.points) == length(from_surrogate.points)
+        @test length(from_model.shift_values) == length(from_surrogate.shift_values)
         @test all(
             abs(z1 - z2) < 1e-10 for
-            (z1, z2) in zip(from_model.result.points, from_surrogate.result.points)
+            (z1, z2) in zip(from_model.points, from_surrogate.points)
         )
         @test all(
-            abs(s1 - s2) < 1e-10 for (s1, s2) in
-            zip(from_model.result.shift_values, from_surrogate.result.shift_values)
+            abs(s1 - s2) < 1e-10 for
+            (s1, s2) in zip(from_model.shift_values, from_surrogate.shift_values)
         )
     end
 end

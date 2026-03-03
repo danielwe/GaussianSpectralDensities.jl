@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.22
+# v0.20.23
 
 using Markdown
 using InteractiveUtils
@@ -175,8 +175,7 @@ let
 	co = contourf!(ax, xs, ys, shifts; levels=-0.5:0.125:0.625)
 	Colorbar(fig[1, 2], co)
 	for b in boundaries
-		pts = b.result.points
-		lines!(ax, real(pts), imag(pts); color=:red, linewidth=2)
+		lines!(ax, real(b.points), imag(b.points); color=:red, linewidth=2)
 	end
 	fig
 end
@@ -193,8 +192,7 @@ let
 	)
 	scatter!(ax, real(eigs_big), imag(eigs_big))
 	for b in boundaries
-		pts = b.result.points
-		lines!(ax, real(pts), imag(pts); color=:red, linewidth=2)
+		lines!(ax, real(b.points), imag(b.points); color=:red, linewidth=2)
 	end
 	fig
 end

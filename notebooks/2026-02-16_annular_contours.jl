@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.22
+# v0.20.23
 
 using Markdown
 using InteractiveUtils
@@ -179,10 +179,9 @@ let
 	)
 	scatter!(ax, real(eigs_big), imag(eigs_big))
 	for b in boundaries
-		(; points, internal) = b.result
 		lines!(
-			ax, real(points), imag(points);
-			color=internal ? :green : :red, linewidth=2,
+			ax, real(b.points), imag(b.points);
+			color=b.internal ? :green : :red, linewidth=2,
 		)
 	end
 	fig
