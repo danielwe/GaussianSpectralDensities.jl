@@ -98,7 +98,7 @@ function corrector_step(
     model::SurrogateModel{F},
     z::Complex{F};
     tol::F=Defaults.atol(F),
-    max_iters::Int=10,
+    max_iters::Int=8,
     counter::Union{Ref{Int},Nothing}=nothing,
 ) where {F}
     z_current = Complex{F}(z)
@@ -217,7 +217,7 @@ function spectral_boundary_segment(
     seed::Complex{F},
     step_size::F,
     tol::F;
-    max_steps::Int=500,
+    max_steps::Int=1024,
     min_steps_before_close::Int=12,
 ) where {F}
     counter = Ref(0)
