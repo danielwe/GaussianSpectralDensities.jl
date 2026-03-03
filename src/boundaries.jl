@@ -39,14 +39,13 @@ function BoundarySegment(points, shift_values, seed, closed)
 end
 
 """
-    BoundarySegmentTrace(result, n_solver_calls, n_failures)
+    BoundarySegmentTrace(result, n_solver_calls)
 
-Diagnostic wrapper for a boundary extraction run, including solver counts and failures.
+Diagnostic wrapper for a boundary extraction run, including solver counts.
 """
 struct BoundarySegmentTrace{F<:AbstractFloat}
     result::BoundarySegment{F}
     n_solver_calls::Int
-    n_failures::Int
 end
 
 """
@@ -106,9 +105,7 @@ function corrector_step(
     for _ in 1:max_iters
         shift_val = solve_shift(model, z_current, counter)
         isfinite(shift_val) || return nothing
-        if abs(shift_val) < tol
-            return z_current, shift_val
-        end
+        (abs(shift_val) < tol) && return (z_current, shift_val)
         grad = compute_gradient(model, z_current, counter)
         isnothing(grad) && return nothing
         z_current -= shift_val * grad / abs2(grad)
@@ -221,7 +218,6 @@ function spectral_boundary_segment(
     step_size::F,
     tol::F;
     max_steps::Int=500,
-    max_failures::Int=5,
     min_steps_before_close::Int=12,
 ) where {F}
     counter = Ref(0)
@@ -231,7 +227,7 @@ function spectral_boundary_segment(
     points = Complex{F}[seed_z]
     shift_values = F[seed_shift]
 
-    closed, n_failures = trace_contour!(
+    closed = trace_contour!(
         points,
         shift_values,
         model,
@@ -240,21 +236,20 @@ function spectral_boundary_segment(
         tol,
         counter;
         max_steps,
-        max_failures,
         min_steps_before_close,
     )
 
     internal = closed ? classify_interior(model, points, counter) : false
     result = BoundarySegment(points, shift_values, seed_z, closed, internal)
-    return BoundarySegmentTrace(result, counter[], n_failures)
+    return BoundarySegmentTrace(result, counter[])
 end
 
 """
     trace_contour!(points, shift_values, model, seed_z, step_size, tol, counter;
-        ...) -> closed, n_failures
+        ...) -> closed
 
 Run the predictor-corrector loop, appending traced points to `points` and `shift_values`.
-Returns whether the final contour is closed, and the number of failed steps.
+Returns whether the final contour is closed.
 """
 function trace_contour!(
     points,
@@ -265,14 +260,10 @@ function trace_contour!(
     tol,
     counter;
     max_steps,
-    max_failures,
     min_steps_before_close,
 )
     grad = compute_gradient(model, seed_z, counter)
-    isnothing(grad) && return false, 1
-
-    n_failures = 0
-    consecutive_failures = 0
+    isnothing(grad) && return false
 
     direction = tangent_from_gradient(grad, seed_z)
     initial_direction = direction
@@ -282,13 +273,8 @@ function trace_contour!(
         stepped = predictor_corrector_step(
             model, current_z, direction, step_size; tol, counter
         )
-        if isnothing(stepped)
-            n_failures += 1
-            consecutive_failures += 1
-            (consecutive_failures > max_failures) ? break : continue
-        end
+        isnothing(stepped) && break
 
-        consecutive_failures = 0
         current_z, current_shift, direction = stepped
         push!(points, current_z)
         push!(shift_values, current_shift)
@@ -304,10 +290,10 @@ function trace_contour!(
             tol,
             counter,
         )
-            return true, n_failures
+            return true
         end
     end
-    return false, n_failures
+    return false
 end
 
 """
@@ -400,7 +386,6 @@ function spectral_boundary(
     step_size_coeff::Real=one(F);
     tol::Real=Defaults.atol(F),
     max_steps::Int=1024,
-    max_failures::Int=6,
     min_steps_before_close::Int=12,
     max_components::Union{Nothing,Int}=nothing,
 ) where {F}
@@ -433,13 +418,7 @@ function spectral_boundary(
         is_near_any_contour(refined[1], contours, step_size) && continue
 
         t = spectral_boundary_segment(
-            model,
-            refined[1],
-            step_size,
-            tol;
-            max_steps,
-            max_failures,
-            min_steps_before_close,
+            model, refined[1], step_size, tol; max_steps, min_steps_before_close
         )
         push!(traces, t)
         t.result.closed || break
@@ -512,10 +491,9 @@ end
     seed = 1.0 + 0.0im
     result = BoundarySegment(pts, shifts, seed, true)
 
-    trace = BoundarySegmentTrace(result, 150, 2)
+    trace = BoundarySegmentTrace(result, 150)
     @test trace.result === result
     @test trace.n_solver_calls == 150
-    @test trace.n_failures == 2
 end
 
 @testitem "solve_shift inside support" begin
