@@ -80,16 +80,10 @@ function finite_difference_jacobian(f, x::SVector, fx=f(x))
     return SMatrix(jac)
 end
 
-increment(x::T) where {T<:Real} =
-    if (x > oneunit(T)) || (x < -oneunit(T))  # oneunit for dimensional consistency
-        return relative_increment(T) * x
-    elseif x < zero(T)
-        return -relative_increment(T) * oneunit(T)
-    else
-        return relative_increment(T) * oneunit(T)
-    end
-
-relative_increment(T) = sqrt(eps(T) / oneunit(T))  # oneunit for dimensional consistency
+function increment(x::Real)
+    inc = (Defaults.atol(typeof(x))^(2 // 3)) * (oneunit(x)^(1 // 3))
+    return (x < zero(x)) ? -inc : inc
+end
 
 end  # module Newton
 

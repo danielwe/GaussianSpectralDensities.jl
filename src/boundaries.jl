@@ -123,67 +123,66 @@ success, `nothing` on failure.
 function predictor_corrector_step(
     model::SurrogateModel{F},
     z::Complex{F},
-    direction::Complex{F},
     step_size::F;
     tol::F=Defaults.atol(F),
     counter::Union{Ref{Int},Nothing}=nothing,
 ) where {F}
-    z_pred = z + step_size * direction
-    corrected = corrector_step(model, z_pred; tol, counter)
-    isnothing(corrected) && return nothing
-
-    new_z, shift_val = corrected
-    grad = compute_gradient(model, new_z, counter)
+    grad = compute_gradient(model, z, counter)
     isnothing(grad) && return nothing
-
-    new_direction = tangent_from_gradient(grad, new_z)
-    if real(direction * conj(new_direction)) < 0
-        new_direction = -new_direction
+    # scale by -im <-> rotate 90 deg cw to get ccw tangent from inward-pointing gradient
+    tangent = -im * grad / abs(grad)
+    # step along tangent, try to correct back to contour, if corrector fails or changes
+    # direction too much, halve step size and try again; repeat up to 16 times
+    for _ in 1:16
+        z_pred = z + step_size * tangent
+        corrected = corrector_step(model, z_pred; tol, counter)
+        if !isnothing(corrected)
+            new_z, _ = corrected
+            dz = new_z - z
+            # require direction within 30 degrees of tangent
+            (abs(6angle(dz'tangent)) < π) && return corrected
+        end
+        step_size /= 2
     end
-    return (new_z, shift_val, new_direction)
+    return nothing
 end
 
 """
-    tangent_from_gradient(grad, z) -> direction
-
-Return the counter-clockwise tangent direction inferred from the shift gradient.
-"""
-function tangent_from_gradient(grad::Complex{F}, z::Complex{F}) where {F}
-    direction = cis(angle(grad) + pi / 2)
-    if imag(conj(z) * direction) < 0
-        direction = -direction
-    end
-    return direction
-end
-
-"""
-    try_close!(points, shift_values, model, current_z, direction, initial_direction,
-        step_size; tol, counter) -> Bool
+    try_close!(model, points, step_size; tol, counter) -> Bool
 
 Check whether the contour has looped back to its starting point and, if so, refine the
 closure. Returns `true` if the contour was successfully closed.
 """
 function try_close!(
-    points::Vector{Complex{F}},
-    shift_values::Vector{F},
-    model::SurrogateModel{F},
-    current_z::Complex{F},
-    direction::Complex{F},
-    initial_direction::Complex{F},
-    step_size::F;
-    tol::F,
-    counter,
+    model::SurrogateModel{F}, points::Vector{Complex{F}}, step_size::F; tol, counter
 ) where {F}
-    (abs(current_z - points[1]) < step_size) || return false
-    (real(direction * conj(initial_direction)) > 0) || return false
-    refined = corrector_step(model, points[1]; tol, max_iters=5, counter)
-    isnothing(refined) && return false
-    final_z, final_shift = refined
-    points[1] = final_z
-    shift_values[1] = final_shift
-    push!(points, final_z)
-    push!(shift_values, final_shift)
-    return true
+    initial, final = points[begin], points[end]
+    dclose = initial - final
+    (abs(dclose) < step_size) || return false
+    prev = points[end - 1]
+    dinitial, dfinal = points[2] - initial, final - prev
+    angle_f_to_i = angle(dinitial'dfinal)
+    # require final direction within 60 degrees of initial direction
+    (abs(3angle_f_to_i) < π) || return false
+    # require closure direction to interpolate between initial and final directions, i.e.,
+    # no zigzagging or backtracking, otherwise, push final point back; repeat up to 16 times
+    for _ in 1:16
+        angle_f_to_c, angle_c_to_i = angle(dclose'dfinal), angle(dinitial'dclose)
+        if allequal(sign, (angle_f_to_c, angle_f_to_i, angle_c_to_i))
+            points[end] = final
+            push!(points, initial)
+            return true
+        end
+        final_pred = (final + prev) / 2
+        corrected = corrector_step(model, final_pred; tol, counter)
+        isnothing(corrected) && break  # corrector failed, can't proceed
+        final, _ = corrected
+        dclose = initial - final
+        (abs(dclose) < step_size) || break # left the closure neighborhood, can't proceed
+        dfinal = final - prev
+    end
+    # We couldn't satisfy both the distance and direction criteria, give up
+    return false
 end
 
 """
@@ -222,78 +221,43 @@ function spectral_boundary_segment(
 ) where {F}
     counter = Ref(0)
 
-    seed_z = seed
-    seed_shift = solve_shift(model, seed_z, counter)
-    points = Complex{F}[seed_z]
-    shift_values = F[seed_shift]
-
-    closed = trace_contour!(
-        points,
-        shift_values,
-        model,
-        seed_z,
-        step_size,
-        tol,
-        counter;
-        max_steps,
-        min_steps_before_close,
+    points, shift_values, closed = trace_contour(
+        model, seed, step_size, tol, counter; max_steps, min_steps_before_close
     )
 
     internal = closed ? classify_interior(model, points, counter) : false
-    result = BoundarySegment(points, shift_values, seed_z, closed, internal)
+    result = BoundarySegment(points, shift_values, seed, closed, internal)
     return BoundarySegmentTrace(result, counter[])
 end
 
 """
-    trace_contour!(points, shift_values, model, seed_z, step_size, tol, counter;
-        ...) -> closed
+    trace_contour(model, seed_z, step_size, tol, counter; ...) -> closed
 
 Run the predictor-corrector loop, appending traced points to `points` and `shift_values`.
 Returns whether the final contour is closed.
 """
-function trace_contour!(
-    points,
-    shift_values,
-    model,
-    seed_z,
-    step_size,
-    tol,
-    counter;
-    max_steps,
-    min_steps_before_close,
+function trace_contour(
+    model, seed_z, step_size, tol, counter; max_steps, min_steps_before_close
 )
-    grad = compute_gradient(model, seed_z, counter)
-    isnothing(grad) && return false
-
-    direction = tangent_from_gradient(grad, seed_z)
-    initial_direction = direction
-
-    current_z = seed_z
+    current_z, current_shift = corrector_step(model, seed_z; tol, counter)
+    points = [current_z]
+    shift_values = [current_shift]
     for step_index in 1:max_steps
-        stepped = predictor_corrector_step(
-            model, current_z, direction, step_size; tol, counter
-        )
-        isnothing(stepped) && break
+        step = predictor_corrector_step(model, current_z, step_size; tol, counter)
+        isnothing(step) && break
 
-        current_z, current_shift, direction = stepped
+        current_z, current_shift = step
         push!(points, current_z)
         push!(shift_values, current_shift)
 
-        if (step_index > min_steps_before_close) && try_close!(
-            points,
-            shift_values,
-            model,
-            current_z,
-            direction,
-            initial_direction,
-            step_size;
-            tol,
-            counter,
+        if (
+            (step_index > min_steps_before_close) &&
+            try_close!(model, points, step_size; tol, counter)
         )
-            return true
+            return points, shift_values, true
         end
     end
-    return false
+    return points, shift_values, false
 end
 
 """
@@ -344,9 +308,7 @@ function is_near_contour(
 ) where {F<:AbstractFloat}
     isempty(contour.points) && return false
     for p in contour.points
-        if abs(z - p) < threshold
-            return true
-        end
+        (abs(z - p) < threshold) && return true
     end
     return false
 end
@@ -354,13 +316,12 @@ end
 """
     is_near_any_contour(z, contours, threshold) -> Bool
 
-Return `true` if `z` is near any closed contour in `contours`.
+Return `true` if `z` is near any contour in `contours`.
 """
 function is_near_any_contour(
     z::Complex{F}, contours::AbstractVector{BoundarySegment{F}}, threshold::F
 ) where {F<:AbstractFloat}
     for contour in contours
-        contour.closed || continue
         is_near_contour(z, contour, threshold) && return true
     end
     return false
@@ -415,13 +376,13 @@ function spectral_boundary(
     for (z, _) in candidates
         refined = corrector_step(model, z; tol)
         isnothing(refined) && continue
-        is_near_any_contour(refined[1], contours, step_size) && continue
+        seed, _ = refined
+        is_near_any_contour(seed, contours, step_size / 2) && continue
 
         t = spectral_boundary_segment(
-            model, refined[1], step_size, tol; max_steps, min_steps_before_close
+            model, seed, step_size, tol; max_steps, min_steps_before_close
         )
         push!(traces, t)
-        t.result.closed || break
         push!(contours, t.result)
         (!isnothing(max_components) && (length(traces) >= max_components)) && break
     end
@@ -839,8 +800,8 @@ end
         # Near contour3
         @test is_near_any_contour(Complex{F}(10.1), contours, threshold)
 
-        # Not near any closed contour (contour2 is open, so skipped)
-        @test !is_near_any_contour(Complex{F}(5.1), contours, threshold)
+        # Near contour2
+        @test is_near_any_contour(Complex{F}(5.1), contours, threshold)
 
         # Far from everything
         @test !is_near_any_contour(Complex{F}(50.0), contours, threshold)
@@ -989,29 +950,12 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    # max_steps=2 should produce an open contour, which stops the loop
+    # max_steps=2 should produce all open contours
     traces = spectral_boundary(model; max_steps=2)
-    @test length(traces) == 1
-    @test !traces[1].result.closed
-end
-
-@testitem "spectral_boundary stops on open contour" begin
-    using GaussianSpectralDensities:
-        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
-    using GaussianSpectralDensities.Boundaries: spectral_boundary
-    using GaussianSpectralDensities.Surrogates: SurrogateModel
-
-    using LinearAlgebra: I
-
-    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
-    eq = ResolventEquation(ensemble)
-    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
-    model = SurrogateModel(eq, constraint, DirectSolve(), 96)
-
-    # Force open contour via very few max_steps; loop should stop after first trace
-    traces = spectral_boundary(model; max_steps=3, max_components=10)
-    @test length(traces) == 1
-    @test !traces[1].result.closed
+    @test length(traces) > 0
+    @testset "trace $i" for (i, trace) in pairs(traces)
+        @test !trace.result.closed
+    end
 end
 
 @testitem "spectral_boundary from SpectralModel" begin
