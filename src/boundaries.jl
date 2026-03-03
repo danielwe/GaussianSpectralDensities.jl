@@ -20,6 +20,7 @@ Container for traced boundary points and their shift values.
 
   - `points` are ordered along the contour.
   - `shift_values` aligns with `points` and should be near zero.
+  - `gradients` holds the shift gradient at each point.
   - `seed` stores the (refined) starting point.
   - `closed` marks whether the contour loop closed.
   - `internal` marks whether this is an internal boundary (hole) of an annular support
@@ -30,25 +31,28 @@ Container for traced boundary points and their shift values.
 struct BoundarySegment{F<:AbstractFloat}
     points::Vector{Complex{F}}
     shift_values::Vector{F}
+    gradients::Vector{Complex{F}}
     seed::Complex{F}
     closed::Bool
     internal::Bool
     nsolvercalls::Int
 
-    function BoundarySegment(points, shift_values, seed, closed, internal, nsolvercalls=-1)
+    function BoundarySegment(
+        points, shift_values, gradients, seed, closed, internal, nsolvercalls=-1
+    )
         F = real(eltype(points))
-        return new{F}(points, shift_values, seed, closed, internal, nsolvercalls)
+        return new{F}(points, shift_values, gradients, seed, closed, internal, nsolvercalls)
     end
 end
 
 """
-    solve_shift(model, z[, counter]) -> shift
+    solve_shift(model, z; counter) -> shift
 
 Evaluate the surrogate model at `z` and return the shift value (or `NaN` on failure).
 Increments `counter[]` if provided.
 """
 function solve_shift(
-    model::SurrogateModel{F}, z::Complex{F}, counter::Union{Ref{Int},Nothing}=nothing
+    model::SurrogateModel{F}, z::Complex{F}; counter::Union{Ref{Int},Nothing}=nothing
 ) where {F}
     if !isnothing(counter)
         counter[] += 1
@@ -58,29 +62,29 @@ function solve_shift(
 end
 
 """
-    compute_gradient(model, z[, counter]) -> grad | nothing
+    compute_gradient(model, z; counter) -> grad | nothing
 
 Compute the shift gradient at `z` via centered finite differences.
 """
 function compute_gradient(
-    model::SurrogateModel{F}, z::Complex{F}, counter::Union{Ref{Int},Nothing}=nothing
+    model::SurrogateModel{F}, z::Complex{F}; counter::Union{Ref{Int},Nothing}=nothing
 ) where {F}
-    hx = increment(real(z))
-    hy = increment(imag(z))
-    shift_xp = solve_shift(model, z + hx, counter)
-    shift_xm = solve_shift(model, z - hx, counter)
-    shift_yp = solve_shift(model, z + im * hy, counter)
-    shift_ym = solve_shift(model, z - im * hy, counter)
+    h = increment(real(z)) / 2
+    shift_xp = solve_shift(model, z + h; counter)
+    shift_xm = solve_shift(model, z - h; counter)
+    shift_yp = solve_shift(model, z + im * h; counter)
+    shift_ym = solve_shift(model, z - im * h; counter)
     if !all(isfinite, (shift_xp, shift_xm, shift_yp, shift_ym))
         return nothing
     end
 
-    ds_dx = (shift_xp - shift_xm) / (2 * hx)
-    ds_dy = (shift_yp - shift_ym) / (2 * hy)
-    grad = complex(ds_dx, ds_dy)
-    (abs(grad) < Defaults.atol(F)) && return nothing
-    return grad
+    ds_dx = (shift_xp - shift_xm) / (2h)
+    ds_dy = (shift_yp - shift_ym) / (2h)
+    return complex(ds_dx, ds_dy)
 end
+
+# scale by -im => rotate 90 deg cw to get ccw tangent from inward-pointing gradient
+tangent_from_gradient(grad) = -im * grad / abs(grad)
 
 """
     corrector_step(model, z; tol, max_iters, counter)
@@ -91,95 +95,119 @@ function corrector_step(
     model::SurrogateModel{F},
     z::Complex{F};
     tol::F=Defaults.atol(F),
-    max_iters::Int=8,
+    max_iters::Integer=48,
     counter::Union{Ref{Int},Nothing}=nothing,
 ) where {F}
     z_current = Complex{F}(z)
-    for _ in 1:max_iters
-        shift_val = solve_shift(model, z_current, counter)
+    for _ in 0:max_iters
+        shift_val = solve_shift(model, z_current; counter)
         isfinite(shift_val) || return nothing
-        (abs(shift_val) < tol) && return (z_current, shift_val)
-        grad = compute_gradient(model, z_current, counter)
+        grad = compute_gradient(model, z_current; counter)
         isnothing(grad) && return nothing
+        (abs(shift_val) < tol) && return (z_current, shift_val, grad)
+        (abs(grad) < tol) && return nothing  # too flat to correct
         z_current -= shift_val * grad / abs2(grad)
     end
     return nothing
 end
 
 """
-    predictor_corrector_step(model, z, direction, step_size; tol, counter)
+    predictor_corrector_step(model, z, direction, step_size; tol, max_iters, counter)
 
 Take one step along the shift=0 contour: predict along `direction`, correct onto the
-contour, and update the tangent direction. Returns `(new_z, shift_val, new_direction)` on
-success, `nothing` on failure.
+contour, and update the tangent direction. Returns `(new_z, shift_val)` on success,
+`nothing` on failure.
 """
 function predictor_corrector_step(
     model::SurrogateModel{F},
     z::Complex{F},
+    grad::Complex{F},
     step_size::F;
     tol::F=Defaults.atol(F),
+    max_iters::Integer=48,
     counter::Union{Ref{Int},Nothing}=nothing,
 ) where {F}
-    grad = compute_gradient(model, z, counter)
-    isnothing(grad) && return nothing
-    # scale by -im <-> rotate 90 deg cw to get ccw tangent from inward-pointing gradient
-    tangent = -im * grad / abs(grad)
-    # step along tangent, try to correct back to contour, if corrector fails or changes
-    # direction too much, halve step size and try again; repeat up to 16 times
-    for _ in 1:16
-        z_pred = z + step_size * tangent
+    tangent = tangent_from_gradient(grad)
+    # step along tangent; correct back to contour; if corrector fails or step is not
+    # accepted, halve step size and try again
+    for i in 0:max_iters
+        z_pred = z + F(2^(-i // 3)) * step_size * tangent
         corrected = corrector_step(model, z_pred; tol, counter)
         if !isnothing(corrected)
-            new_z, _ = corrected
-            dz = new_z - z
-            # require direction within 30 degrees of tangent
-            (abs(6angle(dz'tangent)) < π) && return corrected
+            new_z, _, new_grad = corrected
+            new_tangent = tangent_from_gradient(new_grad)
+            accept_step(new_z - z, tangent, new_tangent, step_size) && return corrected
         end
-        step_size /= 2
     end
     return nothing
 end
 
+function accept_step(dz, tangent_start, tangent_end, step_size)
+    # Step acceptance criteria:
+    # - projection of tangent_end onto tangent_start > 1/2 (less than 60° turn)
+    # - projection of corrected step direction onto tangent_start > 1/2
+    # - projection of corrected step onto tangent_start not longer than predicted step
+    # - projection of corrected step direction onto tangent_end > 1/2
+    # - projection of corrected step onto tangent_end not longer than predicted step
+    absdz = abs(dz)
+    return (
+        (1 <= 2real(tangent_end'tangent_start)) &&
+        (absdz <= 2real(dz'tangent_start) <= 2step_size) &&
+        (absdz <= 2real(dz'tangent_end) <= 2step_size)
+    )
+end
+
 """
-    try_close!(model, points, step_size; tol, counter) -> Bool
+    try_close!(
+        model, points, shift_values, gradients, step_size; tol, max_iters, counter
+    ) -> Bool
 
 Check whether the contour has looped back to its starting point and, if so, refine the
 closure. Returns `true` if the contour was successfully closed.
 """
 function try_close!(
-    model::SurrogateModel{F}, points::Vector{Complex{F}}, step_size::F; tol, counter
+    model::SurrogateModel{F},
+    points::Vector{Complex{F}},
+    shift_values::Vector{F},
+    gradients::Vector{Complex{F}},
+    step_size::F;
+    tol::F=Defaults.atol(F),
+    max_iters::Integer=48,
+    counter::Union{Ref{Int},Nothing}=nothing,
 ) where {F}
     initial, final = points[begin], points[end]
     dclose = initial - final
-    (abs(dclose) < step_size) || return false
+    (abs(dclose) <= 2step_size) || return false
+    final_pred = final
     prev = points[end - 1]
-    dinitial, dfinal = points[2] - initial, final - prev
-    angle_f_to_i = angle(dinitial'dfinal)
-    # require final direction within 60 degrees of initial direction
-    (abs(3angle_f_to_i) < π) || return false
-    # require closure direction to interpolate between initial and final directions, i.e.,
-    # no zigzagging or backtracking, otherwise, push final point back; repeat up to 16 times
-    for _ in 1:16
-        angle_f_to_c, angle_c_to_i = angle(dclose'dfinal), angle(dinitial'dclose)
-        if allequal(sign, (angle_f_to_c, angle_f_to_i, angle_c_to_i))
+    dfinal = final - prev
+    current_shift = shift_values[end]
+    current_grad = gradients[end]
+    initial_tangent = tangent_from_gradient(gradients[begin])
+    for i in 0:max_iters
+        final_tangent = tangent_from_gradient(current_grad)
+        if accept_step(dclose, initial_tangent, final_tangent, step_size)
             points[end] = final
+            shift_values[end] = current_shift
+            gradients[end] = current_grad
             push!(points, initial)
+            push!(shift_values, shift_values[begin])
+            push!(gradients, gradients[begin])
             return true
         end
-        final_pred = (final + prev) / 2
+        final_pred = prev + F(2^(-(i + 1) // 3)) * dfinal
         corrected = corrector_step(model, final_pred; tol, counter)
         isnothing(corrected) && break  # corrector failed, can't proceed
-        final, _ = corrected
+        final, current_shift, current_grad = corrected
         dclose = initial - final
-        (abs(dclose) < step_size) || break # left the closure neighborhood, can't proceed
-        dfinal = final - prev
+        (abs(dclose) <= 2step_size) || break # left the closure neighborhood, can't proceed
     end
     # We couldn't satisfy both the distance and direction criteria, give up
     return false
 end
 
 """
-    classify_interior(model, points, counter) -> Bool
+    classify_interior(model, points) -> Bool
 
 Determine whether a closed contour is an internal boundary (hole). Computes the shift
 gradient at a contour point and offsets a test point in the gradient direction (toward
@@ -187,19 +215,17 @@ shift > 0). If the test point lies inside the polygon, the support is interior �
 boundary → `false`. If outside, the support is exterior → hole → `true`.
 """
 function classify_interior(
-    model::SurrogateModel{F}, points::Vector{Complex{F}}, counter::Ref{Int}
+    points::Vector{Complex{F}}, gradients::Vector{Complex{F}}; tol::F=Defaults.atol(F)
 ) where {F}
-    for z in points
-        grad = compute_gradient(model, z, counter)
-        isnothing(grad) && continue
+    for (z, grad) in zip(points, gradients)
         test_z = z + increment(abs(z)) * grad / abs(grad)
-        return !point_in_polygon(test_z, points)
+        return !point_in_polygon(test_z, points; tol)
     end
     return false
 end
 
 """
-    spectral_boundary_segment(model, seed, step_size, tol; ...) -> BoundarySegment
+    spectral_boundary_segment(model, seed, step_size; tol, ...) -> BoundarySegment
 
 Trace a single shift=0 contour starting from `seed` (assumed already refined onto the
 contour). Returns a `BoundarySegment` with the traced points, contour properties, and
@@ -208,58 +234,73 @@ diagnostics.
 function spectral_boundary_segment(
     model::SurrogateModel{F},
     seed::Complex{F},
-    step_size::F,
-    tol::F;
-    max_steps::Int=1024,
-    min_steps_before_close::Int=12,
+    step_size::F;
+    tol::F=Defaults.atol(F),
+    max_steps::Integer=2^16,
+    min_steps_before_close::Integer=5,
 ) where {F}
     counter = Ref(0)
 
-    points, shift_values, closed = trace_contour(
-        model, seed, step_size, tol, counter; max_steps, min_steps_before_close
+    points, shift_values, gradients, closed = trace_contour(
+        model, seed, step_size; tol, counter, max_steps, min_steps_before_close
     )
 
-    internal = closed ? classify_interior(model, points, counter) : false
-    return BoundarySegment(points, shift_values, seed, closed, internal, counter[])
+    internal = closed ? classify_interior(points, gradients; tol) : false
+    return BoundarySegment(
+        points, shift_values, gradients, seed, closed, internal, counter[]
+    )
 end
 
 """
-    trace_contour(model, seed_z, step_size, tol, counter; ...) -> closed
+    trace_contour(model, seed_z, step_size; tol, counter, ...) -> closed
 
 Run the predictor-corrector loop, appending traced points to `points` and `shift_values`.
 Returns whether the final contour is closed.
 """
 function trace_contour(
-    model, seed_z, step_size, tol, counter; max_steps, min_steps_before_close
-)
-    current_z, current_shift = corrector_step(model, seed_z; tol, counter)
-    points = [current_z]
-    shift_values = [current_shift]
+    model::SurrogateModel{F},
+    seed_z,
+    step_size;
+    tol::F=Defaults.atol(F),
+    counter::Union{Ref{Int},Nothing}=nothing,
+    max_steps::Integer=2^16,
+    min_steps_before_close::Integer=5,
+) where {F}
+    points, shift_values, gradients = Complex{F}[], F[], Complex{F}[]
+    corrected_seed = corrector_step(model, seed_z; tol, counter)
+    isnothing(corrected_seed) && return points, shift_values, gradients, false
+    current_z, current_shift, current_gradient = corrected_seed
+    push!(points, current_z)
+    push!(shift_values, current_shift)
+    push!(gradients, current_gradient)
     for step_index in 1:max_steps
-        step = predictor_corrector_step(model, current_z, step_size; tol, counter)
+        step = predictor_corrector_step(
+            model, current_z, current_gradient, step_size; tol, counter
+        )
         isnothing(step) && break
 
-        current_z, current_shift = step
+        current_z, current_shift, current_gradient = step
         push!(points, current_z)
         push!(shift_values, current_shift)
+        push!(gradients, current_gradient)
 
         if (
-            (step_index > min_steps_before_close) &&
-            try_close!(model, points, step_size; tol, counter)
+            (step_index >= min_steps_before_close) &&
+            try_close!(model, points, shift_values, gradients, step_size; tol, counter)
         )
-            return points, shift_values, true
+            return points, shift_values, gradients, true
         end
     end
-    return points, shift_values, false
+    return points, shift_values, gradients, false
 end
 
 """
-    point_in_polygon(z, polygon) -> Bool
+    point_in_polygon(z, polygon; tol) -> Bool
 
 Return `true` if `z` is inside the closed polygon defined by `polygon`.
 """
 function point_in_polygon(
-    z::Complex{F}, polygon::AbstractVector{Complex{F}}
+    z::Complex{F}, polygon::AbstractVector{Complex{F}}; tol::F=Defaults.atol(F)
 ) where {F<:AbstractFloat}
     n = length(polygon)
     (n < 3) && return false
@@ -278,7 +319,7 @@ function point_in_polygon(
         p2 = (i == lastindex(vertices)) ? vertices[begin] : vertices[i + 1]
         area += real(p1) * imag(p2) - real(p2) * imag(p1)
     end
-    (abs(area) <= Defaults.atol(F)) && return false
+    (abs(area) <= tol) && return false
 
     total_angle = zero(F)
     for i in eachindex(vertices)
@@ -341,9 +382,9 @@ function spectral_boundary(
     model::SurrogateModel{F},
     step_size_coeff::Real=one(F);
     tol::Real=Defaults.atol(F),
-    max_steps::Int=1024,
-    min_steps_before_close::Int=12,
-    max_components::Union{Nothing,Int}=nothing,
+    max_steps::Integer=2^16,
+    min_steps_before_close::Integer=5,
+    max_components::Union{Nothing,Integer}=nothing,
 ) where {F}
     step_size = F(step_size_coeff * median(model.rbf.nn_dists))
     tol = F(tol)
@@ -370,11 +411,11 @@ function spectral_boundary(
     for (z, _) in candidates
         refined = corrector_step(model, z; tol)
         isnothing(refined) && continue
-        seed, _ = refined
-        is_near_any_contour(seed, contours, step_size / 2) && continue
+        seed, _, _ = refined
+        is_near_any_contour(seed, contours, step_size) && continue
 
         c = spectral_boundary_segment(
-            model, seed, step_size, tol; max_steps, min_steps_before_close
+            model, seed, step_size; tol, max_steps, min_steps_before_close
         )
         push!(contours, c)
         (!isnothing(max_components) && (length(contours) >= max_components)) && break
@@ -670,7 +711,7 @@ end
         # Contour with a few known points
         pts = Complex{F}[1, im, -1, -im, 1]
         shifts = zeros(F, 5)
-        contour = BoundarySegment(pts, shifts, Complex{F}(1), true, false)
+        contour = BoundarySegment(pts, shifts, zero(pts), Complex{F}(1), true, false)
 
         # Point exactly on a contour point: distance = 0 < any positive threshold
         @test is_near_contour(Complex{F}(1), contour, F(0.1))
@@ -685,7 +726,9 @@ end
         @test is_near_contour(Complex{F}(2.0), contour, F(2.0))
 
         # Empty contour points
-        empty_contour = BoundarySegment(Complex{F}[], F[], Complex{F}(0), true, false)
+        empty_contour = BoundarySegment(
+            Complex{F}[], F[], Complex{F}[], Complex{F}(0), true, false
+        )
         @test !is_near_contour(Complex{F}(0), empty_contour, F(1.0))
     end
 end
@@ -696,7 +739,7 @@ end
     @testset "$F" for F in [Float32, Float64]
         pts = Complex{F}[0]
         shifts = zeros(F, 1)
-        contour = BoundarySegment(pts, shifts, Complex{F}(0), true, false)
+        contour = BoundarySegment(pts, shifts, zero(pts), Complex{F}(0), true, false)
 
         # Distance is exactly 0.5; threshold is 1.0 → near
         @test is_near_contour(Complex{F}(0.5), contour, F(1.0))
@@ -711,13 +754,19 @@ end
 
     @testset "$F" for F in [Float32, Float64]
         pts1 = Complex{F}[1, im, -1, -im, 1]
-        contour1 = BoundarySegment(pts1, zeros(F, 5), Complex{F}(1), true, false)
+        contour1 = BoundarySegment(
+            pts1, zeros(F, 5), zero(pts1), Complex{F}(1), true, false
+        )
 
         pts2 = Complex{F}[5, 5 + im, 5 + 2im]
-        contour2 = BoundarySegment(pts2, zeros(F, 3), Complex{F}(5), false, false)
+        contour2 = BoundarySegment(
+            pts2, zeros(F, 3), zero(pts2), Complex{F}(5), false, false
+        )
 
         pts3 = Complex{F}[10, 10 + im, 10 + 2im, 10]
-        contour3 = BoundarySegment(pts3, zeros(F, 4), Complex{F}(10), true, false)
+        contour3 = BoundarySegment(
+            pts3, zeros(F, 4), zero(pts3), Complex{F}(10), true, false
+        )
 
         contours = BoundarySegment{F}[contour1, contour2, contour3]
         threshold = F(0.5)
@@ -934,6 +983,7 @@ end
         @test from_model.internal == from_surrogate.internal
         @test length(from_model.points) == length(from_surrogate.points)
         @test length(from_model.shift_values) == length(from_surrogate.shift_values)
+        @test length(from_model.gradients) == length(from_surrogate.gradients)
         @test all(
             abs(z1 - z2) < 1e-10 for
             (z1, z2) in zip(from_model.points, from_surrogate.points)
@@ -941,6 +991,10 @@ end
         @test all(
             abs(s1 - s2) < 1e-10 for
             (s1, s2) in zip(from_model.shift_values, from_surrogate.shift_values)
+        )
+        @test all(
+            abs(g1 - g2) < 1e-10 for
+            (g1, g2) in zip(from_model.gradients, from_surrogate.gradients)
         )
     end
 end
