@@ -229,6 +229,21 @@ end
 
 statetype(::Type{<:AbstractAnnealing{F}}) where {F} = AnnealingState{F}
 
+function updateconstraint(
+    constraint::SpreadConstraint{F}, solution::PointSolution{F}
+) where {F}
+    issuccess(solution) || return constraint
+    return update(constraint; shape0=shape(solution))
+end
+
+function updateconstraint(
+    constraint::PTraceConstraint{F}, solution::PointSolution{F}
+) where {F}
+    issuccess(solution) || return constraint
+    shape0, spread0 = shape(solution), spreadfrom(solution, spreadtype(constraint))
+    return update(constraint; shape0, spread0)
+end
+
 # Prediction based on arbitrary knots, e.g., schedule values
 function predictconstraint(
     constraint::SpreadConstraint{F},
@@ -236,8 +251,9 @@ function predictconstraint(
     (x1, solution1)::Tuple{F,PointSolution{F}},
     (x2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
+    issuccess(solution1) || return updateconstraint(constraint, solution2)
+    issuccess(solution2) || return updateconstraint(constraint, solution1)
     shape0 = predictlinear(x, (x1, shape(solution1)), (x2, shape(solution2)))
-    isfinite(shape0) || return constraint  # Fallback
     return update(constraint; shape0)
 end
 
@@ -247,13 +263,13 @@ function predictconstraint(
     (x1, solution1)::Tuple{F,PointSolution{F}},
     (x2, solution2)::Tuple{F,PointSolution{F}},
 ) where {F}
+    issuccess(solution1) || return updateconstraint(constraint, solution2)
+    issuccess(solution2) || return updateconstraint(constraint, solution1)
     shape0 = predictlinear(x, (x1, shape(solution1)), (x2, shape(solution2)))
-    isfinite(shape0) || return constraint  # Fallback
     spread_type = spreadtype(constraint)
     spread1 = spreadfrom(solution1, spread_type)
     spread2 = spreadfrom(solution2, spread_type)
     spread0 = Spread(predictlinear(x, (x1, spread1.val), (x2, spread2.val)), spread_type)
-    isfinite(spread0.val) || return constraint  # Fallback
     return update(constraint; shape0, spread0)
 end
 
@@ -331,22 +347,28 @@ end
 function stepproblem(
     index::Int, problem::PointProblem{F}, alg::SpreadAnnealing{F}, state::AnnealingState{F}
 ) where {F}
-    solution1, solution2 = state.solution, state.prevsolution
-    if (state.index == lastindex(alg)) ||
-        intercepted(problem.constraint, solution1, solution2)
-        # Final step: use target problem with updated constraint (predicted init values)
+    (; solution, prevsolution) = state
+    constraint = if !issuccess(solution)
+        # Dead end. Update init from latest valid solution (never extrapolate).
+        updateconstraint(problem.constraint, prevsolution)
+    elseif intercepted(problem.constraint, solution, prevsolution)
+        # Intercepted the solution. Predict init by linear interpolation.
+        solution1, solution2 = solution, prevsolution
         x, x1, x2 = constraintknots(problem.constraint, solution1, solution2)
-        point1, point2 = (x1, solution1), (x2, solution2)
-        constraint = predictconstraint(problem.constraint, x, point1, point2)
-        return update(problem; constraint)
+        predictconstraint(problem.constraint, x, (x1, solution1), (x2, solution2))
+    elseif (state.index == lastindex(alg)) || solves(solution, problem; ballpark=true)
+        # Reached end or ballpark without intercept. Update init from latest solution (never extrapolate).
+        updateconstraint(problem.constraint, solution)
+    else
+        # Regular schedule step
+        return stepproblem_predict(index, problem, alg, state)
     end
-    return stepproblem_predict(index, problem, alg, state)
+    return update(problem; constraint)
 end
 
 function isdone(
     problem::PointProblem{F}, ::SpreadAnnealing{F}, state::AnnealingState{F}
 ) where {F}
-    issuccess(state.solution) || return true  # Dead end
     return issameproblem(state.problem, problem) || solves(state.solution, problem)
 end
 

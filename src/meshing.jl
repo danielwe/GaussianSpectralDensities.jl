@@ -5,7 +5,7 @@ using DistMesh: distmesh2d, huniform
 using Statistics: median
 using StructArrays: components
 
-using ..Solutions: issuccess
+using ..Solutions: isconsistent
 using ..Spreads: shift
 using ..Surrogates: SurrogateModel, Surrogates, evaluate, evaluatebatch, zvals
 
@@ -17,7 +17,7 @@ function mesh(model::SurrogateModel; hcoeff::Real=1, shiftoffset::Real=0, params
     dmsh = distmesh2d(huniform, h, bbox) do p
         sol = evaluate(model, complex(p...); refine=false)
         s = shift(sol)
-        return issuccess(sol) ? -(s + shiftoffset) : oftype(s, Inf)
+        return isconsistent(sol) ? -(s + shiftoffset) : oftype(s, Inf)
     end
     msh = Mesh(map(Point2, dmsh.p), map(TriangleFace, dmsh.t))
     return params ? addresolventparams(msh, model) : msh

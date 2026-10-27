@@ -54,8 +54,8 @@ module Defaults
     const trace_target = 1.0
     const spread_target_type = :shift
     const spread_target_val = 0.0
-    const spread_annealing_type = :gap
-    const spread_annealing_schedule = 2.0 .^ (7:(-(1 // 2)):-28)
+    const spread_annealing_type = :shift
+    const spread_annealing_schedule = 2.0 .^ (0:(-1 // 4):-12)
     const symmetry_annealing_schedule = range(0, 1, 9)
 
     # isapprox but with option to explicitly pass reference type for tolerances
@@ -78,7 +78,7 @@ module Defaults
         return isapprox(x, y; atol=atol(F), rtol=rtol_ballpark(F))
     end
 
-    rtol_ballpark(::Type{T}) where {T} = (2one(real(T)))^(-2)
+    rtol_ballpark(::Type{T}) where {T} = (2one(real(T)))^(-8)
 
 end
 

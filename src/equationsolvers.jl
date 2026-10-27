@@ -37,7 +37,7 @@ function eqsolve_inner!(
         end
     end
     shapev0 = SVector(real(constraint.shape0), imag(constraint.shape0))
-    shapev = eqsolve_common!(fshape, shapev0)
+    shapev = eqsolve_common!(fshape, shapev0, z)
     shape = complex(shapev...)
     return PointSolution(eq, z, shape, spread; workspace=ws)
 end
@@ -60,20 +60,20 @@ function eqsolve_inner!(
             end
         end
     shapespreadv0 = SVector(real(constraint.shape0), imag(constraint.shape0), spread0.val)
-    shapespreadv = eqsolve_common!(fshapespread, shapespreadv0)
+    shapespreadv = eqsolve_common!(fshapespread, shapespreadv0, z)
     shape = complex(shapespreadv[1], shapespreadv[2])
     spread = Spread(shapespreadv[3], spread0.type)
     return PointSolution(eq, z, shape, spread; workspace=ws)
 end
 
-eqsolve_common!(f, v0) =
+eqsolve_common!(f, v0, z) =
     try
         v, niters = newton(f, v0)
-        @debug "eqsolve! converged" niters=niters v0=v0 v=v
+        @debug "eqsolve! converged" z=z v0=v0 v=v niters=niters
         return v
     catch e
         (e isa ConvergenceException) || rethrow()
-        @warn "eqsolve! did not converge" v0=v0 e=e
+        @warn "eqsolve! did not converge" z=z v0=v0 e=e
         return map(vi -> oftype(vi, NaN), v0)
     end
 

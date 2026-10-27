@@ -1,7 +1,13 @@
 module Boundaries
 
+using GeometryBasics: Mesh, Point2, TriangleFace, merge
+using DistMesh: distmesh2d, huniform, dpoly
+using Statistics: median
+using StructArrays: components
+
 using ..Defaults: Defaults
 using ..Newton: increment
+using ..Meshing: Meshing
 using ..SpectralModels: SpectralModel
 using ..Solutions: issuccess
 using ..Spreads: Spreads
@@ -131,7 +137,7 @@ function predictor_corrector_step(
     # step along tangent; correct back to contour; if corrector fails or step is not
     # accepted, halve step size and try again
     for i in 0:max_iters
-        z_pred = z + F(2^(-i // 3)) * step_size * tangent
+        z_pred = z + (F(2)^(-i // 3)) * step_size * tangent
         corrected = corrector_step(model, z_pred; tol, counter)
         if !isnothing(corrected)
             new_z, _, new_grad = corrected
@@ -195,7 +201,7 @@ function try_close!(
             push!(gradients, gradients[begin])
             return true
         end
-        final_pred = prev + F(2^(-(i + 1) // 3)) * dfinal
+        final_pred = prev + (F(2)^(-(i + 1) // 3)) * dfinal
         corrected = corrector_step(model, final_pred; tol, counter)
         isnothing(corrected) && break  # corrector failed, can't proceed
         final, current_shift, current_grad = corrected
@@ -382,6 +388,7 @@ function spectral_boundary(
     model::SurrogateModel{F},
     step_size_coeff::Real=one(F);
     tol::Real=Defaults.atol(F),
+    allow_open::Bool=false,
     max_steps::Integer=2^16,
     min_steps_before_close::Integer=5,
     max_components::Union{Nothing,Integer}=nothing,
@@ -417,11 +424,41 @@ function spectral_boundary(
         c = spectral_boundary_segment(
             model, seed, step_size; tol, max_steps, min_steps_before_close
         )
-        push!(contours, c)
-        (!isnothing(max_components) && (length(contours) >= max_components)) && break
+        if allow_open || c.closed
+            push!(contours, c)
+            (!isnothing(max_components) && (length(contours) >= max_components)) && break
+        end
     end
 
     return contours
+end
+
+## Meshing methods
+## ===============
+function Meshing.mesh(contours::AbstractVector{<:BoundarySegment}, h::Real)
+    return merge(map(c -> Meshing.mesh(c, h), contours))
+end
+
+function Meshing.mesh(contour::BoundarySegment{F}, h::Real) where {F}
+    fd, bbox = let pv=map(reim, contour.points)
+        fd(p) = dpoly(p, pv)
+        fd, Meshing.boundingbox(pv)
+    end
+    bw, bh = bbox[2][1] - bbox[1][1], bbox[2][2] - bbox[1][2]
+    bd = min(bw, bh)::F
+    h0 = min(F(h), bd/3)::F
+    dmsh = distmesh2d(
+        # TODO: tweak kwargs in meshing.jl too
+        fd,
+        huniform,
+        h0,
+        bbox;
+        maxiter=2^16,
+        ttol=h0/(2^4),
+        geps=2sqrt(eps(F)) * bd,
+        deps=sqrt(eps(F)) * bd,
+    )
+    return Mesh(map(Point2, dmsh.p), map(TriangleFace, dmsh.t))
 end
 
 end  # module Boundaries

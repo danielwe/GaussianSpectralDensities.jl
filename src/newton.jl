@@ -1,5 +1,6 @@
 module Newton
 
+using LinearAlgebra: norm
 using StaticArrays: MMatrix, MVector, SMatrix, SVector
 
 using ..Defaults: Defaults
@@ -11,8 +12,8 @@ struct NewtonException <: Exception
 end
 
 """
-    newton(f, x; atol=<see text>, maxiters=192)
-    newton(f, jac, x; atol=<see text>, maxiters=192)
+    newton(f, x; atol=<see text>, maxiters=512)
+    newton(f, jac, x; atol=<see text>, maxiters=512)
 
 Find a zero of `f` using Newton's method starting at `x`
 
@@ -37,15 +38,18 @@ function newton(f, x; kwargs...)
     return newton(f, jac, x; kwargs...)
 end
 
-function newton(f, jac, x; atol=Defaults.atol(eltype(x)) / 4, maxiters=192)
+function newton(f, jac, x; atol=Defaults.atol(eltype(x)) / 4, maxiters=512)
     fx = f(x)
     approx_zero(fx, atol) && return (x, 0)
-    for i in 1:maxiters
+    local i
+    for outer i in 1:maxiters
         x = x - jac(x, fx) \ fx
         fx = f(x)
+        all(isfinite, fx) || break
         approx_zero(fx, atol) && return (x, i)
     end
-    throw(NewtonException("failed to converge after maxiters=$maxiters iterations"))
+    msg = "newton failed after $i iterations: residual=$(norm(fx)), maxiters=$maxiters"
+    throw(NewtonException(msg))
 end
 
 approx_zero(y, atol) = (sqrt(sum(abs2, y) / length(y)) < atol)

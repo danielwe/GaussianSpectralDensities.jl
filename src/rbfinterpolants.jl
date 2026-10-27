@@ -51,12 +51,14 @@ function RBFInterpolant(
         # 0 means don't prune
         throw(ArgumentError("npoints must satisfy 0 <= npoints <= length(x)"))
     end
-    pairwise, nn_dists = pairwise_distances(x)
+    pairwise = pairwise_distances(x)
     keep = prune_to_count(pairwise, npoints)
     x_pruned = x[keep]
     y_pruned = (y isa AbstractVector) ? y[keep] : map(y, x_pruned)
     pairwise_pruned = pairwise[keep, keep]
-    nn_dists_pruned = nn_dists[keep]
+    nn_dists_pruned = map(axes(pairwise_pruned, 2)) do j
+        return minimum(pairwise_pruned[i, j] for i in axes(pairwise_pruned, 1) if i != j)
+    end
     return RBFInterpolant(
         phi, x_pruned, y_pruned, pairwise_pruned, nn_dists_pruned, npoints
     )
@@ -82,7 +84,7 @@ function append!(
     end
     lasti_old = lastindex(rbf.x)
     Base.append!(rbf.x, xs_new)
-    pairwise, nn_dists = pairwise_distances(rbf.x)
+    pairwise_full = pairwise_distances(rbf.x)
     keep = prune_to_count(pairwise, rbf.npoints)
     keep_spliti = searchsortedlast(keep, lasti_old)
 
@@ -99,10 +101,17 @@ function append!(
     keepat!(rbf.y, keep_old)
     Base.append!(rbf.y, ys_new_v)
 
-    resize!(rbf.nn_dists, length(keep))
-    rbf.nn_dists[:] = @view nn_dists[keep]
+    pairwise = pairwise_full[keep, keep]
 
-    pairwise_pruned = prune_nonfinite!(rbf.x, rbf.y, rbf.nn_dists, pairwise[keep, keep])
+    resize!(rbf.nn_dists, length(keep))
+    map!(rbf.nn_dists, pairs(eachcol(pairwise))) do j, col
+        return minimum(p for (i, p) in pairs(col) if i != j)
+    end
+    map!(rbf.nn_dists, axes(pairwise_pruned, 2)) do j
+        return minimum(pairwise_pruned[i, j] for i in axes(pairwise_pruned, 1) if i != j)
+    end
+
+    pairwise_pruned = prune_nonfinite!(rbf.x, rbf.y, rbf.nn_dists, pairwise)
     nkept = length(eachindex(rbf.x, rbf.y, rbf.nn_dists))
     resize!(rbf.coeffs, nkept)
     rbf.poly = rbf_coefficients!(rbf.coeffs, rbf.phi, rbf.x, rbf.y, pairwise_pruned)
@@ -112,18 +121,21 @@ end
 function prune_nonfinite!(xs, ys, nn_dists, pairwise)
     drop = findall(yi -> !all(isfinite, yi), ys)
     isempty(drop) && return pairwise
+    keep = setdiff(axes(pairwise, 1), drop)
+    pairwise_pruned = pairwise[keep, keep]
     deleteat!(xs, drop)
     deleteat!(ys, drop)
-    deleteat!(nn_dists, drop)
-    keep = setdiff(axes(pairwise, 1), drop)
-    return pairwise[keep, keep]
+    resize!(nn_dists, length(keep))
+    map!(nn_dists, axes(pairwise_pruned, 2)) do j
+        return minimum(pairwise_pruned[i, j] for i in axes(pairwise_pruned, 1) if i != j)
+    end
+    return pairwise_pruned
 end
 
 function pairwise_distances(x::AbstractVector{SVector{2,F}}) where {F<:AbstractFloat}
     Base.require_one_based_indexing(x)
     n = length(x)
     pairwise = Matrix{F}(undef, n, n)
-    nn_dists = fill(F(Inf), n)
     for j in 1:n
         pairwise[j, j] = zero(F)
         xj = x[j]
@@ -131,11 +143,9 @@ function pairwise_distances(x::AbstractVector{SVector{2,F}}) where {F<:AbstractF
             d = norm(xj - x[i])
             pairwise[i, j] = d
             pairwise[j, i] = d
-            nn_dists[i] = min(nn_dists[i], d)
-            nn_dists[j] = min(nn_dists[j], d)
         end
     end
-    return pairwise, nn_dists
+    return pairwise
 end
 
 function prune_to_count(pairwise::Matrix{F}, npoints::Int) where {F<:AbstractFloat}
