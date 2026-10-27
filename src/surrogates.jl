@@ -12,7 +12,7 @@ using ..Problems:
 using ..RBFInterpolants: RBFInterpolant, RBFInterpolants, ThinPlateSpline
 using ..Samples: sample_eigenvalues
 using ..Solutions:
-    BatchSolution, PointSolution, SolutionStatus, issuccess, shape, spreadfrom
+    BatchSolution, PointSolution, isconsistent, isintheballpark, shape, spreadfrom
 using ..Spreads: Spread
 using ..Workspaces: Workspace
 
@@ -96,7 +96,7 @@ function SurrogateModel(
             problem = PointProblem(eq, co, zval(x))
             solution = pointsolve(ws, problem, alg)
             y = pack(solution, co)
-            return issuccess(solution) ? y : nanvec(y)
+            return isconsistent(solution) ? y : nanvec(y)
         end
     end
 
@@ -114,13 +114,15 @@ function SurrogateModel(
     N = size(equation.ensemble, 1)
     npoints_ceil = ceil(typeof(npoints), npoints // N) * N
     neigvals = max(npoints_ceil, size(equation.ensemble, 1))
-    zs = sample_eigenvalues(equation.ensemble, neigvals)
+    zs = convert(
+        AbstractVector{Complex{F}}, sample_eigenvalues(equation.ensemble, neigvals)
+    )
     return SurrogateModel(equation, constraint, algorithm, zs; npoints)
 end
 
 function SurrogateModel(model::SurrogateModel{F}, zs::AbstractVector{<:Complex}) where {F}
     (; equation, constraint, algorithm, workspace) = model
-    sols = filter(issuccess, evaluatebatch(model, zs; refine=false))
+    sols = filter(isconsistent, evaluatebatch(model, zs; refine=false))
     xs = map(zvec, sols.zs)
     ys = map(sol -> pack(sol, constraint), sols)
     rbf = RBFInterpolant(ThinPlateSpline(), xs, ys)
@@ -135,20 +137,19 @@ function evaluate_one(model::SurrogateModel{F}, z) where {F}
     model_y = model.rbf(zv)
     shape, spread = unpack_args(model_y, model.constraint)
     model_sol = PointSolution(model.equation, zF, shape, spread; workspace=model.workspace)
-    issuccess(model_sol) && return model_sol, false
-    (model_sol.status == SolutionStatus.shift_below_min) &&
-        return nan_solution(model, zF), false
+    isconsistent(model_sol) && return model_sol, false
 
+    (; equation, algorithm, workspace) = model
     constraint_guess = unpack_constraint(model_y, model.constraint)
-    problem = PointProblem(model.equation, constraint_guess, zF)
-    sol = if model_sol.status < SolutionStatus.not_intheballpark
-        cand = pointsolve(model.workspace, problem, DirectSolve())
-        issuccess(cand) ? cand : pointsolve(model.workspace, problem, model.algorithm)
+    problem = PointProblem(equation, constraint_guess, zF)
+    sol = if isintheballpark(model_sol)
+        cand = pointsolve(workspace, problem, DirectSolve())
+        isconsistent(cand) ? cand : pointsolve(workspace, problem, algorithm)
     else
-        pointsolve(model.workspace, problem, model.algorithm)
+        pointsolve(workspace, problem, algorithm)
     end
-    issuccess(sol) || return nan_solution(model, zF), false
-    return sol, !haspoint(model.rbf, zv)
+    isconsistent(sol) && return sol, !haspoint(model.rbf, zv)
+    return nan_solution(model, zF), false
 end
 
 function evaluate(model::SurrogateModel{F}, z; refine::Bool=false) where {F}

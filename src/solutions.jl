@@ -17,6 +17,8 @@ public BatchSolution,
     ResolventParams,
     SolutionStatus,
     greens,
+    isconsistent,
+    isintheballpark,
     issuccess,
     ptrace,
     shape,
@@ -64,17 +66,29 @@ end
 
 ## Consistency
 ## ===========
-function satisfies(params::ResolventParams{F}, constraint::SpreadConstraint) where {F}
+function satisfies(
+    params::ResolventParams{F}, constraint::SpreadConstraint; ballpark=false
+) where {F}
     cspread = constraint.val
     spread = spreadfrom(params, cspread.type)
+    ballpark && return intheballpark(F, spread.val, cspread.val)
     return approxequal(F, spread.val, cspread.val)
 end
 
-function satisfies(params::ResolventParams{F}, constraint::PTraceConstraint) where {F}
+function satisfies(
+    params::ResolventParams{F}, constraint::PTraceConstraint; ballpark=false
+) where {F}
+    ballpark && return intheballpark(F, params.ptrace, constraint.val)
     return approxequal(F, params.ptrace, constraint.val)
 end
 
-@enumx SolutionStatus::UInt8 success shift_below_min not_consistent not_intheballpark not_finite
+@enumx SolutionStatus::UInt8 begin
+    success = 0
+    shift_below_min = 1
+    not_consistent = 2
+    not_intheballpark = 3
+    not_finite = 4
+end
 
 """
     PointSolution(equation, z, shape, spread; workspace=Workspace(equation))
@@ -156,10 +170,10 @@ end
 
 ## Consistency
 ## ===========
-function solves(solution::PointSolution, problem::PointProblem)
-    issuccess(solution) || return false
+function solves(solution::PointSolution, problem::PointProblem; ballpark=false)
+    (ballpark ? isintheballpark(solution) : isconsistent(solution)) || return false
     ((solution.equation === problem.equation) && (solution.z == problem.z)) || return false
-    return satisfies(solution.params, problem.constraint)
+    return satisfies(solution.params, problem.constraint; ballpark)
 end
 
 ## BatchSolution
@@ -264,6 +278,30 @@ A successful solution is finite, self-consistent, and satisfies shiftmin.
 """
 issuccess(sol::PointSolution) = (status(sol) == SolutionStatus.success)
 issuccess(sol::BatchSolution) = map(==(SolutionStatus.success), status(sol))
+
+"""
+    isconsistent(sol::PointSolution) -> Bool
+    isconsistent(sol::BatchSolution) -> Array{Bool}
+
+Return whether the solution status indicates consistency.
+
+A consistent solution is finite and, as it says on the tin, self-consistent. It may or may
+not satisfy shiftmin.
+"""
+isconsistent(sol::PointSolution) = status(sol) < SolutionStatus.not_consistent
+isconsistent(sol::BatchSolution) = map(<(SolutionStatus.not_consistent), status(sol))
+
+"""
+    isintheballpark(sol::PointSolution) -> Bool
+    isintheballpark(sol::BatchSolution) -> Array{Bool}
+
+Return whether the solution status indicates it's not too far from being self-consistent.
+
+An in-the-ballpark solution is finite and within some heuristic threshold of being
+self-consistent. It may or may not actually be self-consistent and/or satisfy shiftmin.
+"""
+isintheballpark(sol::PointSolution) = status(sol) < SolutionStatus.not_intheballpark
+isintheballpark(sol::BatchSolution) = map(<(SolutionStatus.not_intheballpark), status(sol))
 
 """
     shape(sol::PointSolution{F}) -> Complex{F}

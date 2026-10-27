@@ -66,10 +66,10 @@ function predictlinear(x, (x1, y1), (x2, y2))
         # fall back to piecewise constant predictor; perhaps non-standard, definitely useful
         if x < x1
             return y1
-        elseif x == x1
-            return (y1 + y2) / 2
-        else
+        elseif x2 < x
             return y2
+        else
+            return (y1 + y2) / 2
         end
     end
     return (y1 * (x2 - x) + y2 * (x - x1)) / (x2 - x1)

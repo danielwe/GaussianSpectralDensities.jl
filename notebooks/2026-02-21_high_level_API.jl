@@ -32,16 +32,16 @@ begin
 		sample_eigenvalues,
 		solve
 
-	using CairoMakie:
-		Axis, Colorbar, DataAspect, Figure, lines!, mesh!, poly!, scatter!, @L_str
+	using CairoMakie
 	using GeometryBasics: area
-	using LinearAlgebra: I, Diagonal
+	using LinearAlgebra: I, Bidiagonal, Diagonal
 end
 
 # ╔═╡ 8266b399-d711-473e-9a55-ed837e65db0d
 e = let
 	#MatrixEnsemble(0.0I, I, I, 0.0I)
     MatrixEnsemble(Diagonal([1.05, 1.05im, -1.05, -1.05im]), I, I, 0.5cispi(1//6)I)
+	# MatrixEnsemble(Matrix(Bidiagonal([1.05, 1.05im, -1.05, -1.05im], [0.0, 0.0, 0.0], :U)), I, I, 0.5cispi(1//6)I)
 	#MatrixEnsemble(Diagonal([1.25, 1.25im, -1.25, -1.25im]), I, I, 0.5cispi(1//3)I)
 end
 
@@ -62,17 +62,24 @@ function figax()
 	fig = Figure()
 	ax = Axis(
 		fig[1, 1];
-		aspect=DataAspect(), xlabel=L"\text{Re}(λ)", ylabel=L"\text{Im}(λ)",
+		aspect=DataAspect(), xlabel=L"\text{Re}(z)", ylabel=L"\text{Im}(z)",
 	)
 	return fig, ax
 end
 
 # ╔═╡ 0b02d2f7-b23b-4bc9-8e44-7a4241515ea6
 function plotboundary!(ax, boundary)
-	for segment in boundary
+	labeled = false
+	for  segment in boundary
+		labelkw = if (!labeled) && (!segment.internal)
+			labeled = true
+			(; label="Boundary")
+		else
+			(;)
+		end
 		lines!(
 			ax, real(segment.points), imag(segment.points);
-			color=segment.internal ? :green : :red, linewidth=2,
+			color=segment.internal ? :green : :black, linewidth=1.5, labelkw...
 		)
 	end
 	return nothing
@@ -100,13 +107,14 @@ let
 end
 
 # ╔═╡ 2dfdb54f-6ad8-4fbf-8125-78463ff9ed43
-function plotmesh!(ax, msh; colorbar=nothing, kwargs...)
+function plotmesh!(ax, msh; colorbar=nothing, colorbarlabel=nothing, kwargs...)
 	# When using a vertex attribute as color, the mesh can't contain face views.
 	# Probably a Makie bug.
 	msh_fixed = (:color in keys(kwargs)) ? Meshing.remove_faceviews(msh) : msh
 	mshplot = mesh!(ax, msh_fixed; kwargs...)
 	if !isnothing(colorbar)
-		Colorbar(colorbar, mshplot)
+		cbarkw = isnothing(colorbarlabel) ? (;) : (; label=colorbarlabel)
+		Colorbar(colorbar, mshplot; cbarkw...)
 	end
 	return mshplot
 end
@@ -160,17 +168,95 @@ let
 end
 
 # ╔═╡ 786515af-0b15-4f06-aba0-81f6d8d45e87
+# ╠═╡ disabled = true
+#=╠═╡
 densityrange = (0.0, 2inv(area(msh.position, msh.faces)))
+  ╠═╡ =#
 
-# ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
+# ╔═╡ 4f91f7cb-0aa9-43d5-81d4-0373c9881b2f
+densityrange = (0.0, maximum(msh.vertex_density))
+
+# ╔═╡ c719e4da-e6fe-4584-96b0-20969add0f99
+eJ = MatrixEnsemble(0I, e.L, e.R, e.S)
+
+# ╔═╡ 6554d6e6-8f8a-454f-bcc4-25225d332288
+eigvalsJ = sample_eigenvalues(eJ, 1536)
+
+# ╔═╡ 8d6de195-0907-439d-8611-0e4fffc95916
+probJ = SpectralProblem(eJ)
+
+# ╔═╡ e71d6df7-bca0-421d-a3f7-a7c135842bc8
+modelJ = solve(probJ; hcoeff=3//2)
+
+# ╔═╡ e532ac67-b05c-4272-9f63-bf6a61246156
+boundaryJ = spectral_boundary(modelJ; step_size_coeff=1//4)
+
+# ╔═╡ 7cd479ca-c18d-4cee-a7f8-9d4c1eab61f0
+mshJ = spectral_density(modelJ; hcoeff=1//4)
+
+# ╔═╡ 1093e46f-ac96-4cc6-8b2e-8cc323a826bd
+# ╠═╡ disabled = true
+#=╠═╡
+densityrangeJ = (0.0, 2inv(area(mshJ.position, mshJ.faces)))
+  ╠═╡ =#
+
+# ╔═╡ ae57960b-cede-4683-b87a-80a6230587b2
+densityrangeJ = (0.0, maximum(mshJ.vertex_density))
+
+# ╔═╡ 874f58ca-5a03-4f05-bf6e-e65fc9c211c1
 let
 	fig, ax = figax()
 	plotmesh!(
+		ax, mshJ;
+		color=mshJ.vertex_density, colorrange=densityrangeJ, colorbar=fig[1, 2],
+		colorbarlabel=L"\rho(z)",
+	)
+	plotboundary!(ax, boundaryJ)
+	scatter!(
+		ax, real(eigvalsJ), imag(eigvalsJ);
+		markersize=4, color=:black, alpha=0.5, label=L"\lambda[J]",
+	)
+	axislegend(ax; position=:lt)
+	fig
+end
+
+# ╔═╡ e45d65ff-d035-4dc5-b019-135dd51cb358
+let Mev = parent(e.M)
+	fig, ax = figax()
+	plotmesh!(
 		ax, msh;
-		color=msh.vertex_density, colorrange=densityrange, colorbar=fig[1, 2],
+		color=msh.vertex_density, colorrange=densityrangeJ, colorbar=fig[1, 2],
+		colorbarlabel=L"\rho(z)",
 	)
 	plotboundary!(ax, boundary)
-	scatter!(ax, real(eigvals), imag(eigvals);markersize=4, color=:black, alpha=0.5)
+	scatter!(
+		ax, real(eigvals), imag(eigvals);
+		markersize=4, color=:black, alpha=0.5, label=L"\lambda[A]",
+	)
+	scatter!(
+		ax, real(Mev), imag(Mev);
+		markersize=10, marker=:diamond, color=:magenta, alpha=1, label=L"\lambda[M]",
+	)
+	axislegend(ax)
+	
+	ax_inset = Axis(
+		fig[1, 1],
+    	width=Relative(0.24),
+    	height=Relative(0.24),
+    	halign=0.95,
+    	valign=0.08,
+		aspect=DataAspect(),
+		xticks=[-1.0, 0.0, 1.0],
+		yticks=[-0.5, 0.0, 0.5],
+    )
+	plotmesh!(ax_inset, mshJ; color=mshJ.vertex_density, colorrange=densityrangeJ)
+	plotboundary!(ax_inset, boundaryJ)
+	scatter!(
+		ax_inset, real(eigvalsJ), imag(eigvalsJ);
+		markersize=2, color=:black, alpha=0.5, label=L"\lambda[J]",
+	)
+	# axislegend(ax_inset)
+	save("/Users/daniel/Desktop/toy_example.pdf", fig)
 	fig
 end
 
@@ -181,7 +267,8 @@ msh_colored_by_density = Meshing.updatemesh(msh; color=msh.density)
 let
 	fig, ax = figax()
 	plotmesh!(
-		ax, msh_colored_by_density; colorrange=densityrange, colorbar=fig[1, 2]
+		ax, msh_colored_by_density;
+		colorrange=densityrange, colorbar=fig[1, 2], colorbarlabel=L"\rho(z)",
 	)
 	plotboundary!(ax, boundary)
 	scatter!(ax, real(eigvals), imag(eigvals); markersize=4, color=:black, alpha=0.5)
@@ -208,6 +295,16 @@ end
 # ╠═869a8407-9c6e-4a7b-9840-74ea47fc6ca7
 # ╠═f6c3584c-8f44-4839-a5e4-45bcbe357768
 # ╠═786515af-0b15-4f06-aba0-81f6d8d45e87
+# ╠═4f91f7cb-0aa9-43d5-81d4-0373c9881b2f
+# ╠═c719e4da-e6fe-4584-96b0-20969add0f99
+# ╠═6554d6e6-8f8a-454f-bcc4-25225d332288
+# ╠═8d6de195-0907-439d-8611-0e4fffc95916
+# ╠═e71d6df7-bca0-421d-a3f7-a7c135842bc8
+# ╠═e532ac67-b05c-4272-9f63-bf6a61246156
+# ╠═7cd479ca-c18d-4cee-a7f8-9d4c1eab61f0
+# ╠═1093e46f-ac96-4cc6-8b2e-8cc323a826bd
+# ╠═ae57960b-cede-4683-b87a-80a6230587b2
+# ╠═874f58ca-5a03-4f05-bf6e-e65fc9c211c1
 # ╠═e45d65ff-d035-4dc5-b019-135dd51cb358
 # ╠═324b06ed-0521-42b1-88cb-57b9ecbd6718
 # ╠═bf1493cf-452d-4a02-820e-7c21738192e3
