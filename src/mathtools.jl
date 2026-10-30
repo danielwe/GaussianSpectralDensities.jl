@@ -291,7 +291,7 @@ function decompose(H::Hermitian{T}; shift=zero(T)) where {T}
     else
         H
     end
-    iszero(shift) && cholesky(target)
+    iszero(shift) && return cholesky(target)
     checkreal(shift)
     return cholesky(Hermitian(parent(target) + T(shift) * I, uplo(target)))
 end
