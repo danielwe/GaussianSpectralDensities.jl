@@ -116,7 +116,7 @@ end
 fp = true
 
 # ╔═╡ 5a661917-95f2-41aa-a537-f30cb733f3ae
-tend, uend = fp ? (sol.t[end], sol[end]) : (nothing, nothing)
+tend, uend = fp ? (sol.t[end], sol.u[end]) : (nothing, nothing)
 
 # ╔═╡ 63da614b-0746-4608-93a0-06e30b0ea365
 fp_dv = parent(Af_diag(uend, p, tend))
