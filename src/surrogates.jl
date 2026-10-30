@@ -590,13 +590,16 @@ end
         eq = ResolventEquation(ensemble; shiftmin=0.0)
         constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
         zs_ok = ComplexF64[0.1 + 0.1im, 0.3 + 0.1im, 0.1 + 0.3im]
-        zs_bad = ComplexF64[5.0 + 5.0im, 6.0 + 6.0im]
-        zs = vcat(zs_ok, zs_bad)
+        # Solves that only violate shiftmin are consistent and kept
+        zs_shiftmin = ComplexF64[5.0 + 5.0im, 6.0 + 6.0im]
+        # Solves that fail to converge are not consistent and excluded
+        zs_bad = ComplexF64[1e6 + 1e6im, 1e8 + 1e8im]
+        zs = vcat(zs_ok, zs_shiftmin, zs_bad)
 
         model = SurrogateModel(eq, constraint, alg, zs)
         @test length(model.rbf.x) < length(zs)
-        @test length(model.rbf.x) == length(zs_ok)
-        @test zvals(model) == zs_ok
+        @test length(model.rbf.x) == length(zs_ok) + length(zs_shiftmin)
+        @test zvals(model) == vcat(zs_ok, zs_shiftmin)
     end
 
     @testset "SpreadConstraint" begin
@@ -645,11 +648,13 @@ end
         eq = ResolventEquation(ensemble; shiftmin=0.0)
         constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
         zs_ok = ComplexF64[0.1 + 0.1im, 0.3 + 0.1im, 0.1 + 0.3im]
-        zs_bad = ComplexF64[5.0 + 5.0im, 6.0 + 6.0im]
+        zs_shiftmin = ComplexF64[5.0 + 5.0im, 6.0 + 6.0im]
+        zs_kept = vcat(zs_ok, zs_shiftmin)
 
+        # Solves that only violate shiftmin are consistent and kept on resampling
         model = SurrogateModel(eq, constraint, alg, zs_ok)
-        model2 = SurrogateModel(model, vcat(zs_ok, zs_bad))
-        @test length(model2.rbf.x) == length(zs_ok)
-        @test zvals(model2) == zs_ok
+        model2 = SurrogateModel(model, zs_kept)
+        @test length(model2.rbf.x) == length(zs_kept)
+        @test zvals(model2) == zs_kept
     end
 end

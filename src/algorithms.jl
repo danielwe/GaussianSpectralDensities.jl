@@ -802,17 +802,20 @@ end
                         end
                     end
 
-                    # Final step initialized by linear *polation from the two previous
-                    # solutions
+                    # Final step initialized either from the latest solution (no
+                    # intercept, never extrapolate) or by linear *polation from the two
+                    # previous solutions (intercept)
                     problem = states[end].problem
                     cspread, cshape0 = problem.constraint.val, problem.constraint.shape0
+                    latest_shape = shape(states[end].prevsolution)
                     i1, i2 = states[end - 1].index, states[end - 1].previndex
                     sol1, sol2 = solutions[i1], solutions[i2]
                     shape1, shape2 = shape(sol1), shape(sol2)
                     spread1 = spreadfrom(sol1, cspread.type)
                     spread2 = spreadfrom(sol2, cspread.type)
                     x, x1, x2 = cspread.val, spread1.val, spread2.val
-                    @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
+                    @test (cshape0 == latest_shape) ||
+                          isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
 
                     # Final step solves the actual target problem
                     @test solves(solutions[end], problemF)

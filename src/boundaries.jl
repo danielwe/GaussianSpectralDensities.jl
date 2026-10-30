@@ -963,8 +963,10 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    # max_steps=2 should produce all open contours
+    # max_steps=2 should produce all open contours, which are discarded unless allow_open
     contours = spectral_boundary(model; max_steps=2)
+    @test isempty(contours)
+    contours = spectral_boundary(model; max_steps=2, allow_open=true)
     @test length(contours) > 0
     @testset "contour $i" for (i, c) in pairs(contours)
         @test !c.closed
