@@ -56,9 +56,7 @@ function RBFInterpolant(
     x_pruned = x[keep]
     y_pruned = (y isa AbstractVector) ? y[keep] : map(y, x_pruned)
     pairwise_pruned = pairwise[keep, keep]
-    nn_dists_pruned = map(axes(pairwise_pruned, 2)) do j
-        return minimum(pairwise_pruned[i, j] for i in axes(pairwise_pruned, 1) if i != j)
-    end
+    nn_dists_pruned = nearest_neighbor_distances(pairwise_pruned)
     return RBFInterpolant(
         phi, x_pruned, y_pruned, pairwise_pruned, nn_dists_pruned, npoints
     )
@@ -85,7 +83,7 @@ function append!(
     lasti_old = lastindex(rbf.x)
     Base.append!(rbf.x, xs_new)
     pairwise_full = pairwise_distances(rbf.x)
-    keep = prune_to_count(pairwise, rbf.npoints)
+    keep = prune_to_count(pairwise_full, rbf.npoints)
     keep_spliti = searchsortedlast(keep, lasti_old)
 
     keepat!(rbf.x, keep)
@@ -104,12 +102,7 @@ function append!(
     pairwise = pairwise_full[keep, keep]
 
     resize!(rbf.nn_dists, length(keep))
-    map!(rbf.nn_dists, pairs(eachcol(pairwise))) do j, col
-        return minimum(p for (i, p) in pairs(col) if i != j)
-    end
-    map!(rbf.nn_dists, axes(pairwise_pruned, 2)) do j
-        return minimum(pairwise_pruned[i, j] for i in axes(pairwise_pruned, 1) if i != j)
-    end
+    copyto!(rbf.nn_dists, nearest_neighbor_distances(pairwise))
 
     pairwise_pruned = prune_nonfinite!(rbf.x, rbf.y, rbf.nn_dists, pairwise)
     nkept = length(eachindex(rbf.x, rbf.y, rbf.nn_dists))
@@ -126,9 +119,7 @@ function prune_nonfinite!(xs, ys, nn_dists, pairwise)
     deleteat!(xs, drop)
     deleteat!(ys, drop)
     resize!(nn_dists, length(keep))
-    map!(nn_dists, axes(pairwise_pruned, 2)) do j
-        return minimum(pairwise_pruned[i, j] for i in axes(pairwise_pruned, 1) if i != j)
-    end
+    copyto!(nn_dists, nearest_neighbor_distances(pairwise_pruned))
     return pairwise_pruned
 end
 
@@ -146,6 +137,15 @@ function pairwise_distances(x::AbstractVector{SVector{2,F}}) where {F<:AbstractF
         end
     end
     return pairwise
+end
+
+function nearest_neighbor_distances(pairwise::AbstractMatrix{F}) where {F<:AbstractFloat}
+    m, n = size(pairwise)
+    (m == n) || throw(ArgumentError("pairwise must be square"))
+    n <= 1 && return fill(F(Inf), n)
+    return map(axes(pairwise, 2)) do j
+        minimum(pairwise[i, j] for i in axes(pairwise, 1) if i != j)
+    end
 end
 
 function prune_to_count(pairwise::Matrix{F}, npoints::Int) where {F<:AbstractFloat}
@@ -586,6 +586,13 @@ end
 
     @test rbf.npoints == 2
     @test length(rbf.x) == 2
+end
+
+@testitem "nearest_neighbor_distances handles 0 and 1 points" begin
+    using GaussianSpectralDensities.RBFInterpolants: nearest_neighbor_distances
+
+    @test isempty(nearest_neighbor_distances(zeros(Float64, 0, 0)))
+    @test isinf(only(nearest_neighbor_distances(zeros(Float64, 1, 1))))
 end
 
 @testitem "large-n pruning uses approximate solver and fixed count" begin

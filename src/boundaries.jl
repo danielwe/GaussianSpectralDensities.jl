@@ -1,9 +1,8 @@
 module Boundaries
 
-using GeometryBasics: Mesh, Point2, TriangleFace, merge
+using GeometryBasics: Mesh, Point2, TriangleFace
 using DistMesh: distmesh2d, huniform, dpoly
 using Statistics: median
-using StructArrays: components
 
 using ..Defaults: Defaults
 using ..Newton: increment

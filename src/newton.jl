@@ -41,7 +41,7 @@ end
 function newton(f, jac, x; atol=Defaults.atol(eltype(x)) / 4, maxiters=512)
     fx = f(x)
     approx_zero(fx, atol) && return (x, 0)
-    local i
+    i = 0
     for outer i in 1:maxiters
         x = x - jac(x, fx) \ fx
         fx = f(x)
