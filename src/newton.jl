@@ -1,27 +1,22 @@
 module Newton
 
-using LinearAlgebra: norm
 using StaticArrays: MMatrix, MVector, SMatrix, SVector
 
 using ..Defaults: Defaults
 
-public NewtonException, finite_difference_jacobian, increment, newton
-
-struct NewtonException <: Exception
-    msg::String
-end
+public finite_difference_jacobian, increment, newton
 
 """
-    newton(f, x; atol=<see text>, maxiters=512)
-    newton(f, jac, x; atol=<see text>, maxiters=512)
+    newton(f, x0; atol=<see text>, maxiters=512)
+    newton(f, jac, x0; atol=<see text>, maxiters=512)
 
-Find a zero of `f` using Newton's method starting at `x`
+Find a zero of `f` using Newton's method starting at `x0`
 
 `jac` must be a function with signature `jac(x, f(x))` that returns the jacobian of `f` at
 `x` in a type that supports `ldiv`, such that `jac(x, f(x)) \\ f(x)` works.
 
 If `jac` is not provided, it is estimated using finite differences. The finite difference
-implementation currently supports `x isa Real` and `x isa SVector` from `StaticArrays.jl`.
+implementation currently supports `x::Real` and `x::SVector` from `StaticArrays.jl`.
 
 The keyword argument `atol` sets the tolerance for what's considered a scalar zero. For
 a vector `y` this is scaled by `sqrt(length(y))` and compared with the 2-norm, i.e., the
@@ -29,30 +24,36 @@ criterion for `f(x)` to be considered zero is `norm(f(x)) < atol * sqrt(length(f
 default value is `atol=eps(T)^0.75 * oneunit(T)^0.25` where `T = eltype(x)` (the `oneunit`
 ensures dimensional consistency in case `T` is a dimensionful type).
 
-A `NewtonException` is thrown after `maxiters` iterations without convergence.
+Returns `(x, i, residual, converged)`, where `x` is the final state, `i::Int` is the number
+of iterations, `residual` is the final residual, i.e., `norm(f(x)) / sqrt(length(f(x)))`,
+and `converged::Bool` is `true` if the iterations converged.
 """
-function newton(f, x; kwargs...)
+function newton(f, x0; kwargs...)
     jac = let f = f
         jac(x, fx) = finite_difference_jacobian(f, x, fx)
     end
-    return newton(f, jac, x; kwargs...)
+    return newton(f, jac, x0; kwargs...)
 end
 
-function newton(f, jac, x; atol=Defaults.atol(eltype(x)) / 4, maxiters=512)
-    fx = f(x)
-    approx_zero(fx, atol) && return (x, 0)
+function newton(f, jac, x0; atol=Defaults.atol_newton(eltype(x0)), maxiters=512)
     i = 0
-    for outer i in 1:maxiters
+    x = x0
+    fx, residual, converged = apply_and_check(f, x, atol)
+    while (!converged) && isfinite(residual) && (i < maxiters)
+        i += 1
         x = x - jac(x, fx) \ fx
-        fx = f(x)
-        all(isfinite, fx) || break
-        approx_zero(fx, atol) && return (x, i)
+        fx, residual, converged = apply_and_check(f, x, atol)
     end
-    msg = "newton failed after $i iterations: residual=$(norm(fx)), maxiters=$maxiters"
-    throw(NewtonException(msg))
+    return (x, i, residual, converged)
 end
 
-approx_zero(y, atol) = (sqrt(sum(abs2, y) / length(y)) < atol)
+function apply_and_check(f, x, atol)
+    fx = f(x)
+    residual = scaled_norm(fx)
+    return fx, residual, (residual < atol)
+end
+
+scaled_norm(y) = sqrt(sum(abs2, y) / length(y))
 
 """
     finite_difference_jacobian(f, x::Real, fx=f(x))
@@ -92,6 +93,7 @@ end
 end  # module Newton
 
 @testitem "newton Real" begin
+    using GaussianSpectralDensities: Defaults
     using GaussianSpectralDensities.Newton: finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
@@ -110,16 +112,62 @@ end  # module Newton
         # finite_difference_jacobian
         fx0_F = f(x0_F)
         dfx0_F = df(x0_F, fx0_F)
-        @test finite_difference_jacobian(f, x0_F, fx0_F) ≈ dfx0_F rtol = tol
+        dfx0_fd = finite_difference_jacobian(f, x0_F, fx0_F)
+        @test dfx0_fd isa typeof(fx0_F / x0_F)
+        @test dfx0_fd ≈ dfx0_F rtol = tol
         @test finite_difference_jacobian(f, x0_F) ≈ dfx0_F rtol = tol
 
-        # newton
-        @test norm(f(first(newton(f, x0_F)))) < tol
-        @test norm(f(first(newton(f, df, x0_F)))) < tol
+        # Negative point exercises the negative increment
+        xneg_F = -x0_F
+        fxneg_F = f(xneg_F)
+        dfxneg_F = df(xneg_F, fxneg_F)
+        @test finite_difference_jacobian(f, xneg_F, fxneg_F) ≈ dfxneg_F rtol = tol
+        @test finite_difference_jacobian(f, xneg_F) ≈ dfxneg_F rtol = tol
+
+        # newton, with and without explicit jacobian
+        @testset "$label" for (label, jac) in
+                              [("finite difference", nothing), ("explicit", df)]
+            result = (jac === nothing) ? newton(f, x0_F) : newton(f, jac, x0_F)
+            x, i, residual, converged = result
+            @test x isa typeof(x0_F)
+            @test converged
+            @test 0 < i < 512
+            @test residual ≈ norm(f(x))  # scalar objective => scale factor is 1
+            @test residual < Defaults.atol_newton(F)
+        end
+
+        # maxiters and residual threshold work as expected
+        c = F(0.5)
+        fconst(_) = c
+        x, i, residual, converged = newton(fconst, x0_F; atol=c, maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == c
+        @test !converged
+
+        x, i, residual, converged = newton(fconst, x0_F; atol=nextfloat(c), maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == c
+        @test converged
+
+        default_atol = Defaults.atol_newton(F)
+        x, i, residual, converged = newton(x -> default_atol, x0_F; maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == default_atol
+        @test !converged
+
+        x, i, residual, converged = newton(x -> prevfloat(default_atol), x0_F; maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == prevfloat(default_atol)
+        @test converged
     end
 end
 
 @testitem "newton SVector" begin
+    using GaussianSpectralDensities: Defaults
     using GaussianSpectralDensities.Newton: finite_difference_jacobian, newton
 
     using LinearAlgebra: norm
@@ -147,18 +195,129 @@ end
         # finite_difference_jacobian
         gx0_F = g(x0_F)
         jgx0_F = jg(x0_F, gx0_F)
-        @test finite_difference_jacobian(g, x0_F, gx0_F) ≈ jgx0_F rtol = tol
+        jgx0_fd = finite_difference_jacobian(g, x0_F, gx0_F)
+        @test jgx0_fd isa typeof(gx0_F ./ x0_F')
+        @test jgx0_fd ≈ jgx0_F rtol = tol
         @test finite_difference_jacobian(g, x0_F) ≈ jgx0_F rtol = tol
 
-        # newton
-        N = length(x0_F)
-        @test norm(g(first(newton(g, x0_F)))) < tol * sqrt(N)
-        @test norm(g(first(newton(g, jg, x0_F)))) < tol * sqrt(N)
+        # newton, with and without explicit jacobian
+        @testset "$label" for (label, jac) in
+                              [("finite difference", nothing), ("explicit", jg)]
+            result = (jac === nothing) ? newton(g, x0_F) : newton(g, jac, x0_F)
+            x, i, residual, converged = result
+            @test x isa typeof(x0_F)
+            @test converged
+            @test 0 < i < 512
+            @test residual ≈ norm(g(x)) / sqrt(length(g(x)))
+            @test residual < Defaults.atol_newton(F)
+        end
+
+        # residual is normalized, and maxiters and residual threshold work as expected
+        c = F(0.5)
+        h(_) = SVector{2,F}(c, c)
+        x, i, residual, converged = newton(h, x0_F; atol=c, maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == F(0.5)
+        @test !converged
+
+        x, i, residual, converged = newton(h, x0_F; atol=nextfloat(c), maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == F(0.5)
+        @test converged
+
+        default_atol = Defaults.atol_newton(F)
+        default_atolv = SVector{2,F}(default_atol, default_atol)
+        x, i, residual, converged = newton(x -> default_atolv, x0_F; maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == default_atol
+        @test !converged
+
+        x, i, residual, converged = newton(x -> prevfloat.(default_atolv), x0_F; maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual == prevfloat(default_atol)
+        @test converged
     end
 end
 
-@testitem "Newton errors" begin
-    using GaussianSpectralDensities.Newton: NewtonException, newton
+@testitem "Newton failure flags" begin
+    using GaussianSpectralDensities.Newton: newton
+
+    using LinearAlgebra: norm
+    using StaticArrays: SVector
+
     f(x) = cos(x) - x^3
-    @test_throws NewtonException newton(f, 0.5; maxiters=0)
+    g(x) = (x .* (x .^ 2 .- 1)) .+ (reverse(x) ./ 2)
+
+    @testset "$F" for F in [Float32, Float64]
+        x0_F = F(0.5)
+
+        # maxiters=0 returns a failure flag
+        x, i, residual, converged = newton(f, x0_F; maxiters=0)
+        @test x == x0_F
+        @test i == 0
+        @test residual ≈ norm(f(x0_F))
+        @test isfinite(residual)
+        @test !converged
+
+        # maxiters=1 performs one iteration and still reports failure here
+        x, i, residual, converged = newton(f, x0_F; maxiters=1)
+        @test x != x0_F
+        @test i == 1
+        @test residual ≈ norm(f(x))
+        @test isfinite(residual)
+        @test !converged
+
+        # Nonfinite initial residual stops immediately
+        @testset "f(x0) = $bad" for bad in (F(NaN), F(Inf))
+            x, i, residual, converged = newton(x -> bad, x0_F)
+            @test x == x0_F
+            @test i == 0
+            @test !isfinite(residual)
+            @test !converged
+        end
+
+        # Nonfinite residual produced during iteration stops immediately
+        nonfinitef(x) = x < 1 ? x - 1 : oftype(x, NaN)
+        unitjac(x, fx) = oneunit(fx) / oneunit(x)
+        x, i, residual, converged = newton(nonfinitef, unitjac, zero(F))
+        @test x == F(1.0)
+        @test i == 1
+        @test isnan(residual)
+        @test !converged
+
+        # Initial point is already a root: converges without iterating
+        linearf(x) = x - oftype(x, 0.5)
+        x, i, residual, converged = newton(linearf, F(0.5))
+        @test x == F(0.5)
+        @test i == 0
+        @test residual == zero(F)
+        @test converged
+
+        # Linear function converges after one iteration
+        x, i, residual, converged = newton(linearf, unitjac, zero(F); maxiters=1)
+        @test x == F(0.5)
+        @test i == 1
+        @test residual == zero(F)
+        @test converged
+
+        # Failure flag and nonfinite residual for vectors
+        x0v_F = SVector{2,F}(0.3, -0.7)
+        xv, i, residual, converged = newton(g, x0v_F; maxiters=0)
+        @test xv == x0v_F
+        @test i == 0
+        @test residual ≈ norm(g(xv)) / sqrt(length(g(xv)))
+        @test !converged
+
+        @testset "g(x0v) = SVector($bad, 0)" for bad in (F(NaN), F(Inf))
+            xv, i, residual, converged = newton(x -> SVector{2,F}(bad, 0.0), x0v_F)
+            @test xv == x0v_F
+            @test i == 0
+            @test !isfinite(residual)
+            @test !converged
+        end
+    end
 end

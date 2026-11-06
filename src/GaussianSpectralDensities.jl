@@ -39,6 +39,7 @@ module Defaults
 
     public approxequal,
         atol,
+        atol_newton,
         atol_strict,
         intheballpark,
         rtol,
@@ -80,6 +81,7 @@ module Defaults
 
     rtol_ballpark(::Type{T}) where {T} = (2one(real(T)))^(-8)
 
+    atol_newton(::Type{T}) where {T} = atol(T) / 4
 end
 
 include("arraytools.jl")

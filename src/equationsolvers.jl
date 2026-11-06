@@ -1,17 +1,14 @@
 module EquationSolvers
 
-using LinearAlgebra: LAPACKException, SingularException
 using StaticArrays: SVector
 
-using ..Newton: NewtonException, newton
+using ..Newton: newton
 using ..Problems: PTraceConstraint, PointProblem, ResolventEquation, SpreadConstraint
 using ..Spreads: Spread
 using ..Solutions: PointSolution
 using ..Workspaces: Workspace, ptrace!, shapeFP!
 
 public eqsolve!
-
-const ConvergenceException = Union{NewtonException,SingularException,LAPACKException}
 
 """
     eqsolve!(ws::Workspace{F}, problem::PointProblem{F}) where {F}
@@ -66,16 +63,18 @@ function eqsolve_inner!(
     return PointSolution(eq, z, shape, spread; workspace=ws)
 end
 
-eqsolve_common!(f, v0, z) =
-    try
-        v, niters = newton(f, v0)
-        @debug "eqsolve! converged" z=z v0=v0 v=v niters=niters
-        return v
-    catch e
-        (e isa ConvergenceException) || rethrow()
-        @warn "eqsolve! did not converge" z=z v0=v0 e=e
-        return map(vi -> oftype(vi, NaN), v0)
+function eqsolve_common!(f, v0, z)
+    v, niters, residual, converged = newton(f, v0)
+    if !converged
+        # Return NaNs to indicate not solved
+        @info(
+            "eqsolve! did not converge", z=z, v0=v0, v=v, niters=niters, residual=residual
+        )
+        return map(vi -> oftype(vi, NaN), v)
     end
+    @debug("eqsolve! converged", z=z, v0=v0, v=v, niters=niters, residual=residual)
+    return v
+end
 
 end  # module EquationSolvers
 
@@ -136,28 +135,40 @@ end
         PointProblem,
         ResolventEquation,
         SpreadConstraint,
-        issuccess
+        issuccess,
+        shape
     using GaussianSpectralDensities.EquationSolvers: eqsolve!
+    using GaussianSpectralDensities.Solutions: SolutionStatus, status
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
 
     # engineer a singular equation
-    z = complex(0.1)
-    shape0 = complex(0.1)
-    ensemble = MatrixEnsemble(0I, I, I, 0.5I)
-    eq = ResolventEquation(ensemble)
-    ws = Workspace(eq)
+    z64 = complex(0.1)
+    shape0_64 = complex(0.1)
+    ensemble64 = MatrixEnsemble(0I, I, I, 0.5I)
+    eq64 = ResolventEquation(ensemble64)
 
-    spreadc = SpreadConstraint(; shift=0.0, shape0)
-    ptracec = PTraceConstraint(1.0; shape0, gap0=0.0)
+    @testset "$F" for F in [Float32, Float64]
+        eq = ResolventEquation{F}(eq64)
+        ws = Workspace(eq)
+        z = Complex{F}(z64)
+        shape0 = Complex{F}(shape0_64)
 
-    @testset "$(nameof(typeof(constraint)))" for constraint in [spreadc, ptracec]
-        problem = PointProblem(eq, constraint, z)
-        sol = @test_logs (:warn, "eqsolve! did not converge") eqsolve!(ws, problem)
+        spreadc = SpreadConstraint{F}(; shift=0.0, shape0)
+        ptracec = PTraceConstraint{F}(1.0; shape0, gap0=0.0)
 
-        @test sol.equation == eq
-        @test sol.z == z
-        @test !issuccess(sol)
+        @testset "$(nameof(typeof(constraint)))" for constraint in [spreadc, ptracec]
+            problem = PointProblem(eq, constraint, z)
+
+            sol = @test_logs (:info, r"eqsolve! did not converge") eqsolve!(ws, problem)
+
+            @test sol.equation == eq
+            @test sol.z == z
+            @test isnan(real(shape(sol)))
+            @test isnan(imag(shape(sol)))
+            @test !issuccess(sol)
+            @test status(sol) == SolutionStatus.not_finite
+        end
     end
 end
