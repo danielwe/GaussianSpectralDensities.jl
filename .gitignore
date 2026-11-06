@@ -1,7 +1,4 @@
 Manifest*.toml
-/demo/.ipynb_checkpoints
 .*.swp
 *.cov
 /lcov.info
-/TODO.md
-/old-plans
