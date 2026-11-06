@@ -18,21 +18,25 @@ using LinearAlgebra:
     diagind,
     dot,
     eigmin,
+    eigvals,
+    isposdef,
+    issuccess,
     ldiv!,
     mul!,
     tr
 using LinearMaps: LinearMap
 using MappedArrays: mappedarray
 using SparseArrays: SparseArrays, SparseMatrixCSC, spdiagm
-using StaticArrays: SArray, SMatrix, SVector, StaticMatrix
+using StaticArrays: MMatrix, SArray, SMatrix, SVector, StaticMatrix
 
 using ..ArrayTools: AnySArray, AnySMatrix, DiagonalOrUniform, map_diagonal, withsize
 using ..Defaults: Defaults
 
-public decompose,
-    decompose!!,
-    eigmin!!,
+public ShiftedGramMatrix,
+    decompose_pd,
+    decompose_pd!!,
     frobenius_normalized,
+    gramgap,
     herk,
     herk!!,
     inunitdisc,
@@ -279,106 +283,178 @@ herk!!(H::Diagonal{<:Real,<:SVector}, A::Diagonal, α, β) = α * map_diagonal(a
 ## Decomposition
 ## =============
 """
-    decompose(H::Hermitian{T}; shift=zero(T)) where {T}
+    decompose_pd(A::Hermitian{T}; shift=zero(T), check=true) where {T}
 
-Compute the Cholesky factorization of `H + shift * I` with `A` Hermitian and `shift` real
+Compute the Cholesky factorization of `A + shift * I` with `A` Hermitian and `shift` real
+
+If `check` is `true`, a `PosDefException` is thrown if `A + shift * I` is not positive
+definite; if `false`, a incomplete factorization is returned, and the caller is responsible
+for checking its status using `LinearAlgebra.issuccess`.
 """
-function decompose(H::Hermitian{T}; shift=zero(T)) where {T}
-    Hdata = parent(H)
-    target = if (Hdata isa StaticMatrix) && (uplo(H) === :L)
-        # https://github.com/JuliaArrays/StaticArrays.jl/issues/1075
-        Hermitian(Hdata', :U)
-    else
-        H
-    end
-    iszero(shift) && return cholesky(target)
-    checkreal(shift)
-    return cholesky(Hermitian(parent(target) + T(shift) * I, uplo(target)))
+function decompose_pd(A::Hermitian{T}; shift=zero(T), check=true) where {T}
+    iszero(shift) && return cholesky_pd(A, check)
+    checkrealshift(shift)
+    return cholesky_pd(Hermitian(parent(A) + T(shift) * I, uplo(A)), check)
 end
 
 """
-    decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0)
+    decompose_pd(A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0, check=true)
 
 Get the Cholesky factorization of `A + shift * I` with Hermitian `A` and real `shift`
+
+If `check` is `true`, a `PosDefException` is thrown if `A + shift * I` is not positive
+definite; if `false`, a incomplete factorization is returned, and the caller is responsible
+for checking its status using `LinearAlgebra.issuccess` or `LinearAlgebra.isposdef`.
 """
-decompose(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = cholesky(A; kwargs...)
+decompose_pd(A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...) = cholesky(A; kwargs...)
 
 """
-    decompose(A::Diagonal{E}; shift=zero(E)) where {E}
+    decompose_pd(A::Diagonal{T}; shift=zero(T), check=true) where {T}
 
 Return `A + shift * I`
+
+If `check` is `true`, a `PosDefException` is thrown if `A + shift * I` is not positive
+definite; if `false`, no check of definiteness is performed.
 """
-decompose(A::Diagonal{T}; shift=zero(T)) where {T} = A + T(shift) * I
-
-"""
-    decompose!!(F::Cholesky{T}, A::Hermitian{T}; shift=zero(T)) where {T}
-    decompose!!(
-        F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; shift=0.0
-    )
-    decompose!!(F::Diagonal{T}, A::Diagonal{T}; shift=zero(T)) where {T}
-
-Factorize `A + shift * I` into an existing factorization instance `F` and return `F`
-
-The factorization `F` is updated in-place and returned. The appropriate type of `F` is the
-return type of `decompose(A)`; that is, appropriate usage may look as follows:
-
-```julia
-F = decompose(A)
-# Do stuff with F, which holds a factorization of A
-F = decompose!(F, A; shift=1)
-# Do more stuff with F, which now holds a factorization of A + I
-```
-
-Note: Whenever an error is thrown, for example if `F::Cholesky` but `A + shift * I` is not
-positive definite, the factorization object `F` may be left in an inconsistent and
-unrecoverable state. For a safe but allocating alternative, use `decompose` instead.
-"""
-function decompose!!(F::Cholesky{T}, A::Hermitian{T}; shift=zero(T)) where {T}
-    copyto!(F.factors, A)
-    if !iszero(shift)
-        checkreal(shift)
-        shift_diagonal(F.factors, T(shift))
-    end
-    _, info = LAPACK.potrf!(F.uplo, F.factors)
-    (info == 0) || throw(PosDefException(info))
+function decompose_pd(A::Diagonal{T}; shift=zero(T), check=true) where {T}
+    F = A + T(shift) * I
+    check && checkposdef(F)
     return F
 end
 
-function decompose!!(
+"""
+    decompose_pd!!(F::Cholesky{T}, A::Hermitian{T}; shift=zero(T), check=true) where {T}
+    decompose_pd!!(
+        F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC};
+        shift=0.0, check=true,
+    )
+    decompose_pd!!(F::Diagonal{T}, A::Diagonal{T}; shift=zero(T), check=true) where {T}
+
+Factorize `A + shift * I`, reusing memory from an existing factorization instance `F`
+
+The memory underlying the factorization `F` is updated in-place. Whether the returned object
+is the same exact instance as `F` or a new wrapper of the same type depends on the types of
+the arguments. Hence, the user should always use the return value and discard their binding
+to `F`.
+
+The appropriate type of `F` is the return type of `decompose_pd(A)`; thus, appropriate usage
+may look as follows:
+
+```julia
+F = decompose_pd(A)
+# Do stuff with F, which holds a factorization of A
+F = decompose_pd!!(F, A; shift=1)
+# Do more stuff with F, which now holds a factorization of A + I that may reuse memory from
+# the previous F
+```
+
+If `check` is `true`, a `PosDefException` is thrown if `A + shift * I` is not positive
+definite; if `false`, a possibly incomplete factorization is returned, and the caller is
+responsible for checking its status using `LinearAlgebra.isposdef` (or
+`LinearAlgebra.issuccess`, except in the `Diagonal` case).
+
+!!! note
+
+    If the decomposition failed, the argument `F` may be left in a corrupt and unrecoverable
+    state. For a safe but allocating alternative, use `decompose_pd` instead.
+"""
+function decompose_pd!!(
+    F::Cholesky{T}, A::Hermitian{T}; shift=zero(T), check=true
+) where {T}
+    copyto!(F.factors, A)
+    if !iszero(shift)
+        checkrealshift(shift)
+        shift_diagonal(F.factors, T(shift))
+    end
+    _, info = LAPACK.potrf!(F.uplo, F.factors)
+    check && ((info == 0) || throw(PosDefException(info)))
+    # Can't modify F.info, so construct new wrapper. If info == F.info this is === F anyway.
+    return typeof(F)(F.factors, F.uplo, info)
+end
+
+function decompose_pd!!(
     F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}; kwargs...
 )
     return cholesky!(F, A; kwargs...)
 end
 
-function decompose!!(F::Diagonal{T}, A::Diagonal{T}; shift=zero(T)) where {T}
+function decompose_pd!!(F::Diagonal{T}, A::Diagonal{T}; shift=zero(T), check=true) where {T}
     copyto!(parent(F), parent(A))
     if shift != 0
         shift_diagonal(F, T(shift))
     end
+    check && checkposdef(F)
     return F
 end
 
 """
-    decompose!!(F::Cholesky{T,<:SMatrix}, A::Hermitian{T,<:SMatrix}; kwargs...) where {T}
-    decompose!!(F::Diagonal{T,<:SMatrix}, A::Diagonal{T,<:SMatrix}; kwargs...) where {T}
+    decompose_pd!!(F::Cholesky{T,<:SMatrix}, A::Hermitian{T,<:SMatrix}; kwargs...) where {T}
+    decompose_pd!!(F::Diagonal{T,<:SMatrix}, A::Diagonal{T,<:SMatrix}; kwargs...) where {T}
 
-Return `A + shift * I`
+Return an appropriate decomposition of `A + shift * I`, assuming positive definiteness
 
-Ignores `F` and forwards the call to `decompose(A; kwargs...)`. This is to provide a generic
-factorization updating interface that also supports immutable factorization types.
+Ignores `F` and forwards the call to `decompose_pd(A; kwargs...)`. This is to provide a
+generic factorization updating interface that also supports immutable factorization types.
 """
-function decompose!!(
+function decompose_pd!!(
     ::Cholesky{T,<:SMatrix}, A::Hermitian{T,<:SMatrix}; kwargs...
 ) where {T}
-    return decompose(A; kwargs...)
+    return decompose_pd(A; kwargs...)
 end
 
-function decompose!!(::Diagonal{T,<:SVector}, A::Diagonal{T,<:SVector}; kwargs...) where {T}
-    return decompose(A; kwargs...)
+function decompose_pd!!(
+    ::Diagonal{T,<:SVector}, A::Diagonal{T,<:SVector}; kwargs...
+) where {T}
+    return decompose_pd(A; kwargs...)
 end
 
 # decomposition helpers
-checkreal(x::Number) = iszero(imag(x)) || throw(DomainError("shift must be real"))
+cholesky_pd(A::Hermitian, check) = cholesky(A; check)
+
+function cholesky_pd(A::Hermitian{<:Any,<:StaticMatrix}, check)
+    if uplo(A) === :L
+        # StaticArrays's cholesky does not handle uplo
+        # issue: https://github.com/JuliaArrays/StaticArrays.jl/issues/1075
+        # PR: https://github.com/JuliaArrays/StaticArrays.jl/pull/1369
+        A = Hermitian(parent(A)', :U)
+    end
+    C = cholesky(A; check=false)
+    # StaticArrays's cholesky fails to reject nonpositive pivots if the eltype is complex
+    # and zero pivots if it's real, so we must validate the factorization ourselves before
+    # returning. Since pivots for complex eltypes are calculated in complex arithmetic, even
+    # real and positive ones may have a roundoff-level imaginary part, so `isreal` is out.
+    # The case to reject is always the square root of a negative number, i.e., approximately
+    # imaginary, so we don't need carefully chosen tolerances, we just check that the real
+    # part is larger than the absolute imaginary part---which conveniently doubles as a
+    # positivity check.
+    # PR: https://github.com/JuliaArrays/StaticArrays.jl/pull/1368
+    info = C.info
+    if iszero(info)
+        pivots = view(C.factors, diagind(C.factors))
+        info = something(findfirst(d -> !(real(d) > abs(imag(d))), pivots), 0)
+    end
+    (check && !iszero(info)) && throw(PosDefException(info))
+    # Remove imaginary noise on the diagonal
+    factors = C.factors
+    if eltype(factors) <: Complex
+        factors_mutable = MMatrix(factors)
+        dind = diagind(factors_mutable)
+        factors_mutable[dind] .= real.(view(factors_mutable, dind))
+        factors = typeof(factors)(factors_mutable)
+    end
+    return typeof(C)(factors, C.uplo, info)
+end
+
+checkrealshift(shift::Number) = isreal(shift) || throw(DomainError("shift must be real"))
+
+function checkposdef(D::Diagonal)
+    for (i, di) in pairs(D.diag)
+        if !(isreal(di) && (real(di) > 0))
+            throw(PosDefException(i))
+        end
+    end
+    return nothing
+end
 
 function shift_diagonal(A, shift)
     @inbounds for i in diagind(A)
@@ -387,77 +463,206 @@ function shift_diagonal(A, shift)
     return nothing
 end
 
+## Shifted Gram matrix
+## ===================
+"""
+    ShiftedGramMatrix(A; shift=0, check=true, normalize=false)
+    ShiftedGramMatrix(
+        G::ShiftedGramMatrix;
+        new_factor=nothing,
+        new_shift=nothing,
+        overwrite=false,
+        check=true,
+        normalize=false,
+    )
+
+Factorize and represent the shifted Gram matrix `A * A' + shift * I`
+
+The smallest eigenvalue of the unshifted Gram matrix, `eigmin(A * A')`, is computed eagerly
+on construction and stored in the field `gramgap`.
+
+If `normalize` is `true`, `A * A'` is replaced with `(A * A' + A' * A) / 2`.
+
+If `check` is `true`, a `PosDefException` is thrown if `A * A' + shift * I` is not positive
+definite; if `false`, the caller is responsible for checking the status using
+`LinearAlgebra.issuccess`. Failure to factorize the unshifted Gram matrix for computing
+`gramgap` never throws, but implies `gramgap == 0`.
+
+The second form derives a new shifted Gram matrix from `G`, replacing the factor `A` by
+`new_factor` and/or the shift by `new_shift`. If only the shift is replaced, `gramgap` is
+copied from `G` and not recomputed. If `overwrite` is `true`, memory from `G` may be reused,
+leaving `G` in an invalid state.
+"""
+struct ShiftedGramMatrix{
+    F<:Real,
+    TG<:Union{Diagonal{F},Hermitian{Complex{F}}},
+    # Don't use Complex{F}; factorizations can promote
+    TF<:Union{Diagonal{F},Cholesky{<:Complex},SparseArrays.CHOLMOD.Factor{<:Complex}},
+}
+    _fact::TF
+    gram::TG
+    shift::F
+    gramgap::F
+
+    function ShiftedGramMatrix(A; shift=zero(real(eltype(A))), check=true, normalize=false)
+        gram = herk(A)
+        if (!(A isa Diagonal)) && normalize
+            gram = herk!!(gram, A', 1 // 2, 1 // 2)
+        end
+        _fact, gramgap = _factorize_with_gramgap!!(nothing, gram, shift, check)
+        return _new(_fact, gram, shift, gramgap)
+    end
+
+    function ShiftedGramMatrix(
+        G::ShiftedGramMatrix;
+        new_factor=nothing,
+        new_shift=nothing,
+        overwrite=false,
+        check=true,
+        normalize=false,
+    )
+        shift = isnothing(new_shift) ? G.shift : new_shift
+        old_fact = overwrite ? G._fact : nothing
+        if isnothing(new_factor)
+            gram, gramgap = G.gram, G.gramgap
+            _fact = _factorize!!(old_fact, gram, shift, check)
+        else
+            old_gram = overwrite ? G.gram : nothing
+            gram = _gram!!(old_gram, new_factor, normalize)
+            _fact, gramgap = _factorize_with_gramgap!!(old_fact, gram, shift, check)
+        end
+        return _new(_fact, gram, shift, gramgap)
+    end
+
+    # Inner constructor helpers
+    function _new(_fact, gram, shift, gramgap)
+        F = real(eltype(gram))
+        return new{F,typeof(gram),typeof(_fact)}(_fact, gram, shift, gramgap)
+    end
+
+    function _gram!!(old_gram, A, normalize)
+        gram = isnothing(old_gram) ? herk(A) : herk!!(old_gram, A)
+        ((!(A isa Diagonal)) && normalize) && return herk!!(gram, A', 1 // 2, 1 // 2)
+        return gram
+    end
+
+    function _factorize!!(old_fact, gram, shift, check)
+        isnothing(old_fact) && return decompose_pd(gram; shift, check)
+        return decompose_pd!!(old_fact, gram; shift, check)
+    end
+
+    function _factorize_with_gramgap!!(old_fact, gram, shift, check)
+        # If iszero(shift), the bare factorization is the only one and must respect check
+        check_bare = check && iszero(shift)
+        fact = _factorize!!(old_fact, gram, zero(shift), check_bare)
+        gramgap = _eigmin(fact, gram)
+        if !iszero(shift)
+            fact = _factorize!!(fact, gram, shift, check)
+        end
+        return fact, gramgap
+    end
+
+    _eigmin(_, gram::Diagonal) = minimum(parent(gram))
+    _eigmin(_, gram::Hermitian{<:Any,<:SMatrix}) = eigmin_static(gram)
+
+    function _eigmin(fact, _)
+        # Gram matrices are positive semidefinite by construction. If decomposition failed, the
+        # matrix is numerically singular, so the smallest eigenvalue is zero.
+        issuccess(fact) || return zero(real(eltype(fact)))
+        return eigmin_arnoldi(fact)
+    end
+end
+
+function LinearAlgebra.issuccess(G::ShiftedGramMatrix)
+    (G._fact isa Diagonal) && return isposdef(G._fact)
+    return issuccess(G._fact)
+end
+
+gramgap(G::ShiftedGramMatrix) = G.gramgap
+
 ## Divison and inversion
 ## =====================
 """
-    ldiv!!(A, B)
+    ldiv!!(G::ShiftedGramMatrix, B)
 
-Left-divide `A` into `B` in-place such that `B` is overwritten by `A \\ B`, and return B
+Left-divide the shifted Gram matrix `G` into `B`, possibly in-place in `B` if mutable
+
+!!! note
+
+    Even if `B` is mutable, it may not always be reused as output, depending on types and
+    method support. Only the return value is guaranteed to hold the final result.
+
+!!! note
+
+    The status of the decomposition cached in `G` is not verified. If `G` was instantiated
+    with `check=false`, `LinearAlgebra.issuccess(G)` may be `false`, and this function may
+    produce garbage.
 """
-ldiv!!(A, B) = ldiv!(A, B)
+ldiv!!(G::ShiftedGramMatrix, B) = _ldiv!!(G._fact, B)
+_ldiv!!(A, B) = ldiv!(A, B)
+_ldiv!!(A, B::AnySMatrix) = A \ B
+_ldiv!!(A::SparseArrays.CHOLMOD.Factor, B) = A \ B
+
+# This method is rarely useful and mainly exists to avoid method ambiguity, but it does the
+# right thing; SparseArrays.CHOLMOD left division doesn't support structured wrappers like
+# `Diagonal` and `Hermitian` anyway, so no point in trying to preserve them; Matrix is
+# always the correct conversion type.
+_ldiv!!(A::SparseArrays.CHOLMOD.Factor, B::AnySMatrix) = A \ Matrix(B)
+
+## Need out-of-place division too
+Base.:\(G::ShiftedGramMatrix, B) = G._fact \ B
 
 """
-    ldiv!!(A, B::AnySArray)
-    ldiv!!(A::SparseArrays.CHOLMOD.Factor, B)
+    inverse(G::ShiftedGramMatrix)
 
-Return `A \\ B`
+Compute the inverse of a shifted Gram matrix
 
-This provides a generic left division interface that also covers cases where the most
-efficient or only option is out-of-place division.
+!!! note
+
+    The status of the decomposition cached in `G` is not verified. If `G` was instantiated
+    with `check=false`, `LinearAlgebra.issuccess(G)` may be `false`, and this function may
+    produce garbage.
 """
-ldiv!!(A, B::AnySArray) = A \ B
-ldiv!!(A::SparseArrays.CHOLMOD.Factor, B) = A \ B
+inverse(G::ShiftedGramMatrix) = _inverse(G._fact)
+_inverse(F) = inv(F)
+_inverse(F::Cholesky) = Hermitian(inv(F), uplo(F))
 
-"""
-    ldiv!!(A::SparseArrays.CHOLMOD.Factor, B::AnySArray))
-
-Return `A \\ Matrix(B)`
-
-This method mainly exists to avoid method ambiguity, but it does the right thing.
-(SparseArrays.CHOLMOD left division doesn't support structured wrappers like `Diagonal` and
-`Hermitian` anyway, so no point in trying to preserve them.)
-"""
-ldiv!!(A::SparseArrays.CHOLMOD.Factor, B::AnySArray) = A \ Matrix(B)
-
-"""
-    inverse(F)
-    inverse(F::Cholesky)
-    inverse(F::SparseArrays.CHOLMOD.Factor)
-
-Compute the inverse of a matrix from a factorization
-
-The factorization object `F` should equal `decompose(A)` where `A` is the matrix to invert.
-
-This function falls back to `inv` on types for which it is not specialized.
-"""
-inverse(F) = inv(F)
-inverse(F::Cholesky) = Hermitian(inv(F), uplo(F))
-
-function inverse(F::SparseArrays.CHOLMOD.Factor)
+function _inverse(F::SparseArrays.CHOLMOD.Factor)
     id = spdiagm(ones(eltype(F), size(F, 1)))
     return Hermitian(Matrix(F \ id))
 end
 
 """
-    inverse!!(Ai::Hermitian{T}, F::Cholesky{T}) where {T}
-    inverse!!(Ai::Diagonal{T}, F::Diagonal{T})
+    inverse!!(Ai, G::ShiftedGramMatrix)
 
-Compute the inverse of a matrix from a factorization, filling an existing array
+Compute the inverse of a shifted Gram matrix `G`, possibly reusing `Ai` if mutable
 
-The factorization object `F` should equal `decompose(A)` where `A` is the matrix to invert.
-The appropriate type of `Ai` is the return type of `inverse(decompose(A))`. Thus, appropriate
-usage may look as follows:
+The appropriate type of `Ai` is the return type of `inverse(G)`. Thus, appropriate usage may
+look as follows:
 
 ```julia
-F = decompose(A)
-Ai = inverse(F)
-# Do stuff with Ai, which holds the inverse of A
-F = decompose!!(F, A; shift=1)
-Ai = inverse!!(Ai, F)
+G = ShiftedGramMatrix(A)
+Ai = inverse(G)
+# Do stuff with Ai, which holds the inverse of G
+G = ShiftedGramMatrix(G; new_shift=1)
+Ai = inverse!!(Ai, G)
 # Do more stuff with Ai, which now holds the inverse of A + I
 ```
+
+!!! note
+
+    Even if `Ai` is mutable, it may be used only as workspace rather than as output. Only
+    the return value is guaranteed to hold the final result.
+
+!!! note
+
+    The status of the decomposition cached in `G` is not verified. If `G` was instantiated
+    with `check=false`, `LinearAlgebra.issuccess(G)` may be `false`, and this function may
+    produce garbage.
 """
-function inverse!!(Ai::Hermitian{T}, F::Cholesky{T}) where {T}
+inverse!!(Ai, G::ShiftedGramMatrix) = _inverse!!(Ai, G._fact)
+
+function _inverse!!(Ai::Hermitian{T}, F::Cholesky{T}) where {T}
     (uplo(Ai) === uplo(F)) || throw(ArgumentError("must have uplo(Ai) == uplo(F)"))
     Aidata = parent(Ai)
     copyto!(Aidata, F.factors)
@@ -465,78 +670,55 @@ function inverse!!(Ai::Hermitian{T}, F::Cholesky{T}) where {T}
     return Ai
 end
 
-function inverse!!(Ai::Diagonal{T}, F::Diagonal{T}) where {T}
+function _inverse!!(Ai::Diagonal{T}, F::Diagonal{T}) where {T}
     parent(Ai) .= inv.(parent(F))
     return Ai
 end
 
-"""
-    inverse!!(Ai::Hermitian{T}, F::SparseArrays.CHOLMOD.Factor{T}) where {T}
-
-Compute the inverse of a matrix from a factorization, using an existing array as workspace
-
-!!! note
-
-    `Ai` will not contain the inverse at the end; it is used as a working array only. The
-    inverse is the function's return value.
-"""
-function inverse!!(Ai::Hermitian{T}, F::SparseArrays.CHOLMOD.Factor{T}) where {T}
+# NOTE: With CHOLMOD, `Ai` is only used as workspace and will never contain the result. The
+# inverse is the function's return value.
+function _inverse!!(Ai::Hermitian{T}, F::SparseArrays.CHOLMOD.Factor{T}) where {T}
     Aidata = parent(Ai)
     copyto!(Aidata, I)
-    return Hermitian(ldiv!!(F, Aidata), uplo(Ai))
+    return Hermitian(_ldiv!!(F, Aidata), uplo(Ai))
 end
 
-"""
-    inverse!!(::Hermitian{T,<:SMatrix}, F::Cholesky{T,<:SMatrix}) where {T}
-    inverse!!(::Diagonal{T,<:SVector}, F::Cholesky{T,<:SVector}) where {T}
-
-Compute the inverse of `F`
-
-The call is forwarded to `inverse(F)`. This is to provide an inverse updating interface that
-also supports immutable inverse types.
-"""
-inverse!!(::Hermitian{T,<:SMatrix}, F::Cholesky{T,<:SMatrix}) where {T} = inverse(F)
-inverse!!(::Diagonal{T,<:SVector}, F::Diagonal{T,<:SVector}) where {T} = inverse(F)
+_inverse!!(::Hermitian{T,<:SMatrix}, F::Cholesky{T,<:SMatrix}) where {T} = _inverse(F)
+_inverse!!(::Diagonal{T,<:SVector}, F::Diagonal{T,<:SVector}) where {T} = _inverse(F)
 
 ## Smallest eigenvalue
 ## ==================
-"""
-    eigmin!!(F, A)
+# StaticArrays provides explicit eigvals method for sizes 1, 2, 3, however, they don't
+# support the eigvals(H, n:m) form, so LinearAlgebra.eigmin won't dispatch to them, hence
+# these helpers. For size 4 and up, any approach will make an Array copy and use LAPACK, so
+# in that case it's better to just use LinearAlgebra.eigmin directly.
+eigmin_static(H::Hermitian{T,<:SMatrix{1,1,T}}) where {T} = first(eigvals(H))
+# On closer inspection, the 2x2 and 3x3 methods have sloppy numerics. Just let LAPACK do it.
+# eigmin_static(H::Hermitian{T,<:SMatrix{2,2,T}}) where {T} = first(eigvals(H))
+# eigmin_static(H::Hermitian{T,<:SMatrix{3,3,T}}) where {T} = first(eigvals(H))
+eigmin_static(H::Hermitian{T,<:SMatrix{<:Any,<:Any,T}}) where {T} = eigmin(H)
 
-Find the smallest eigenvalue of `A`, possibly via a factorization into `F`
-
-The factorization object `F` may be updated in-place or remain unused, depending on the type
-of `A`. The appropriate type of `F` is the return type of `decompose(A)`.
-"""
-function eigmin!!(F, A::Hermitian)
-    Ai = inverse_as_map(F, A)
+function eigmin_arnoldi(F::Union{Cholesky,SparseArrays.CHOLMOD.Factor})
+    Ai = inverse_as_map(F)
     which = ArnoldiMethod.LM()
     schur, history = partialschur(Ai; which, nev=1, tol=Defaults.rtol_strict(eltype(Ai)))
     (history.nconverged >= 1) || error("smallest eigenvalue not found: did not converge")
     return inv(real(first(schur.eigenvalues)))
 end
 
-eigmin!!(_, A::Diagonal{<:Real}) = minimum(parent(A))
-eigmin!!(_, A::Diagonal{T,<:SArray{<:Any,T}}) where {T<:Real} = minimum(parent(A))  # Ambiguity resolution
-eigmin!!(_, A::AnySMatrix) = eigmin(A)
-
-function inverse_as_map(F::Cholesky{T}, A::Hermitian{T,<:StridedMatrix}) where {T}
-    decompose!!(F, A)
+function inverse_as_map(F::Cholesky{T}) where {T}
     return LinearMap{T}(
         (y, x) -> ldiv!(y, F, x),
-        size(A, 2);
+        size(F, 2);
         ismutating=true,
         ishermitian=true,
         isposdef=true,
     )
 end
 
-function inverse_as_map(
-    F::SparseArrays.CHOLMOD.Factor, A::Hermitian{<:Any,<:SparseMatrixCSC}
-)
-    decompose!!(F, A)
+function inverse_as_map(F::SparseArrays.CHOLMOD.Factor)
     return LinearMap{eltype(F)}(
-        x -> F \ x, size(A, 2); ismutating=false, ishermitian=true, isposdef=true
+        x -> F \ x, size(F, 2); ismutating=false, ishermitian=true, isposdef=true
     )
 end
 
@@ -544,10 +726,11 @@ end  # module MathTools
 
 @testitem "MathTools" begin
     using GaussianSpectralDensities.MathTools:
-        decompose,
-        decompose!!,
-        eigmin!!,
+        ShiftedGramMatrix,
+        decompose_pd,
+        decompose_pd!!,
         frobenius_normalized,
+        gramgap,
         herk,
         herk!!,
         inunitdisc,
@@ -572,12 +755,14 @@ end  # module MathTools
         Diagonal,
         Hermitian,
         I,
+        PosDefException,
         SymTridiagonal,
         Tridiagonal,
-        cholesky,
+        eigmin,
+        issuccess,
         tr
     using SparseArrays: sparse
-    using StaticArrays: @SMatrix, @SVector
+    using StaticArrays: @SMatrix, @SVector, SMatrix, SVector
 
     @testset "scalar predicates" begin
         @test inunitdisc(0.5)
@@ -751,140 +936,250 @@ end  # module MathTools
         @test herk!!(Hds, Ads, 2.0, 3.0) == Diagonal([2.0 * 4.0 + 3.0, 2.0 * 9.0 + 3.0])
     end
 
-    @testset "decompose / inverse" begin
+    @testset "decompose_pd" begin
         A = [4.0 2.0; 2.0 5.0]
-        H = Hermitian(A)
-        F = decompose(H)
-        @test F isa Cholesky
-        @test inverse(F) ≈ inv(A)
+        Abad = [1.0 2.0; 2.0 1.0]
+        b = [1.0, 2.0]
+        for (name, H, Hbad) in (
+            ("Array", Hermitian(A), Hermitian(Abad)),
+            ("SMatrix", Hermitian(SMatrix{2,2}(A)), Hermitian(SMatrix{2,2}(Abad))),
+            ("SparseMatrixCSC", Hermitian(sparse(A)), Hermitian(sparse(Abad))),
+        )
+            @testset "$name" begin
+                @test decompose_pd(H) \ b ≈ A \ b
+                @test decompose_pd(H; shift=1.0) \ b ≈ (A + I) \ b
+                @test_throws PosDefException decompose_pd(Hbad)
+                @test !issuccess(decompose_pd(Hbad; check=false))
+                @test issuccess(decompose_pd(Hbad; shift=4.0))
+            end
+        end
+        @test decompose_pd(Hermitian(A)) isa Cholesky
 
-        D = Diagonal([2.0, 3.0])
-        @test decompose(D) == D
-        @test inverse(decompose(D)) == Diagonal([0.5, 1 / 3])
+        # Complex indefinite and singular matrices (StaticArrays needs extra pivot checks)
+        for (name, Abad) in (
+                ("complex indefinite", ComplexF64[1 2im; -2im 1]),
+                ("real singular", [1.0 1.0; 1.0 1.0]),
+                ("complex singular", ComplexF64[1 1im; -1im 1]),
+            ),
+            (arrayname, toarray) in
+            (("Array", identity), ("SMatrix", SMatrix{2,2}), ("SparseMatrixCSC", sparse))
 
-        # Sparse decompose/inverse
-        Asp = sparse(A)
-        Hsp = Hermitian(Asp)
-        Fsp = decompose(Hsp)
-        @test inverse(Fsp) ≈ inv(A)
-
-        # Static arrays
-        As = @SMatrix [4.0 2.0; 2.0 5.0]
-        Hs = Hermitian(As)
-        Fs = decompose(Hs)
-        @test inverse(Fs) ≈ inv(A)
-
-        Ds = Diagonal(@SVector [2.0, 3.0])
-        @test decompose(Ds) == Ds
-        @test inverse(decompose(Ds)) == Diagonal([0.5, 1 / 3])
+            @testset "$name $arrayname" begin
+                Hbad = Hermitian(toarray(Abad))
+                @test_throws PosDefException decompose_pd(Hbad)
+                @test !issuccess(decompose_pd(Hbad; check=false))
+                @test issuccess(decompose_pd(Hbad; shift=4.0))
+            end
+        end
 
         # Static Hermitian with :L uplo (triggers workaround branch)
         HsL = Hermitian(@SMatrix([4.0 0.0; 2.0 5.0]), :L)
-        FsL = decompose(HsL)
-        @test inverse(FsL) ≈ inv([4.0 2.0; 2.0 5.0])
+        @test decompose_pd(HsL) \ b ≈ A \ b
+        @test decompose_pd(HsL; shift=1.0) \ b ≈ (A + I) \ b
+
+        # Non-real shift
+        @test_throws DomainError decompose_pd(Hermitian(A); shift=1im)
+        @test_throws DomainError decompose_pd(Hermitian(SMatrix{2,2}(A)); shift=1im)
+
+        for (name, D, Dbad) in (
+            ("Vector", Diagonal([2.0, 3.0]), Diagonal([1.0, -1.0])),
+            ("SVector", Diagonal(@SVector [2.0, 3.0]), Diagonal(@SVector [1.0, -1.0])),
+        )
+            @testset "Diagonal{$name}" begin
+                @test decompose_pd(D) == D
+                @test decompose_pd(D; shift=1.0) == D + I
+                @test_throws PosDefException decompose_pd(Dbad)
+                @test decompose_pd(Dbad; check=false) == Dbad
+                @test decompose_pd(Dbad; shift=2.0) == Dbad + 2I
+            end
+        end
     end
 
-    @testset "decompose!! / inverse!!" begin
+    @testset "decompose_pd!!" begin
         A = [4.0 2.0; 2.0 5.0]
-        H = Hermitian(A)
-        F = decompose(H)
-        Ai = inverse(F)
-
         A2 = [5.0 1.0; 1.0 6.0]
-        H2 = Hermitian(A2)
-        F2 = decompose!!(F, H2)
-        @test F2 === F
-        Ai2 = inverse!!(Ai, F2)
-        @test Ai2 ≈ inv(A2)
+        Abad = [1.0 2.0; 2.0 1.0]
+        b = [1.0, 2.0]
+        for (name, H, H2, Hbad) in (
+            ("Array", Hermitian(A), Hermitian(A2), Hermitian(Abad)),
+            (
+                "SMatrix",
+                Hermitian(SMatrix{2,2}(A)),
+                Hermitian(SMatrix{2,2}(A2)),
+                Hermitian(SMatrix{2,2}(Abad)),
+            ),
+            (
+                "SparseMatrixCSC",
+                Hermitian(sparse(A)),
+                Hermitian(sparse(A2)),
+                Hermitian(sparse(Abad)),
+            ),
+        )
+            @testset "$name" begin
+                F = decompose_pd(H)
+                F = decompose_pd!!(F, H2)
+                @test F \ b ≈ A2 \ b
+                F = decompose_pd!!(F, H; shift=1.0)
+                @test F \ b ≈ (A + I) \ b
+                @test_throws PosDefException decompose_pd!!(decompose_pd(H), Hbad)
+                @test !issuccess(decompose_pd!!(decompose_pd(H), Hbad; check=false))
+            end
+        end
 
-        # With shift
-        F3 = decompose!!(F, H; shift=1.0)
-        @test F3 === F
-        @test inverse(F3) ≈ inv(A + I)
+        # Mutable factorizations are updated in-place
+        F = decompose_pd(Hermitian(A))
+        @test decompose_pd!!(F, Hermitian(A2)) === F
+        Fsp = decompose_pd(Hermitian(sparse(A)))
+        @test decompose_pd!!(Fsp, Hermitian(sparse(A2))) === Fsp
 
-        # Diagonal decompose!!/inverse!!
         D = Diagonal([2.0, 3.0])
-        Fd = decompose(D)
-        Di = inverse(Fd)
         D2 = Diagonal([4.0, 5.0])
-        Fd2 = decompose!!(Fd, D2)
-        @test Fd2 === Fd
-        Di2 = inverse!!(Di, Fd2)
-        @test Di2 ≈ inv(D2)
-
-        # Diagonal with shift
-        Fd3 = decompose!!(Fd, D; shift=1.0)
-        @test Fd3 == D + I
-
-        # Sparse decompose!!/inverse!!
-        Asp = sparse(A)
-        Hsp = Hermitian(Asp)
-        Fsp = decompose(Hsp)
-        Aisp = inverse(Fsp)
-        Asp2 = sparse(A2)
-        Hsp2 = Hermitian(Asp2)
-        Fsp2 = decompose!!(Fsp, Hsp2)
-        @test Fsp2 === Fsp
-        Aisp2 = inverse!!(Aisp, Fsp2)
-        @test Aisp2 ≈ inv(A2)
-
-        # Static array decompose!!/inverse!! (out-of-place)
-        As = @SMatrix [4.0 2.0; 2.0 5.0]
-        Hs = Hermitian(As)
-        Fs = decompose(Hs)
-        Ais = inverse(Fs)
-        As2 = @SMatrix [5.0 1.0; 1.0 6.0]
-        Hs2 = Hermitian(As2)
-        Fs2 = decompose!!(Fs, Hs2)
-        @test inverse(Fs2) ≈ inv(A2)
-        Ais2 = inverse!!(Ais, Fs2)
-        @test Ais2 ≈ inv(A2)
+        Dbad = Diagonal([1.0, -1.0])
+        Fd = decompose_pd(D)
+        @test decompose_pd!!(Fd, D2) === Fd
+        @test Fd == D2
+        @test decompose_pd!!(Fd, D; shift=1.0) == D + I
+        @test_throws PosDefException decompose_pd!!(Fd, Dbad)
+        @test decompose_pd!!(Fd, Dbad; check=false) == Dbad
 
         Ds = Diagonal(@SVector [2.0, 3.0])
-        Fds = decompose(Ds)
-        Dis = inverse(Fds)
         Ds2 = Diagonal(@SVector [4.0, 5.0])
-        Fds2 = decompose!!(Fds, Ds2)
-        @test Fds2 == Ds2
-        Dis2 = inverse!!(Dis, Fds2)
-        @test Dis2 ≈ inv(D2)
+        Dsbad = Diagonal(@SVector [1.0, -1.0])
+        Fds = decompose_pd(Ds)
+        @test decompose_pd!!(Fds, Ds2) == Ds2
+        @test decompose_pd!!(Fds, Ds; shift=1.0) == Ds + I
+        @test_throws PosDefException decompose_pd!!(Fds, Dsbad)
+        @test decompose_pd!!(Fds, Dsbad; check=false) == Dsbad
     end
 
-    @testset "ldiv!!" begin
-        F = cholesky([4.0 2.0; 2.0 5.0])
-        B = [1.0 0.0; 0.0 1.0]
-        @test ldiv!!(F, copy(B)) ≈ F \ B
+    @testset "ShiftedGramMatrix" begin
+        for F in (Float32, Float64)
+            Qdata = Complex{F}[2 0; 1 1]
+            Q2data = Complex{F}[1 1; 0 2]
+            qdiag = Complex{F}[2, 1]
+            q2diag = Complex{F}[1, 2]
+            B = Complex{F}[1 2; 3 4]
+            cases = (
+                ("Array", Qdata, Q2data),
+                ("SMatrix", SMatrix{2,2}(Qdata), SMatrix{2,2}(Q2data)),
+                ("SparseMatrixCSC", sparse(Qdata), sparse(Q2data)),
+                ("Diagonal", Diagonal(qdiag), Diagonal(q2diag)),
+                (
+                    "Diagonal{SVector}",
+                    Diagonal(SVector{2}(qdiag)),
+                    Diagonal(SVector{2}(q2diag)),
+                ),
+            )
+            for (name, Q, Q2) in cases
+                @testset "F = $F, $name" begin
+                    Qd, Q2d = Matrix(Q), Matrix(Q2)
+                    gram, gram2 = Qd * Qd', Q2d * Q2d'
+                    gramn = (Q isa Diagonal) ? gram : (gram + Qd' * Qd) / 2
+                    gram2n = (Q isa Diagonal) ? gram2 : (gram2 + Q2d' * Q2d) / 2
+                    gap = eigmin(Hermitian(gram))
 
-        Bs = @SMatrix [1.0 0.0; 0.0 1.0]
-        @test ldiv!!(F, Bs) ≈ F \ B
+                    G = ShiftedGramMatrix(Q)
+                    @test G isa ShiftedGramMatrix{F}
+                    @test G.gram ≈ gram
+                    @test G.shift === zero(F)
+                    @test gramgap(G) ≈ gap
+                    @test issuccess(G)
 
-        # Sparse CHOLMOD Factor
-        A = [4.0 2.0; 2.0 5.0]
-        Fsp = decompose(Hermitian(sparse(A)))
-        @test ldiv!!(Fsp, copy(B)) ≈ A \ B
-        @test ldiv!!(Fsp, Bs) ≈ A \ B
-    end
+                    Gs = ShiftedGramMatrix(Q; shift=1)
+                    @test Gs.shift === one(F)
+                    @test gramgap(Gs) ≈ gap
+                    @test issuccess(Gs)
+                    @test inverse(Gs) ≈ inv(gram + I)
+                    @test inverse!!(inverse(G), Gs) ≈ inv(gram + I)
+                    @test ldiv!!(Gs, copy(B)) ≈ (gram + I) \ B
+                    @test ldiv!!(Gs, SMatrix{2,2}(B)) ≈ (gram + I) \ B
+                    @test Gs \ B ≈ (gram + I) \ B
 
-    @testset "eigmin!!" begin
-        A = Hermitian([4.0 1.0; 1.0 3.0])
-        F = decompose(A)
-        λmin = eigmin!!(F, A)
-        @test λmin ≈ (7 - sqrt(5)) / 2 atol = 1e-6
+                    Gn = ShiftedGramMatrix(Q; normalize=true)
+                    @test Gn.gram ≈ gramn
+                    @test gramgap(Gn) ≈ eigmin(Hermitian(gramn))
 
-        D = Diagonal([2.0, 5.0, 3.0])
-        @test eigmin!!(nothing, D) == 2.0
+                    # Shifting below the bare gap fails, but only the shifted factorization
+                    negshift = -(gap + 1)
+                    @test_throws PosDefException ShiftedGramMatrix(Q; shift=negshift)
+                    Gneg = ShiftedGramMatrix(Q; shift=negshift, check=false)
+                    @test !issuccess(Gneg)
+                    @test gramgap(Gneg) ≈ gap
+                    @test_throws PosDefException ShiftedGramMatrix(G; new_shift=negshift)
 
-        # Static Diagonal (ambiguity resolution method)
-        Ds = Diagonal(@SVector [2.0, 5.0, 3.0])
-        @test eigmin!!(nothing, Ds) == 2.0
+                    # Updating without overwrite leaves the original intact
+                    Gc = ShiftedGramMatrix(Gs; new_factor=Q2, new_shift=2)
+                    @test typeof(Gc) == typeof(Gs)
+                    @test Gc.gram ≈ gram2
+                    @test Gc.shift === F(2)
+                    @test gramgap(Gc) ≈ eigmin(Hermitian(gram2))
+                    @test inverse(Gc) ≈ inv(gram2 + 2I)
+                    @test inverse(Gs) ≈ inv(gram + I)
+                    Gc = ShiftedGramMatrix(Gs; new_factor=Q2, normalize=true)
+                    @test Gc.gram ≈ gram2n
+                    @test Gc.shift === one(F)
+                    @test gramgap(Gc) ≈ eigmin(Hermitian(gram2n))
+                    @test inverse(Gc) ≈ inv(gram2n + I)
+                    Gc = ShiftedGramMatrix(Gs; new_shift=3)
+                    @test Gc.gram ≈ gram
+                    @test gramgap(Gc) === gramgap(Gs)
+                    @test inverse(Gc) ≈ inv(gram + 3I)
+                    @test inverse(Gs) ≈ inv(gram + I)
 
-        # Static Hermitian matrix
-        As = Hermitian(@SMatrix [4.0 1.0; 1.0 3.0])
-        @test eigmin!!(nothing, As) ≈ (7 - sqrt(5)) / 2 atol = 1e-6
+                    # Updating with overwrite
+                    Go = ShiftedGramMatrix(Q; shift=1)
+                    Go = ShiftedGramMatrix(Go; new_factor=Q2, new_shift=2, overwrite=true)
+                    @test typeof(Go) == typeof(Gs)
+                    @test Go.gram ≈ gram2
+                    @test gramgap(Go) ≈ eigmin(Hermitian(gram2))
+                    @test inverse(Go) ≈ inv(gram2 + 2I)
+                    Go = ShiftedGramMatrix(Go; new_factor=Q, overwrite=true, normalize=true)
+                    @test Go.gram ≈ gramn
+                    @test gramgap(Go) ≈ eigmin(Hermitian(gramn))
+                    @test inverse(Go) ≈ inv(gramn + 2I)
+                    gap_old = gramgap(Go)
+                    Go = ShiftedGramMatrix(Go; new_shift=0, overwrite=true)
+                    @test Go.shift === zero(F)
+                    @test gramgap(Go) === gap_old
+                    @test inverse(Go) ≈ inv(gramn)
+                end
+            end
 
-        # Sparse Hermitian
-        Asp = Hermitian(sparse([4.0 1.0; 1.0 3.0]))
-        Fsp = decompose(Asp)
-        @test eigmin!!(Fsp, Asp) ≈ (7 - sqrt(5)) / 2 atol = 1e-6
+            singular_cases = (
+                ("Array", Complex{F}[1 1; 0 0]),
+                ("SMatrix", SMatrix{2,2}(Complex{F}[1 1; 0 0])),
+                ("SparseMatrixCSC", sparse(Complex{F}[1 1; 0 0])),
+                ("Diagonal", Diagonal(Complex{F}[1, 0])),
+                ("Diagonal{SVector}", Diagonal(SVector{2}(Complex{F}[1, 0]))),
+            )
+            for (name, Q) in singular_cases
+                @testset "F = $F, singular $name" begin
+                    @test_throws PosDefException ShiftedGramMatrix(Q)
+                    G = ShiftedGramMatrix(Q; check=false)
+                    @test !issuccess(G)
+                    @test gramgap(G) === zero(F)
+
+                    # Failure of the bare factorization doesn't throw when shifted
+                    Gs = ShiftedGramMatrix(Q; shift=1)
+                    @test issuccess(Gs)
+                    @test gramgap(Gs) === zero(F)
+
+                    G = ShiftedGramMatrix(G; new_shift=1, overwrite=true)
+                    @test issuccess(G)
+                    @test gramgap(G) === zero(F)
+                    G = ShiftedGramMatrix(G; new_factor=Q, overwrite=true)
+                    @test issuccess(G)
+                    @test G.shift === one(F)
+                    @test gramgap(G) === zero(F)
+                    @test_throws PosDefException ShiftedGramMatrix(
+                        G; new_factor=Q, new_shift=0
+                    )
+                end
+            end
+
+            # 1x1 static matrices have their own eigmin path
+            G = ShiftedGramMatrix(SMatrix{1,1}(Complex{F}[2]); shift=1)
+            @test gramgap(G) == 4
+        end
     end
 end
