@@ -416,7 +416,17 @@ end  # module Workspaces
 @testitem "Workspace" begin
     using GaussianSpectralDensities: MatrixEnsemble, ResolventEquation, Spread
     using GaussianSpectralDensities.Workspaces:
-        Valid, Workspace, gap!, greens!, ptrace!, shapeFP!, shift!
+        Valid,
+        Workspace,
+        P!,
+        P_Li_Ri!,
+        Q!,
+        baregap!,
+        gap!,
+        greens!,
+        ptrace!,
+        shapeFP!,
+        shift!
 
     using LinearAlgebra: Diagonal, Hermitian, I, eigmin, tr
     using SparseArrays: sparse
@@ -448,6 +458,7 @@ end  # module Workspaces
         QQh = Hermitian(normalizeQ ? ((Q * Q') + (Q' * Q)) / 2 : Q * Q')
         baregap = eigmin(QQh)
         Pshift, Pgap = inv(QQh + shift * I), inv(QQh + (gap - baregap) * I)
+        P_Li_Ri_shift, P_Li_Ri_gap = Pshift * Li_Ri, Pgap * Li_Ri
         shapeFP_shift = sscale * tr(S_actual * Q' * Pshift) / 2
         shapeFP_gap = sscale * tr(S_actual * Q' * Pgap) / 2
         ptrace_shift, ptrace_gap = tr(Pshift) / 2, tr(Pgap) / 2
@@ -468,6 +479,14 @@ end  # module Workspaces
 
                 @test wsF isa Workspace{F}
 
+                @test Q!(wsF, eqF, z, shape) ≈ Q
+                @test baregap!(wsF, eqF, z, shape) ≈ baregap
+
+                @test P!(wsF, eqF, z, shape, spread_shift) ≈ Pshift
+                @test P!(wsF, eqF, z, shape, spread_gap) ≈ Pgap
+                @test P_Li_Ri!(wsF, eqF, z, shape, spread_shift) ≈ P_Li_Ri_shift
+                @test P_Li_Ri!(wsF, eqF, z, shape, spread_gap) ≈ P_Li_Ri_gap
+
                 @test shift!(wsF, eqF, z, shape, spread_shift) ≈ spread_shift.val
                 @test shift!(wsF, eqF, z, shape, spread_gap) ≈ spread_gap.val - baregap
 
@@ -485,6 +504,74 @@ end  # module Workspaces
 
                 # valid not settable
                 @test_throws FieldError wsF.valid = Valid.none
+            end
+        end
+    end
+
+    @testset "cache invalidation" begin
+        # Exercise a Workspace with shifting parameters and method call orders to ensure
+        # that caches are invalidated as needed to always produce correct results
+        eq1 = ResolventEquation(
+            MatrixEnsemble(A64data, I, I, Diagonal(D64data)); sscale, normalizeQ=false
+        )
+        eq2 = ResolventEquation(
+            MatrixEnsemble(A64data, I, I, Diagonal(D64data)); sscale=1.0, normalizeQ=true
+        )
+
+        z2 = 0.25 + 0.125im
+        shape2 = 0.25 + 0.5im
+        spread2 = Spread(4.0, :gap)
+
+        # Each case changes exactly one parameter from the previous one, so each change must
+        # invalidate any caches that depend on it.
+        cases = [
+            (; eq=eq1, z=z, shape=shape, spread=spread_shift),
+            (; eq=eq1, z=z, shape=shape, spread=spread2),
+            (; eq=eq1, z=z, shape=shape2, spread=spread2),
+            (; eq=eq1, z=z2, shape=shape2, spread=spread2),
+            (; eq=eq2, z=z2, shape=shape2, spread=spread2),
+        ]
+
+        # Compare against a pristine workspace so that a reused workspace must produce the
+        # same results regardless of what was computed before. The pristine results
+        # themselves are covered by the ground-truth tests above.
+        ws = Workspace(eq1)
+        for (i, case) in enumerate(cases)
+            (; eq, z, shape, spread) = case
+            @testset "case $i" begin
+                ref = Workspace(eq)
+                Q_ref = copy(Q!(ref, eq, z, shape))
+                baregap_ref = baregap!(ref, eq, z, shape)
+                P_ref = copy(P!(ref, eq, z, shape, spread))
+                P_Li_Ri_ref = copy(P_Li_Ri!(ref, eq, z, shape, spread))
+                shapeFP_ref = shapeFP!(ref, eq, z, shape, spread)
+                ptrace_ref = ptrace!(ref, eq, z, shape, spread)
+                greens_ref = greens!(ref, eq, z, shape, spread)
+                shift_ref = shift!(ref, eq, z, shape, spread)
+                gap_ref = gap!(ref, eq, z, shape, spread)
+
+                # Vary the call order as well, to catch order dependencies.
+                if isodd(i)
+                    @test Q!(ws, eq, z, shape) ≈ Q_ref
+                    @test P!(ws, eq, z, shape, spread) ≈ P_ref
+                    @test P_Li_Ri!(ws, eq, z, shape, spread) ≈ P_Li_Ri_ref
+                    @test shapeFP!(ws, eq, z, shape, spread) ≈ shapeFP_ref
+                    @test ptrace!(ws, eq, z, shape, spread) ≈ ptrace_ref
+                    @test greens!(ws, eq, z, shape, spread) ≈ greens_ref
+                    @test baregap!(ws, eq, z, shape) ≈ baregap_ref
+                    @test shift!(ws, eq, z, shape, spread) ≈ shift_ref
+                    @test gap!(ws, eq, z, shape, spread) ≈ gap_ref
+                else
+                    @test greens!(ws, eq, z, shape, spread) ≈ greens_ref
+                    @test shift!(ws, eq, z, shape, spread) ≈ shift_ref
+                    @test P!(ws, eq, z, shape, spread) ≈ P_ref
+                    @test Q!(ws, eq, z, shape) ≈ Q_ref
+                    @test gap!(ws, eq, z, shape, spread) ≈ gap_ref
+                    @test P_Li_Ri!(ws, eq, z, shape, spread) ≈ P_Li_Ri_ref
+                    @test baregap!(ws, eq, z, shape) ≈ baregap_ref
+                    @test shapeFP!(ws, eq, z, shape, spread) ≈ shapeFP_ref
+                    @test ptrace!(ws, eq, z, shape, spread) ≈ ptrace_ref
+                end
             end
         end
     end
