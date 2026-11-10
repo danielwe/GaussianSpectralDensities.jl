@@ -21,8 +21,7 @@ implementation currently supports `x::Real` and `x::SVector` from `StaticArrays.
 The keyword argument `atol` sets the tolerance for what's considered a scalar zero. For
 a vector `y` this is scaled by `sqrt(length(y))` and compared with the 2-norm, i.e., the
 criterion for `f(x)` to be considered zero is `norm(f(x)) < atol * sqrt(length(f(x)))`. The
-default value is `atol=eps(T)^0.75 * oneunit(T)^0.25` where `T = eltype(x)` (the `oneunit`
-ensures dimensional consistency in case `T` is a dimensionful type).
+default value is `atol=sqrt(eps(eltype(x))) / 4`.
 
 Returns `(x, i, residual, converged)`, where `x` is the final state, `i::Int` is the number
 of iterations, `residual` is the final residual, i.e., `norm(f(x)) / sqrt(length(f(x)))`,

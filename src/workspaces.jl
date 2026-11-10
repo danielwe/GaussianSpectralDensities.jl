@@ -308,7 +308,7 @@ end
 """
     P_Li_Ri!(ws, eq, z, shape, spread)
 
-Calculate `P / (RL) = (Q * Q' + γ² * I) * (RL)`
+Calculate `P / (RL) = inv((RL) * (Q * Q' + γ² * I))`
 
 The arguments are the same as for `P!`.
 """
