@@ -113,11 +113,7 @@ rdiv(A::UniformScaling, R::SparseMatrixCSC) = withsize(A, R') / R
 
 ## Uplo helper
 ## ===========
-@static if :uplo in names(LinearAlgebra)
-    using LinearAlgebra: uplo
-else
-    uplo(A) = LinearAlgebra.sym_uplo(A.uplo)
-end
+uplo(A) = LinearAlgebra.sym_uplo(A.uplo)
 
 ## Array unary minus
 ## =================
@@ -663,7 +659,7 @@ Ai = inverse!!(Ai, G)
 inverse!!(Ai, G::ShiftedGramMatrix) = _inverse!!(Ai, G._fact)
 
 function _inverse!!(Ai::Hermitian{T}, F::Cholesky{T}) where {T}
-    (uplo(Ai) === uplo(F)) || throw(ArgumentError("must have uplo(Ai) == uplo(F)"))
+    (uplo(Ai) === uplo(F)) || throw(ArgumentError("must have Ai.uplo == F.uplo"))
     Aidata = parent(Ai)
     copyto!(Aidata, F.factors)
     LAPACK.potri!(Ai.uplo, Aidata)
