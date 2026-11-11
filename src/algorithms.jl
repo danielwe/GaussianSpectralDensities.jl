@@ -357,7 +357,9 @@ function stepproblem(
         x, x1, x2 = constraintknots(problem.constraint, solution1, solution2)
         predictconstraint(problem.constraint, x, (x1, solution1), (x2, solution2))
     elseif (state.index == lastindex(alg)) || solves(solution, problem; ballpark=true)
-        # Reached end or ballpark without intercept. Update init from latest solution (never extrapolate).
+        # Reached end or ballpark without intercept. Update init from latest solution
+        # (never extrapolate). By design this is `prevsolution` in the resulting final
+        # state, i.e. the second-to-last solution overall.
         updateconstraint(problem.constraint, solution)
     else
         # Regular schedule step
@@ -723,7 +725,7 @@ end
     using GaussianSpectralDensities:
         MatrixEnsemble, PointProblem, ResolventEquation, Spread, SpreadConstraint
     using GaussianSpectralDensities.Algorithms: SpreadAnnealing, isdone, step!
-    using GaussianSpectralDensities.MathTools: isapproxlinear
+    using GaussianSpectralDensities.MathTools: isapproxlinear, samesign
     using GaussianSpectralDensities.Solutions: issuccess, shape, solves, spreadfrom
     using GaussianSpectralDensities.Workspaces: Workspace
 
@@ -814,8 +816,12 @@ end
                     spread1 = spreadfrom(sol1, cspread.type)
                     spread2 = spreadfrom(sol2, cspread.type)
                     x, x1, x2 = cspread.val, spread1.val, spread2.val
-                    @test (cshape0 == latest_shape) ||
-                          isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
+                    intercepted = !samesign(x1 - x, x2 - x)
+                    if intercepted
+                        @test isapproxlinear((x, cshape0), (x1, shape1), (x2, shape2))
+                    else
+                        @test cshape0 == latest_shape
+                    end
 
                     # Final step solves the actual target problem
                     @test solves(solutions[end], problemF)
