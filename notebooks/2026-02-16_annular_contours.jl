@@ -165,7 +165,7 @@ let f=let model=model
 end;
 
 # ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
-boundaries = spectral_boundary(model, 1 / 3)
+boundaries = spectral_boundary(model; step_size_coeff=1 / 3)
 
 # ╔═╡ 67e7082c-9747-4fc3-bbc6-9842dce52bf6
 eigs_big = sample_eigenvalues(e, 1536);

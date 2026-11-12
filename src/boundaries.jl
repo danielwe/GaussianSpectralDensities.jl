@@ -5,6 +5,7 @@ using DistMesh: distmesh2d, huniform, dpoly
 using Statistics: median
 
 using ..Defaults: Defaults
+using ..MathTools: islinear
 using ..Newton: increment
 using ..Meshing: Meshing
 using ..SpectralModels: SpectralModel
@@ -19,7 +20,9 @@ public BoundarySegment, SpectralModel, spectral_boundary, point_in_polygon
 # TODO: Derive and implement analytic gradient (implicit differentiation)
 
 """
-    BoundarySegment(points, shift_values, seed, closed, internal=false)
+    BoundarySegment(
+        points, shift_values, gradients, seed, closed, internal, nsolvercalls=-1
+    )
 
 Container for traced boundary points and their shift values.
 
@@ -32,6 +35,14 @@ Container for traced boundary points and their shift values.
     region. `false` for outer boundaries and open contours.
   - `nsolvercalls` is a diagnostic count of how many surrogate evaluations were made.
     Defaults to `-1` if not provided at construction.
+
+The constructor enforces the following invariants:
+
+  - `points`, `shift_values`, and `gradients` must have equal lengths.
+  - Closed segments must have at least four points, with `points[begin] == points[end]`,
+    and at least one point that is not exactly collinear with the first two points.
+  - Open segments must have `internal=false` and, if they have at least two points,
+    `points[begin] != points[end]`.
 """
 struct BoundarySegment{F<:AbstractFloat}
     points::Vector{Complex{F}}
@@ -45,6 +56,53 @@ struct BoundarySegment{F<:AbstractFloat}
     function BoundarySegment(
         points, shift_values, gradients, seed, closed, internal, nsolvercalls=-1
     )
+        if (length(shift_values) != length(points)) || (length(gradients) != length(points))
+            throw(
+                ArgumentError("points, shift_values, and gradients must have equal lengths")
+            )
+        end
+        if closed
+            if length(points) < 4
+                throw(
+                    ArgumentError(
+                        "closed boundary segment must have at least 4 points including " *
+                        "the final point that matches the initial",
+                    ),
+                )
+            end
+            if points[end] != points[begin]
+                throw(
+                    ArgumentError(
+                        "closed boundary segment must have matching initial and final " *
+                        "points",
+                    ),
+                )
+            end
+            if isnothing(
+                findfirst(
+                    p -> !islinear(reim(p), reim(points[begin]), reim(points[begin + 1])),
+                    @view(points[(begin + 2):end]),
+                ),
+            )
+                throw(
+                    ArgumentError(
+                        "closed boundary segment points must not all be collinear"
+                    ),
+                )
+            end
+        else
+            if internal
+                throw(ArgumentError("open boundary segment cannot be internal"))
+            end
+            if (length(points) >= 2) && (points[begin] == points[end])
+                throw(
+                    ArgumentError(
+                        "open boundary segment must have distinct initial and final " *
+                        "points",
+                    ),
+                )
+            end
+        end
         F = real(eltype(points))
         return new{F}(points, shift_values, gradients, seed, closed, internal, nsolvercalls)
     end
@@ -367,30 +425,65 @@ function is_near_any_contour(
 end
 
 """
-    spectral_boundary(
-        model::SpectralModel; step_size_coeff=1//4, kwargs...
-    ) -> Vector{BoundarySegment}
+    spectral_boundary(model::SpectralModel; kwargs...) -> Vector{BoundarySegment}
 
 Extract all boundary segments from the model's surrogate.
+
+Keywords are forwarded to [`spectral_boundary(model.surrogate; kwargs...)`](@ref).
 """
-function spectral_boundary(model::SpectralModel; step_size_coeff=1 // 4, kwargs...)
-    return spectral_boundary(model.surrogate, step_size_coeff; kwargs...)
+function spectral_boundary(model::SpectralModel; kwargs...)
+    return spectral_boundary(model.surrogate; kwargs...)
 end
 
 """
-    spectral_boundary(model::SurrogateModel; kwargs...) -> Vector{BoundarySegment}
+    spectral_boundary(
+        model::SurrogateModel{F};
+        step_size_coeff=one(F) / 4,
+        tol=Defaults.atol(F),
+        allow_open=false,
+        max_steps=2^16,
+        min_steps_before_close=5,
+        max_components=nothing,
+        max_attempts=nothing,
+        verbose=true,
+    ) -> Vector{BoundarySegment}
 
-Trace all disconnected boundary components. Sample points are sorted by
-`abs(shift)` and each is tried once as a potential seed for a new contour.
+Trace all disconnected boundary components. Sample points are sorted by `abs(shift)` and
+each is tried once as a potential seed for a new contour. Seeds whose initial refinement
+ends up near an already traced contour are skipped.
+
+The step size is `step_size_coeff * median(model.rbf.nn_dists)` and must be positive.
+
+# Keywords
+
+  - `step_size_coeff`: multiplier for the median nearest-neighbor spacing of the surrogate
+    sample points.
+  - `tol`: tolerance for locating contours: a point is considered to be on a contour if
+    `abs(shift) < tol`.
+  - `allow_open`: if `false` (default), discard contours that fail to close.
+  - `max_steps`: maximum number of predictor-corrector steps in a contour trace.
+  - `min_steps_before_close`: minimum number of steps before attempting to close a contour.
+    Must be at least 2. If `max_steps < min_steps_before_close`, closure is impossible and
+    all returned traces are open.
+  - `max_components`: maximum number of contours to keep, or `nothing` for no limit.
+  - `max_attempts`: maximum number of contour traces to start, or `nothing` for no limit.
+    Seed refinement failures and seeds skipped due to proximity to an existing contour are
+    not counted.
+  - `verbose`: if `true` (default), emit a summary diagnostic when contours are discarded,
+    the attempt budget is exhausted, or no contour trace can be started. The diagnostic is a
+    warning when no contours are kept and an info message when the result is nonempty but
+    partial.
 """
 function spectral_boundary(
-    model::SurrogateModel{F},
-    step_size_coeff::Real=one(F);
+    model::SurrogateModel{F};
+    step_size_coeff::Real=one(F) / 4,
     tol::Real=Defaults.atol(F),
     allow_open::Bool=false,
     max_steps::Integer=2^16,
     min_steps_before_close::Integer=5,
     max_components::Union{Nothing,Integer}=nothing,
+    max_attempts::Union{Nothing,Integer}=nothing,
+    verbose::Bool=true,
 ) where {F}
     step_size = F(step_size_coeff * median(model.rbf.nn_dists))
     tol = F(tol)
@@ -400,11 +493,33 @@ function spectral_boundary(
     if tol <= 0
         throw(ArgumentError("tol must be positive"))
     end
+    if min_steps_before_close < 2
+        throw(ArgumentError("min_steps_before_close must be at least 2"))
+    end
     if !isnothing(max_components) && (max_components <= 0)
         throw(ArgumentError("max_components must be positive"))
     end
+    if !isnothing(max_attempts) && (max_attempts <= 0)
+        throw(ArgumentError("max_attempts must be positive"))
+    end
+
+    closure_possible = max_steps >= min_steps_before_close
+
+    # diagnostic info/counters
+    attempted = 0
+    kept_closed = 0
+    kept_open = 0
+    discarded = 0
+    refinement_failures = 0
+    near_skips = 0
+    max_steps_hits = 0
+    budget_exhausted = false
+    first_discarded_seed = nothing
+    first_discarded_steps = 0
+    first_discarded_hit_max_steps = false
 
     contours = BoundarySegment{F}[]
+    discarded_open_traces = BoundarySegment{F}[]
 
     candidates = map(model.rbf.x) do xv
         z = complex(xv[1], xv[2])
@@ -413,19 +528,109 @@ function spectral_boundary(
     end
     filter!(isfinite ∘ last, candidates)
     sort!(candidates; by=last)
+    ncandidates = length(candidates)
 
     for (z, _) in candidates
-        refined = corrector_step(model, z; tol)
-        isnothing(refined) && continue
-        seed, _, _ = refined
-        is_near_any_contour(seed, contours, step_size) && continue
+        if !isnothing(max_attempts) && (attempted >= max_attempts)
+            budget_exhausted = true
+            break
+        end
 
+        refined = corrector_step(model, z; tol)
+        if isnothing(refined)
+            refinement_failures += 1
+            continue
+        end
+        seed, _, _ = refined
+        if (
+            is_near_any_contour(seed, contours, step_size) ||
+            is_near_any_contour(seed, discarded_open_traces, step_size)
+        )
+            near_skips += 1
+            continue
+        end
+
+        attempted += 1
         c = spectral_boundary_segment(
             model, seed, step_size; tol, max_steps, min_steps_before_close
         )
+        hit_max_steps = length(c.points) >= max_steps + 1
+
         if allow_open || c.closed
             push!(contours, c)
+            if c.closed
+                kept_closed += 1
+            else
+                kept_open += 1
+            end
             (!isnothing(max_components) && (length(contours) >= max_components)) && break
+        else
+            discarded += 1
+            if discarded == 1
+                first_discarded_seed = seed
+                first_discarded_steps = length(c.points) - 1
+                first_discarded_hit_max_steps = hit_max_steps
+            end
+            if hit_max_steps
+                max_steps_hits += 1
+                push!(discarded_open_traces, c)
+            end
+        end
+    end
+
+    if verbose &&
+        ((discarded > 0) || budget_exhausted || (isempty(contours) && (attempted == 0)))
+        hints = String[]
+        if !closure_possible
+            push!(
+                hints,
+                "closure was impossible because max_steps=$max_steps < " *
+                "min_steps_before_close=$min_steps_before_close",
+            )
+        end
+        if (!allow_open) && (discarded > 0)
+            push!(hints, "pass allow_open=true to keep open contours")
+        end
+        if max_steps_hits > 0
+            push!(hints, "increase max_steps to trace farther")
+        elseif (attempted == 0) && (refinement_failures > 0)
+            push!(hints, "seed refinement failed for all attempted seeds")
+        end
+        if budget_exhausted
+            push!(hints, "increase max_attempts to trace more candidates")
+        end
+        push!(hints, "pass verbose=false to silence this message")
+        header = if isempty(contours)
+            "spectral_boundary kept no contours"
+        else
+            "spectral_boundary result is partial"
+        end
+        msg = string(header, ": ", join(hints, "; "), ".")
+        first_discarded = if discarded == 0
+            nothing
+        else
+            (;
+                seed=first_discarded_seed,
+                steps=first_discarded_steps,
+                reason=first_discarded_hit_max_steps ? :max_steps : :trace_failed,
+            )
+        end
+        report = (;
+            candidates=ncandidates,
+            attempted,
+            kept_closed,
+            kept_open,
+            discarded,
+            refinement_failures,
+            near_skips,
+            max_steps_hits,
+            budget_exhausted,
+            first_discarded,
+        )
+        if isempty(contours)
+            @warn msg report...
+        else
+            @info msg report...
         end
     end
 
@@ -434,18 +639,51 @@ end
 
 ## Meshing methods
 ## ===============
+"""
+    Meshing.mesh(contours::AbstractVector{<:BoundarySegment}, h::Real) -> Mesh
+
+Mesh and merge a collection of closed outer boundary contours, using target element size
+`h`. Contours must be closed and must not be internal boundaries (holes). To mesh a support
+with internal boundaries, use `Meshing.mesh(model)` instead.
+"""
 function Meshing.mesh(contours::AbstractVector{<:BoundarySegment}, h::Real)
     return merge(map(c -> Meshing.mesh(c, h), contours))
 end
 
+"""
+    Meshing.mesh(contour::BoundarySegment, h::Real) -> Mesh
+
+Mesh the interior of a single closed outer boundary contour, using target element size
+`h`. The contour must be closed and must not be an internal boundary (hole). To mesh a
+support with with internal boundaries, use `Meshing.mesh(model)` instead.
+
+Throws `ArgumentError` if `contour` is open or internal.
+"""
 function Meshing.mesh(contour::BoundarySegment{F}, h::Real) where {F}
-    fd, bbox = let pv=map(reim, contour.points)
+    if !contour.closed
+        throw(
+            ArgumentError(
+                "cannot mesh an open boundary segment. Call spectral_boundary with " *
+                "allow_open=false to discard open contours; alternatively, use model-based " *
+                "meshing: Meshing.mesh(model)",
+            ),
+        )
+    end
+    if contour.internal
+        throw(
+            ArgumentError(
+                "cannot mesh an internal boundary segment. Use model-based meshing for " *
+                "supports with holes: Meshing.mesh(model)",
+            ),
+        )
+    end
+    fd, bbox = let pv = map(reim, contour.points)
         fd(p) = dpoly(p, pv)
         fd, Meshing.boundingbox(pv)
     end
     bw, bh = bbox[2][1] - bbox[1][1], bbox[2][2] - bbox[1][2]
     bd = min(bw, bh)::F
-    h0 = min(F(h), bd/3)::F
+    h0 = min(F(h), bd / 3)::F
     dmsh = distmesh2d(
         # TODO: tweak kwargs in meshing.jl too
         fd,
@@ -453,7 +691,7 @@ function Meshing.mesh(contour::BoundarySegment{F}, h::Real) where {F}
         h0,
         bbox;
         maxiter=2^16,
-        ttol=h0/(2^4),
+        ttol=h0 / (2^4),
         geps=2sqrt(eps(F)) * bd,
         deps=sqrt(eps(F)) * bd,
     )
@@ -763,7 +1001,7 @@ end
 
         # Empty contour points
         empty_contour = BoundarySegment(
-            Complex{F}[], F[], Complex{F}[], Complex{F}(0), true, false
+            Complex{F}[], F[], Complex{F}[], Complex{F}(0), false, false
         )
         @test !is_near_contour(Complex{F}(0), empty_contour, F(1.0))
     end
@@ -775,7 +1013,7 @@ end
     @testset "$F" for F in [Float32, Float64]
         pts = Complex{F}[0]
         shifts = zeros(F, 1)
-        contour = BoundarySegment(pts, shifts, zero(pts), Complex{F}(0), true, false)
+        contour = BoundarySegment(pts, shifts, zero(pts), Complex{F}(0), false, false)
 
         # Distance is exactly 0.5; threshold is 1.0 → near
         @test is_near_contour(Complex{F}(0.5), contour, F(1.0))
@@ -799,7 +1037,7 @@ end
             pts2, zeros(F, 3), zero(pts2), Complex{F}(5), false, false
         )
 
-        pts3 = Complex{F}[10, 10 + im, 10 + 2im, 10]
+        pts3 = Complex{F}[10, 10 + im, 11 + im, 10]
         contour3 = BoundarySegment(
             pts3, zeros(F, 4), zero(pts3), Complex{F}(10), true, false
         )
@@ -824,6 +1062,103 @@ end
     end
 end
 
+@testitem "BoundarySegment constructor validation" begin
+    using GaussianSpectralDensities.Boundaries: BoundarySegment
+
+    @testset "$F" for F in [Float32, Float64]
+        closed_points = Complex{F}[0, 1, 1 + im, 0]
+        shifts = zeros(F, length(closed_points))
+        gradients = zero(closed_points)
+        seed = Complex{F}(0)
+
+        # Mismatched points / shift_values / gradients lengths
+        @test_throws ArgumentError BoundarySegment(
+            closed_points, shifts[1:(end - 1)], gradients, seed, true, false
+        )
+        @test_throws ArgumentError BoundarySegment(
+            closed_points, shifts, gradients[1:(end - 1)], seed, true, false
+        )
+        @test_throws ArgumentError BoundarySegment(
+            closed_points[1:(end - 1)], shifts, gradients, seed, false, false
+        )
+
+        # Closed segments with too few points
+        @testset "too short for closed: $n" for (n, points) in (
+            (0, Complex{F}[]),
+            (1, Complex{F}[0]),
+            (2, Complex{F}[0, 0]),
+            (3, Complex{F}[0, 1, 0]),
+        )
+            @test_throws ArgumentError BoundarySegment(
+                points, zeros(F, n), zero(points), seed, true, false
+            )
+        end
+
+        # Closed segment whose final point is not the initial point
+        unclosed = Complex{F}[0, 1, 1 + im, im]
+        @test_throws ArgumentError BoundarySegment(
+            unclosed, zeros(F, 4), zero(unclosed), seed, true, false
+        )
+
+        # Closed collinear segment
+        collinear = Complex{F}[0, 1, 2, 0]
+        @test_throws ArgumentError BoundarySegment(
+            collinear, zeros(F, 4), zero(collinear), seed, true, false
+        )
+
+        # Valid minimum closed segment
+        minimum_closed = BoundarySegment(
+            closed_points, shifts, gradients, seed, true, false
+        )
+        @test minimum_closed.closed
+        @test !minimum_closed.internal
+        @test minimum_closed.points == closed_points
+        @test minimum_closed.shift_values == shifts
+        @test minimum_closed.gradients == gradients
+        @test minimum_closed.seed == seed
+
+        # Valid closed internal segment
+        closed_internal = BoundarySegment(
+            closed_points, shifts, gradients, seed, true, true
+        )
+        @test closed_internal.closed
+        @test closed_internal.internal
+
+        # Valid empty open segment
+        empty_open = BoundarySegment(Complex{F}[], F[], Complex{F}[], seed, false, false)
+        @test isempty(empty_open.points)
+        @test !empty_open.closed
+        @test !empty_open.internal
+
+        # Valid one-point open segment
+        single_open = BoundarySegment(
+            Complex{F}[0], zeros(F, 1), zero(Complex{F}[0]), seed, false, false
+        )
+        @test length(single_open.points) == 1
+        @test !single_open.closed
+        @test !single_open.internal
+
+        # Valid open segment with distinct endpoints
+        open_points = Complex{F}[0, 1]
+        valid_open = BoundarySegment(
+            open_points, zeros(F, 2), zero(open_points), seed, false, false
+        )
+        @test valid_open.points == open_points
+        @test !valid_open.closed
+
+        # Open segment with at least two points whose endpoints coincide
+        repeated = Complex{F}[0, 1, 0]
+        @test_throws ArgumentError BoundarySegment(
+            repeated, zeros(F, 3), zero(repeated), seed, false, false
+        )
+
+        # Open segment marked internal
+        @test_throws ArgumentError BoundarySegment(
+            open_points, zeros(F, 2), zero(open_points), seed, false, true
+        )
+    end
+end
+
 @testitem "spectral_boundary single component" begin
     using GaussianSpectralDensities:
         DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
@@ -842,6 +1177,7 @@ end
     @test length(contours) == 1
 
     contour = contours[1]
+    @test contour isa BoundarySegment
     @test contour.closed
     @test !contour.internal  # outer boundary of simply connected support
     @test length(contour.points) > 10
@@ -942,12 +1278,16 @@ end
     constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
-    @test_throws ArgumentError spectral_boundary(model, 0.0)
-    @test_throws ArgumentError spectral_boundary(model, -0.1)
+    @test_throws ArgumentError spectral_boundary(model; step_size_coeff=0.0)
+    @test_throws ArgumentError spectral_boundary(model; step_size_coeff=-0.1)
     @test_throws ArgumentError spectral_boundary(model; tol=0.0)
     @test_throws ArgumentError spectral_boundary(model; tol=-1e-6)
     @test_throws ArgumentError spectral_boundary(model; max_components=0)
     @test_throws ArgumentError spectral_boundary(model; max_components=-1)
+    @test_throws ArgumentError spectral_boundary(model; max_attempts=0)
+    @test_throws ArgumentError spectral_boundary(model; max_attempts=-1)
+    @test_throws ArgumentError spectral_boundary(model; min_steps_before_close=1)
+    @test_throws ArgumentError spectral_boundary(model; min_steps_before_close=0)
 end
 
 @testitem "spectral_boundary keyword forwarding" begin
@@ -964,13 +1304,142 @@ end
     model = SurrogateModel(eq, constraint, DirectSolve(), 96)
 
     # max_steps=2 should produce all open contours, which are discarded unless allow_open
-    contours = spectral_boundary(model; max_steps=2)
+    contours = spectral_boundary(model; max_steps=2, verbose=false)
     @test isempty(contours)
-    contours = spectral_boundary(model; max_steps=2, allow_open=true)
+    contours = spectral_boundary(model; max_steps=2, allow_open=true, verbose=false)
     @test length(contours) > 0
     @testset "contour $i" for (i, c) in pairs(contours)
         @test !c.closed
     end
+end
+
+@testitem "spectral_boundary diagnostics" begin
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+    using Logging: with_logger
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    zs = [1.25 * cos(t) + 0.75im * sin(t) for t in range(0, 2pi; length=17)[1:16]]
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+
+    contours = @test_logs (:warn, r"kept no contours") spectral_boundary(model; max_steps=2)
+    @test isempty(contours)
+
+    contours = @test_logs (:info, r"result is partial") spectral_boundary(
+        model; max_steps=2, allow_open=true, max_attempts=1
+    )
+    @test length(contours) == 1
+    @test !contours[1].closed
+
+    # verify no logs emitted when verbose=false
+    @test_logs spectral_boundary(model; max_steps=2, verbose=false)
+
+    # check selected diagnostics from the log in specific scenarios
+    logger = TestLogger()
+    contours = with_logger(logger) do
+        spectral_boundary(model; max_steps=2)
+    end
+    @test isempty(contours)
+    report = only(logger.logs).kwargs
+    first = report[:first_discarded]
+    @test first !== nothing
+    @test isfinite(first.seed)
+    @test first.steps == 2
+    @test first.reason == :max_steps
+
+    logger = TestLogger()
+    contours = with_logger(logger) do
+        spectral_boundary(model; max_steps=2, allow_open=true, max_attempts=1)
+    end
+    @test length(contours) == 1
+    report = only(logger.logs).kwargs
+    @test report[:budget_exhausted]
+    @test report[:first_discarded] === nothing
+end
+
+@testitem "spectral_boundary allow_open and max_attempts" begin
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    zs = [1.25 * cos(t) + 0.75im * sin(t) for t in range(0, 2pi; length=17)[1:16]]
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+
+    contours = spectral_boundary(
+        model; max_steps=2, allow_open=true, max_attempts=1, verbose=false
+    )
+    @test length(contours) == 1
+    @test !contours[1].closed
+
+    uncapped = spectral_boundary(model; max_steps=2, allow_open=true, verbose=false)
+    @test length(uncapped) > 1
+    @test all(c -> !c.closed, uncapped)
+end
+
+@testitem "spectral_boundary allow_open max_components" begin
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    zs = [1.25 * cos(t) + 0.75im * sin(t) for t in range(0, 2pi; length=17)[1:16]]
+    model = SurrogateModel(eq, constraint, DirectSolve(), zs)
+
+    contours = spectral_boundary(
+        model; max_steps=2, allow_open=true, max_components=1, verbose=false
+    )
+    @test length(contours) == 1
+    @test !contours[1].closed
+
+    more = spectral_boundary(
+        model; max_steps=2, allow_open=true, max_components=3, verbose=false
+    )
+    @test length(more) > 1
+    @test length(more) <= 3
+end
+
+@testitem "spectral_boundary keyword forwarding through SpectralModel" begin
+    using GaussianSpectralDensities:
+        DirectSolve, MatrixEnsemble, PTraceConstraint, ResolventEquation
+    using GaussianSpectralDensities.Boundaries: spectral_boundary
+    using GaussianSpectralDensities.SpectralModels: SpectralModel, SpectralProblem
+    using GaussianSpectralDensities.Surrogates: SurrogateModel
+
+    using LinearAlgebra: I
+
+    ensemble = MatrixEnsemble(0.0I, I, I, 0.5I)
+    eq = ResolventEquation(ensemble)
+    constraint = PTraceConstraint(1.0; gap0=1.0, shape0=complex(0.1))
+    zs = [1.25 * cos(t) + 0.75im * sin(t) for t in range(0, 2pi; length=17)[1:16]]
+    surrogate = SurrogateModel(eq, constraint, DirectSolve(), zs)
+    prob = SpectralProblem(eq, constraint)
+    model = SpectralModel(prob, surrogate)
+
+    contours = @test_logs spectral_boundary(model; max_steps=2, verbose=false)
+    @test isempty(contours)
+
+    contours = spectral_boundary(
+        model; max_steps=2, allow_open=true, max_attempts=1, verbose=false
+    )
+    @test length(contours) == 1
+    @test !contours[1].closed
 end
 
 @testitem "spectral_boundary from SpectralModel" begin
@@ -1011,7 +1480,7 @@ end
     step_size_coeff = 1 // 4
     contours_from_model = spectral_boundary(model; step_size_coeff, max_components=1)
     contours_from_surrogate = spectral_boundary(
-        model.surrogate, step_size_coeff; max_components=1
+        model.surrogate; step_size_coeff, max_components=1
     )
 
     @test length(contours_from_model) == length(contours_from_surrogate)
@@ -1034,5 +1503,55 @@ end
             abs(g1 - g2) < 1e-10 for
             (g1, g2) in zip(from_model.gradients, from_surrogate.gradients)
         )
+    end
+end
+
+@testitem "spectral_boundary Meshing.mesh validation" begin
+    using GaussianSpectralDensities.Boundaries: BoundarySegment
+    using GaussianSpectralDensities.Meshing: mesh
+
+    @testset "$F" for F in [Float32, Float64]
+        square = Complex{F}[0, 1, 1 + im, im, 0]
+        square2 = Complex{F}[2, 3, 3 + im, 2 + im, 2]
+        shifts = zeros(F, length(square))
+        gradients = zero(square)
+        seed = Complex{F}(0)
+
+        closed = BoundarySegment(square, shifts, gradients, seed, true, false)
+        closed2 = BoundarySegment(square2, shifts, gradients, seed, true, false)
+        open_points = square[1:(end - 1)]
+        open = BoundarySegment(
+            open_points, zeros(F, 4), zero(open_points), seed, false, false
+        )
+        internal = BoundarySegment(square, shifts, gradients, seed, true, true)
+
+        @test_throws ArgumentError mesh(open, F(0.25))
+        @test_throws ArgumentError mesh(internal, F(0.25))
+        @test_throws ArgumentError mesh(BoundarySegment{F}[closed, open], F(0.25))
+        @test_throws ArgumentError mesh(BoundarySegment{F}[open, closed], F(0.25))
+        @test_throws ArgumentError mesh(BoundarySegment{F}[closed, internal], F(0.25))
+        @test_throws ArgumentError mesh(BoundarySegment{F}[internal, closed], F(0.25))
+
+        triangle_points = Complex{F}[0, 1, 1 + im, 0]
+        triangle = BoundarySegment(
+            triangle_points,
+            zeros(F, length(triangle_points)),
+            zero(triangle_points),
+            seed,
+            true,
+            false,
+        )
+
+        minimum = mesh(triangle, F(0.25))
+        @test !isempty(minimum.position)
+        @test !isempty(minimum.faces)
+
+        single = mesh(closed, F(0.25))
+        @test !isempty(single.position)
+        @test !isempty(single.faces)
+
+        multiple = mesh(BoundarySegment{F}[closed, closed2], F(0.25))
+        @test !isempty(multiple.position)
+        @test !isempty(multiple.faces)
     end
 end

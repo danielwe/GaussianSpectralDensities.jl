@@ -86,7 +86,7 @@ model = Surrogates.SurrogateModel(
 )
 
 # ╔═╡ 4f9946e3-feda-404a-8316-2525848c0579
-boundaries = spectral_boundary(model, 1 // 4)
+boundaries = spectral_boundary(model; step_size=coeff=1 // 4)
 
 # ╔═╡ 875b4f94-99d9-412c-a7b3-d876a322d5b3
 function figax()
