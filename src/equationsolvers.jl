@@ -14,6 +14,9 @@ public eqsolve!
     eqsolve!(ws::Workspace{F}, problem::PointProblem{F}) where {F}
 
 Solve an averaged resolvent equation at a point in the complex plane.
+
+If the newton solve fails, the returned `PointSolution` is filled with `NaN` and has status
+`not_finite`.
 """
 function eqsolve!(ws::Workspace{F}, problem::PointProblem{F}) where {F}
     return eqsolve_inner!(ws::Workspace{F}, problem.equation, problem.constraint, problem.z)
@@ -67,7 +70,7 @@ function eqsolve_common!(f, v0, z)
     v, niters, residual, converged = newton(f, v0)
     if !converged
         # Return NaNs to indicate not solved
-        @info(
+        @debug(
             "eqsolve! did not converge", z=z, v0=v0, v=v, niters=niters, residual=residual
         )
         return map(vi -> oftype(vi, NaN), v)
@@ -86,6 +89,7 @@ end  # module EquationSolvers
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: Diagonal, I
+    using Logging: Logging
     using SparseArrays: sparse
     using StaticArrays: SMatrix, SVector
 
@@ -119,7 +123,11 @@ end  # module EquationSolvers
                     @testset "$(nameof(typeof(constraint)))" for constraint in
                                                                  [spreadc, ptracec]
                         problemF = PointProblem(eqF, constraint, z)
-                        solF = eqsolve!(wsF, problemF)
+                        solF = @test_logs(
+                            (:debug, r"eqsolve! converged"),
+                            min_level=Logging.Debug,
+                            eqsolve!(wsF, problemF)
+                        )
                         @test solves(solF, problemF)
                     end
                 end
@@ -142,6 +150,7 @@ end
     using GaussianSpectralDensities.Workspaces: Workspace
 
     using LinearAlgebra: I
+    using Logging: Logging
 
     # engineer a singular equation
     z64 = complex(0.1)
@@ -161,7 +170,11 @@ end
         @testset "$(nameof(typeof(constraint)))" for constraint in [spreadc, ptracec]
             problem = PointProblem(eq, constraint, z)
 
-            sol = @test_logs (:info, r"eqsolve! did not converge") eqsolve!(ws, problem)
+            sol = @test_logs(
+                (:debug, r"eqsolve! did not converge"),
+                min_level=Logging.Debug,
+                eqsolve!(ws, problem)
+            )
 
             @test sol.equation == eq
             @test sol.z == z
