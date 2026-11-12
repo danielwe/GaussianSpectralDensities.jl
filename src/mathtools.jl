@@ -43,6 +43,7 @@ public ShiftedGramMatrix,
     inverse,
     inverse!!,
     isapproxlinear,
+    islinear,
     ldiv,
     ldiv!!,
     minus,
@@ -79,9 +80,21 @@ function predictlinear(x, (x1, y1), (x2, y2))
     return (y1 * (x2 - x) + y2 * (x - x1)) / (x2 - x1)
 end
 
+function islinear((x, y), (x1, y1), (x2, y2))
+    dx1, dy1 = x - x1, y - y1
+    dx2, dy2 = x - x2, y - y2
+    return dx1 * dy2 == dy1 * dx2
+end
+
 function isapproxlinear((x, y), (x1, y1), (x2, y2))
-    a, b = promote((y2 - y) * (x1 - x), (y1 - y) * (x2 - x))
-    return Defaults.approxequal(a, b)
+    dx1, dy1 = x - x1, y - y1
+    dx2, dy2 = x - x2, y - y2
+    n1, n2 = hypot(dx1, dy1), hypot(dx2, dy2)
+    (iszero(n1) || iszero(n2)) && return true
+    ux, uy = dx1 / n1, dy1 / n1
+    vx, vy = dx2 / n2, dy2 / n2
+    sinθ = abs(muladd(ux, vy, -uy * vx))
+    return Defaults.approxequal(sinθ, zero(sinθ))
 end
 
 ## Iterable monotonicity
@@ -733,6 +746,7 @@ end  # module MathTools
         inverse,
         inverse!!,
         isapproxlinear,
+        islinear,
         ldiv,
         ldiv!!,
         minus,
@@ -776,7 +790,7 @@ end  # module MathTools
         @test !samesign(2, -3)
     end
 
-    @testset "predictlinear / isapproxlinear" begin
+    @testset "predictlinear / islinear / isapproxlinear" begin
         @test predictlinear(1.5, (1.0, 10.0), (2.0, 20.0)) ≈ 15.0
         @test predictlinear(0.0, (1.0, 10.0), (2.0, 20.0)) ≈ 0.0  # extrapolation
 
@@ -785,7 +799,23 @@ end  # module MathTools
         @test predictlinear(1.0, (1.0, 10.0), (1.0, 20.0)) == 15.0
         @test predictlinear(1.5, (1.0, 10.0), (1.0, 20.0)) == 20.0
 
+        # exactly linear
+        @test islinear((1.5, 15.0), (1.0, 10.0), (2.0, 20.0))
         @test isapproxlinear((1.5, 15.0), (1.0, 10.0), (2.0, 20.0))
+
+        # small deviation within tolerance (sinθ ≈ 4e-9, below Float64 atol ≈ 1.5e-8)
+        @test !islinear((1.5, 15.0 + 1e-7), (1.0, 10.0), (2.0, 20.0))
+        @test isapproxlinear((1.5, 15.0 + 1e-7), (1.0, 10.0), (2.0, 20.0))
+
+        # point clearly off the line
+        @test !islinear((1.5, 15.1), (1.0, 10.0), (2.0, 20.0))
+        @test !isapproxlinear((1.5, 15.1), (1.0, 10.0), (2.0, 20.0))
+
+        # scale invariance: same near-collinear geometry scaled by 1e6 gives the same verdict
+        @test !islinear((1.5e6, 15e6 + 0.1), (1.0e6, 10e6), (2.0e6, 20e6))
+        @test isapproxlinear((1.5e6, 15e6 + 0.1), (1.0e6, 10e6), (2.0e6, 20e6))
+        @test !islinear((1.5e6, 15.1e6), (1.0e6, 10e6), (2.0e6, 20e6))
+        @test !isapproxlinear((1.5e6, 15.1e6), (1.0e6, 10e6), (2.0e6, 20e6))
     end
 
     @testset "monotonic" begin
