@@ -27,7 +27,7 @@ using LinearAlgebra:
 using LinearMaps: LinearMap
 using MappedArrays: mappedarray
 using SparseArrays: SparseArrays, SparseMatrixCSC, spdiagm
-using StaticArrays: MMatrix, SArray, SMatrix, SVector, StaticMatrix
+using StaticArrays: SArray, SMatrix, SVector
 
 using ..ArrayTools: AnySArray, AnySMatrix, DiagonalOrUniform, map_diagonal, withsize
 using ..Defaults: Defaults
@@ -301,9 +301,9 @@ definite; if `false`, a incomplete factorization is returned, and the caller is 
 for checking its status using `LinearAlgebra.issuccess`.
 """
 function decompose_pd(A::Hermitian{T}; shift=zero(T), check=true) where {T}
-    iszero(shift) && return cholesky_pd(A, check)
+    iszero(shift) && return cholesky(A; check)
     checkrealshift(shift)
-    return cholesky_pd(Hermitian(parent(A) + T(shift) * I, uplo(A)), check)
+    return cholesky(Hermitian(parent(A) + T(shift) * I, uplo(A)); check)
 end
 
 """
@@ -415,43 +415,6 @@ function decompose_pd!!(
     ::Diagonal{T,<:SVector}, A::Diagonal{T,<:SVector}; kwargs...
 ) where {T}
     return decompose_pd(A; kwargs...)
-end
-
-# decomposition helpers
-cholesky_pd(A::Hermitian, check) = cholesky(A; check)
-
-function cholesky_pd(A::Hermitian{<:Any,<:StaticMatrix}, check)
-    if uplo(A) === :L
-        # StaticArrays's cholesky does not handle uplo
-        # issue: https://github.com/JuliaArrays/StaticArrays.jl/issues/1075
-        # PR: https://github.com/JuliaArrays/StaticArrays.jl/pull/1369
-        A = Hermitian(parent(A)', :U)
-    end
-    C = cholesky(A; check=false)
-    # StaticArrays's cholesky fails to reject nonpositive pivots if the eltype is complex
-    # and zero pivots if it's real, so we must validate the factorization ourselves before
-    # returning. Since pivots for complex eltypes are calculated in complex arithmetic, even
-    # real and positive ones may have a roundoff-level imaginary part, so `isreal` is out.
-    # The case to reject is always the square root of a negative number, i.e., approximately
-    # imaginary, so we don't need carefully chosen tolerances, we just check that the real
-    # part is larger than the absolute imaginary part---which conveniently doubles as a
-    # positivity check.
-    # PR: https://github.com/JuliaArrays/StaticArrays.jl/pull/1368
-    info = C.info
-    if iszero(info)
-        pivots = view(C.factors, diagind(C.factors))
-        info = something(findfirst(d -> !(real(d) > abs(imag(d))), pivots), 0)
-    end
-    (check && !iszero(info)) && throw(PosDefException(info))
-    # Remove imaginary noise on the diagonal
-    factors = C.factors
-    if eltype(factors) <: Complex
-        factors_mutable = MMatrix(factors)
-        dind = diagind(factors_mutable)
-        factors_mutable[dind] .= real.(view(factors_mutable, dind))
-        factors = typeof(factors)(factors_mutable)
-    end
-    return typeof(C)(factors, C.uplo, info)
 end
 
 checkrealshift(shift::Number) = isreal(shift) || throw(DomainError("shift must be real"))
