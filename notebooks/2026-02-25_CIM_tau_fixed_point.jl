@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.23
+# v1.1.0
 
 using Markdown
 using InteractiveUtils
@@ -99,7 +99,8 @@ let
 	end
 	# xlims!(ax, 2500, 3500)
 	ylims!(ax, -sqrt(2), sqrt(2))
-	# save(expanduser("~/Desktop/tau=$(τ)_trajectory.pdf"), fig)
+	resize_to_layout!(fig)
+	# save("../assets/figures/tau=$(τ)_trajectory.svg", fig)
 	fig
 end
 
@@ -109,6 +110,7 @@ let
 	ax = Axis(fig[1, 1]; xlabel=L"t", ylabel=L"\Vert\mathbf{x}(t)\Vert")
 	lines!(ax, tspan[1]..tspan[2], t -> norm(sol(t)); linewidth=1.5, alpha=0.75)
 	ylims!(ax; low=0)
+	resize_to_layout!(fig)
 	fig
 end
 
@@ -143,8 +145,9 @@ let
 	scatter!(ax, real(fp_ev), imag(fp_ev); markersize=3, color=:gray, alpha=3/4)
 	scatter!(
 		ax, real(fp_dv), imag(fp_dv);
-		markersize=4.5, marker=:diamond, color=:blue, alpha=3/4,
+		markersize=6, marker=:diamond, color=:crimson, strokecolor=:white, strokewidth=0.6, alpha=3/4,
 	)
+	resize_to_layout!(fig)
 	fig
 end
 
@@ -165,8 +168,9 @@ let
 	)
 	scatter!(
 		ax, real(fp_dv), imag(fp_dv);
-		markersize=4.5, marker=:diamond, color=:blue, alpha=3/4,
+		markersize=6, marker=:diamond, color=:crimson, strokecolor=:white, strokewidth=0.6, alpha=3/4,
 	)
+	resize_to_layout!(fig)
 	fig
 end
 
@@ -202,8 +206,9 @@ let
 	scatter!(ax, first.(points), last.(points); markersize=3, color=:gray, alpha=3/4)
 	scatter!(
 		ax, real(fp_dv), imag(fp_dv);
-		markersize=4.5, marker=:diamond, color=:blue, alpha=3/4,
+		markersize=6, marker=:diamond, color=:crimson, strokecolor=:white, strokewidth=0.6, alpha=3/4,
 	)
+	resize_to_layout!(fig)
 	fig
 end
 
@@ -240,11 +245,12 @@ let
 	)
 	scatter!(
 		ax, real(fp_dv), imag(fp_dv);
-		markersize=4.5, marker=:diamond, color=:blue, alpha=3/4, label=L"f'(x_i)",
+		markersize=6, marker=:diamond, color=:crimson, strokecolor=:white, strokewidth=0.6, alpha=3/4, label=L"f'(x_i)",
 	)
 	# xlims!(ax, -6.6, -5.3)
 	# ylims!(ax, -0.05, 0.05)
 	Legend(fig[1, 2], ax; framevisible=false, labelsize=12)
+	resize_to_layout!(fig)
 	fig
 end
 
@@ -268,15 +274,20 @@ let
 	poly!(ax, msh; color=:gray90, strokewidth=1)
 	# xlims!(ax, -5.2, -4.8)
 	# ylims!(ax, -0.05, 0.05)
+	resize_to_layout!(fig)
 	fig
 end
 
 # ╔═╡ daac327b-c6ff-4c5c-bf1c-f0fbcc89a87a
-function plotmesh!(ax, msh; colorbar=nothing, colorbarlabel=nothing, kwargs...)
+function plotmesh!(
+	ax, msh; colorbar=nothing, colorbarlabel=nothing, rasterize=2, kwargs...
+)
 	# When using a vertex attribute as color, the mesh can't contain face views.
 	# Probably a Makie bug.
 	msh_fixed = (:color in keys(kwargs)) ? Meshing.remove_faceviews(msh) : msh
-	mshplot = mesh!(ax, msh_fixed; kwargs...)
+	# The mesh must be rasterized, otherwise SVG output won't work in firefox
+	# (github.com/MakieOrg/Makie.jl#3968)
+	mshplot = mesh!(ax, msh_fixed; rasterize, kwargs...)
 	if !isnothing(colorbar)
 		cbarkw = isnothing(colorbarlabel) ? (;) : (; label=colorbarlabel)
 		Colorbar(colorbar, mshplot; alignmode=Outside(), cbarkw...)
@@ -315,6 +326,7 @@ let
 	# 	ax, real(fp_dv), imag(fp_dv);
 	# 	markersize=3, marker=:diamond, color=:blue, alpha=3/4
 	# )
+	resize_to_layout!(fig)
 	fig
 end
 
@@ -344,7 +356,7 @@ let
 	)
 	scatter!(
 		ax1, real(fp_dv), imag(fp_dv);
-		markersize=4.5, marker=:diamond, color=:blue, alpha=3/4, label=L"f'(x_i)",
+		markersize=6, marker=:diamond, color=:crimson, strokecolor=:white, strokewidth=0.6, alpha=3/4, label=L"f'(x_i)",
 	)
 	# xlims!(ax1, -5.2, -4.8)
 	# ylims!(ax1, -0.05, 0.05)
@@ -354,7 +366,8 @@ let
 		colorrange=colorrange, colorbar=fig[2, 2], colorbarlabel=L"\rho(z)",
 	)
 	plotboundary!(ax2, fp_boundary)
-	# save(expanduser("~/Desktop/tau=$(τ)_spectrum.pdf"), fig)
+	resize_to_layout!(fig)
+	# save("../assets/figures/tau=$(τ)_spectrum.svg", fig)
 	fig
 end
 
@@ -375,6 +388,7 @@ let
 	fig, ax = figax()
 	points = fp_model_mesh.surrogate.rbf.x
 	scatter!(ax, first.(points), last.(points); markersize=4, color=:black, alpha=0.5)
+	resize_to_layout!(fig)
 	fig
 end
   ╠═╡ =#
